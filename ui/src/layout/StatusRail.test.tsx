@@ -209,7 +209,9 @@ describe('approval gate hardening', () => {
 
     const allow = screen.getByRole('button', { name: 'Allow' });
     await user.click(allow);
-    await user.click(screen.getByRole('button', { name: 'Allowed' }));
+    // The label is provisional until the approval clears - it says Sending, not Allowed, because
+    // the decision is not known to have arrived.
+    await user.click(screen.getByRole('button', { name: 'Sending…' }));
 
     expect(state.respondToApproval).toHaveBeenCalledTimes(1);
   });
@@ -220,7 +222,7 @@ describe('approval gate hardening', () => {
     render(<StatusRail />);
 
     await user.click(screen.getByRole('button', { name: 'Deny' }));
-    expect(screen.getByRole('button', { name: 'Denied' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Sending…' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Allow' })).toBeDisabled();
   });
 
@@ -283,5 +285,61 @@ describe('the approval prompt does not trap focus', () => {
     await user.click(bump);
 
     expect(document.activeElement).toBe(bump);
+  });
+});
+
+
+describe('a decision that cannot be delivered', () => {
+  const approval = { approvalId: 'ap_1', toolName: 'create_pull_request', argsText: '{}' };
+
+  test('a throwing respond re-enables the buttons and says nothing was sent', async () => {
+    // It used to set the label to "Allowed" and disable both buttons before knowing the call
+    // succeeded. A closed stream then left the operator locked out of a decision that was never
+    // sent, while the rail stated it had been granted and the agent waited forever.
+    state.pendingApprovals = [approval];
+    state.respondToApproval = vi.fn(() => {
+      throw new Error('stream closed');
+    });
+    const user = userEvent.setup();
+    render(<StatusRail />);
+
+    await user.click(screen.getByRole('button', { name: 'Allow' }));
+
+    // Two alerts exist here: the standing "approval required" announcement and this failure.
+    const failure = screen.getAllByRole('alert').find((n) => /stream closed/i.test(n.textContent ?? ''));
+    expect(failure).toBeDefined();
+    expect(failure).toHaveTextContent(/still waiting/i);
+    expect(screen.getByRole('button', { name: 'Allow' })).toBeEnabled();
+  });
+
+  test('no responder at all is reported rather than silently swallowed', async () => {
+    state.pendingApprovals = [approval];
+    state.respondToApproval = undefined as never;
+    const user = userEvent.setup();
+    render(<StatusRail />);
+
+    await user.click(screen.getByRole('button', { name: 'Deny' }));
+    const failure = screen.getAllByRole('alert').find((n) => /cannot send a decision/i.test(n.textContent ?? ''));
+    expect(failure).toBeDefined();
+  });
+
+  test('a new approval clears the previous decision, so the operator is not locked out', () => {
+    state.pendingApprovals = [approval];
+    const { rerender } = render(<StatusRail />);
+    state.pendingApprovals = [{ ...approval, approvalId: 'ap_2', toolName: 'push_files' }];
+    rerender(<StatusRail />);
+    expect(screen.getByRole('button', { name: 'Allow' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Deny' })).toBeEnabled();
+  });
+});
+
+describe('the spinner is honest', () => {
+  test('nothing spins once the agent has stopped, even mid-procedure', () => {
+    // It used to spin forever on the current step whenever the run ended red, while the headline
+    // read "Finished". Motion here means something is working.
+    busy = false;
+    state.executions = [RED];
+    const { container } = render(<StatusRail />);
+    expect(container.querySelector('.qm-spin')).toBeNull();
   });
 });

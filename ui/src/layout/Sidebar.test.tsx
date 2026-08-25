@@ -7,15 +7,20 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
  * telling someone a write is gated when it is not.
  */
 let spec: unknown = {};
+let isSpecLoading = false;
+let specError: unknown = null;
+
+let capabilities: unknown = { sandbox: { enabled: true } };
 
 vi.mock('@truefoundry/trueforge-ui', () => ({
   ThreadListContainer: () => <div data-testid="thread-list" />,
+  useServerCapabilities: () => capabilities,
 }));
 // The real hook returns { agentSpec, isSpecLoading, updateAgentSpec, ... }, not the spec. These
 // tests used to mock it as the spec itself, which is exactly how the component came to read the
 // wrapper and render an empty panel: the test agreed with the bug.
 vi.mock('@truefoundry/assistant-ui-runtime', () => ({
-  useTrueFoundryAgentSpec: () => ({ agentSpec: spec, isSpecLoading: false, isSpecSyncing: false, specError: null }),
+  useTrueFoundryAgentSpec: () => ({ agentSpec: spec, isSpecLoading, isSpecSyncing: false, specError }),
 }));
 
 const { Sidebar } = await import('./Sidebar');
@@ -24,6 +29,8 @@ const renderSidebar = () => render(<Sidebar mode="system" resolved="dark" onThem
 
 beforeEach(() => {
   spec = {};
+  isSpecLoading = false;
+  specError = null;
 });
 
 describe('Sidebar', () => {
@@ -88,5 +95,50 @@ describe('Sidebar', () => {
     spec = { model: { name: 'anthropic/claude-sonnet-4-6' } };
     renderSidebar();
     expect(screen.getByText('anthropic/claude-sonnet-4-6')).toBeInTheDocument();
+  });
+});
+
+describe('not knowing is not the same as nothing', () => {
+  test('while the spec is loading it says so, rather than reporting no reach', () => {
+    // Both of these used to render "Nothing yet." - the same words as a genuinely unattached
+    // agent, on the panel whose only job is disclosing what this agent can touch.
+    spec = null;
+    isSpecLoading = true;
+    renderSidebar();
+    expect(screen.getByText(/Reading the agent definition/i)).toBeInTheDocument();
+    expect(screen.queryByText('Nothing yet.')).not.toBeInTheDocument();
+  });
+
+  test('a failure to read the spec says the reach is unknown, and says not to assume', () => {
+    spec = null;
+    specError = new Error('network');
+    renderSidebar();
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/what it can reach is unknown/i);
+    expect(alert).toHaveTextContent(/do not assume this means nothing/i);
+    expect(screen.queryByText('Nothing yet.')).not.toBeInTheDocument();
+  });
+
+  test('a genuinely unattached agent still says nothing yet', () => {
+    renderSidebar();
+    expect(screen.getByText('Nothing yet.')).toBeInTheDocument();
+  });
+});
+
+describe('the connectivity claim is not hardcoded', () => {
+  test('says connected only when the server actually answered', async () => {
+    const { FooterLinks } = await import('./Sidebar');
+    capabilities = { sandbox: { enabled: true } };
+    render(<FooterLinks />);
+    expect(screen.getByText('harness connected')).toBeInTheDocument();
+  });
+
+  test('says it is not answering when there are no capabilities', async () => {
+    // It used to render a green dot and "harness connected" unconditionally, including while the
+    // harness was down - and on a narrow screen that is the only connectivity statement visible.
+    const { FooterLinks } = await import('./Sidebar');
+    capabilities = null;
+    render(<FooterLinks />);
+    expect(screen.getByText('harness not answering')).toBeInTheDocument();
   });
 });

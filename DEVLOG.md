@@ -670,3 +670,50 @@ are caught; and `code-runner` keeping subagents disabled is enforced rather than
 in three places.
 
 114 tests in the root.
+
+## Day 2 — the interface disagreed with the verifier, in the direction of reassurance
+
+A review of the interface found six high-severity defects. The first is the one that matters.
+
+**The rail had its own envelope parser.** I had already "fixed" the rail reimplementing the
+pass/fail rule by importing `isGreen` from the shared module - and left a local `unwrap` producing
+the input to it. The rule was shared; the parsing that feeds it was not.
+
+On four real envelope shapes - a snake_case exit code, a numeric-string exit code, an empty
+`result` masking a populated `output`, and an MCP text-part array - the CLI read FAILED and the
+panel rendered **"Last run passed"**. Every divergence in the direction of reassurance. The safety
+surface telling somebody a run passed while the verifier said it failed.
+
+`resultOf` from `@evidence` does all of it, and its docstring says every branch exists because a
+real envelope landed in it. The rail calls that now, `unwrap` is gone, and there is a test file
+whose only job is asserting the two agree on the exact shapes that diverged.
+
+The rest:
+
+- **Below the large breakpoint the conversation list and the entire "Can reach" panel did not
+  exist.** `hidden lg:block` with no control anywhere to open them. The panel my own comment calls
+  "the one question this product exists to answer" was unreachable on a phone, including the word
+  `ungated`. There is a sheet now, opened from the narrow header.
+- **On a short viewport the rail squeezed the conversation and composer to zero.** A column flex
+  child with no ceiling always wins against a sibling with no floor. Capped at half the viewport
+  below `lg`, which is also what makes its own `overflow-y-auto` do anything.
+- **Allow and Deny reported the decision as done before knowing it was delivered.** A throwing
+  `respond` left both buttons disabled reading "Allowed", with nothing sent and the agent paused
+  forever. The labels are provisional now, a failure is surfaced, and the buttons come back.
+- **Every theme change remounted the whole layout.** The layout was a `useCallback`, and the SDK
+  renders it as a component type - so a new identity is a new element type and React unmounted
+  everything below. That reset the approval guard, dropped focus, and destroyed the composer draft,
+  including while an approval was pending. The layout is defined once at module scope now and reads
+  the theme from context.
+- **The reach panel said "Nothing yet." while the spec was still loading or had failed to load** -
+  the same words as a genuinely unattached agent. Not knowing is not the same as knowing nothing,
+  and on that panel the difference is the whole point.
+
+Also: the approval dialog took focus with `focus:outline-none` on it, so a sighted keyboard user's
+focus vanished and reappeared nowhere; the verdict - the single most important line in the
+interface - had no live region while two less important ones did; the spinner kept spinning after
+the agent stopped; "harness connected" was hardcoded and said connected while the harness was down;
+and six pieces of informational text were dimmed with opacity modifiers to between 2.25:1 and
+4.04:1, which the contrast suite could not see because it only checks full-opacity token pairs.
+
+81 tests in the interface.

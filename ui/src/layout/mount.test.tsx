@@ -2,6 +2,7 @@ import { act, cleanup, render, screen, within } from '@testing-library/react';
 import { expect, test, vi } from 'vitest';
 import { TrueForgeUI } from '@truefoundry/trueforge-ui';
 import { QuartermasterLayout } from './QuartermasterLayout';
+import { ThemeContext } from './ThemeContext';
 
 /**
  * The test the interface did not have, and needed most.
@@ -34,13 +35,15 @@ test('the real component tree mounts inside TrueForgeUI', async () => {
 
   await act(async () => {
     render(
+      <ThemeContext.Provider
+        value={{ mode: 'dark', resolved: 'dark', onThemeChange: () => {}, agentName: 'quartermaster-local' }}
+      >
       <TrueForgeUI
         server={{ type: 'trueforge', baseUrl: '/' } as never}
-        layout={(p: { className?: string }) => (
-          <QuartermasterLayout {...p} mode="dark" resolved="dark" onThemeChange={() => {}} agentName="quartermaster-local" />
-        )}
+        layout={QuartermasterLayout}
         agentConfig={{ mode: 'SingleAgent', name: 'quartermaster-local' }}
-      />,
+      />
+      </ThemeContext.Provider>,
     );
     await new Promise((r) => setTimeout(r, 400));
   });

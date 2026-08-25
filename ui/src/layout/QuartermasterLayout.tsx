@@ -2,7 +2,8 @@ import { ComposerBusyProvider, ComposerContainer, ThreadContainer } from '@truef
 import { StatusRail } from './StatusRail';
 import { FooterLinks, Sidebar, SidebarHeader } from './Sidebar';
 import { Topbar } from './Topbar';
-import type { ThemeMode } from './useTheme';
+import { useState } from 'react';
+import { useThemeControl } from './ThemeContext';
 
 /**
  * Three columns: where you have been, what is happening, and where the agent has got to.
@@ -14,19 +15,10 @@ import type { ThemeMode } from './useTheme';
  * narrow screen the agent's state is more important than the scrollback, and collapsing it would
  * make the safety information the first casualty.
  */
-export function QuartermasterLayout({
-  className,
-  mode,
-  resolved,
-  onThemeChange,
-  agentName,
-}: {
-  className?: string;
-  mode: ThemeMode;
-  resolved: 'light' | 'dark';
-  onThemeChange: (m: ThemeMode) => void;
-  agentName: string;
-}) {
+export function QuartermasterLayout({ className }: { className?: string }) {
+  const { mode, resolved, onThemeChange, agentName } = useThemeControl();
+  const [sheetOpen, setSheetOpen] = useState(false);
+
   /**
    * ComposerBusyProvider is wired by default inside <Thread />, which this layout does not use - it
    * composes ThreadContainer and ComposerContainer separately so the rail can sit beside them. The
@@ -47,10 +39,16 @@ export function QuartermasterLayout({
       </nav>
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {/* On a narrow screen only the header comes across. The conversation list and the reach
-            panel belong behind a control there, not stacked on top of the conversation. */}
+        {/* On a narrow screen the sidebar opens as a sheet. It used to be display:none with no
+            control anywhere, so the conversation list and the whole "Can reach" panel - including
+            the word "ungated" - simply did not exist below this breakpoint. */}
         <div className="lg:hidden">
-          <SidebarHeader mode={mode} resolved={resolved} onThemeChange={onThemeChange} />
+          <SidebarHeader
+            mode={mode}
+            resolved={resolved}
+            onThemeChange={onThemeChange}
+            onOpenSidebar={() => setSheetOpen(true)}
+          />
         </div>
         <Topbar agentName={agentName} />
         <ThreadContainer composer={<ComposerContainer placeholder="Point it at a failing test…" />} />
@@ -58,6 +56,23 @@ export function QuartermasterLayout({
       </main>
 
       <StatusRail />
+
+      {sheetOpen && (
+        <div className="fixed inset-0 z-30 flex lg:hidden">
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={() => setSheetOpen(false)}
+            className="absolute inset-0 cursor-default bg-[var(--qm-overlay,rgba(0,0,0,0.5))]"
+          />
+          <nav
+            aria-label="Conversations and agent reach"
+            className="relative w-72 max-w-[85vw] border-r border-line-soft bg-bg shadow-[var(--qm-shadow)]"
+          >
+            <Sidebar mode={mode} resolved={resolved} onThemeChange={onThemeChange} />
+          </nav>
+        </div>
+      )}
     </div>
     </ComposerBusyProvider>
   );

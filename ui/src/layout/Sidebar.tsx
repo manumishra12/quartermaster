@@ -1,4 +1,4 @@
-import { ThreadListContainer } from '@truefoundry/trueforge-ui';
+import { ThreadListContainer, useServerCapabilities } from '@truefoundry/trueforge-ui';
 import { useTrueFoundryAgentSpec } from '@truefoundry/assistant-ui-runtime';
 import { ThemeToggle } from './ThemeToggle';
 import type { ThemeMode } from './useTheme';
@@ -31,12 +31,33 @@ export function Sidebar({ mode, resolved, onThemeChange }: { mode: ThemeMode; re
   );
 }
 
-export function SidebarHeader({ mode, resolved, onThemeChange }: { mode: ThemeMode; resolved: 'light' | 'dark'; onThemeChange: (m: ThemeMode) => void }) {
+export function SidebarHeader({
+  mode,
+  resolved,
+  onThemeChange,
+  onOpenSidebar,
+}: {
+  mode: ThemeMode;
+  resolved: 'light' | 'dark';
+  onThemeChange: (m: ThemeMode) => void;
+  onOpenSidebar?: () => void;
+}) {
   return (
     <header className="flex items-center gap-2.5 border-b border-line-soft px-5 py-4">
-      <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-line-soft bg-surface">
-        <img src="/mark.svg" alt="" width={18} height={18} />
-      </span>
+      {onOpenSidebar ? (
+        <button
+          type="button"
+          onClick={onOpenSidebar}
+          aria-label="Open conversations and what this agent can reach"
+          className="inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-line-soft bg-surface transition-colors duration-200 hover:border-accent"
+        >
+          <img src="/mark.svg" alt="" width={18} height={18} />
+        </button>
+      ) : (
+        <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-line-soft bg-surface">
+          <img src="/mark.svg" alt="" width={18} height={18} />
+        </span>
+      )}
       <div className="min-w-0 flex-1">
         <h1 className="text-base font-semibold leading-tight tracking-[-0.01em]">Quartermaster</h1>
         <p className="text-2xs text-muted">proves it, then asks</p>
@@ -77,7 +98,11 @@ function Reach() {
    * Both casings are accepted because the runtime uses camelCase while the JSON specs on disk and
    * the HTTP API use snake_case, and this panel is fed from whichever the SDK hands over.
    */
-  const { agentSpec } = (useTrueFoundryAgentSpec() ?? {}) as { agentSpec?: SpecShape | null };
+  const { agentSpec, isSpecLoading, specError } = (useTrueFoundryAgentSpec() ?? {}) as {
+    agentSpec?: SpecShape | null;
+    isSpecLoading?: boolean;
+    specError?: unknown;
+  };
   const spec = agentSpec ?? undefined;
   const servers: Server[] = spec?.mcpServers ?? spec?.mcp_servers ?? [];
   const model = spec?.model?.name;
@@ -89,6 +114,17 @@ function Reach() {
         Can reach
       </h2>
 
+      {/* Not knowing must never render as knowing nothing. Both of these used to come out as
+          "Nothing yet." - the same words as a genuinely unattached agent, on the panel whose only
+          job is disclosing what this agent can touch. */}
+      {isSpecLoading ? (
+        <p className="text-sm text-muted">Reading the agent definition…</p>
+      ) : specError ? (
+        <p role="alert" className="text-sm text-failed">
+          Could not read the agent definition, so what it can reach is unknown. Do not assume this
+          means nothing.
+        </p>
+      ) : (
       <ul className="grid gap-2">
         {sandbox && (
           <Row label="Sandbox" note="isolated" />
@@ -100,9 +136,10 @@ function Reach() {
           return <Row key={server.name} label={server.name ?? 'connector'} note={gated} warn={gate.length === 0} />;
         })}
       </ul>
+      )}
 
       {model && (
-        <p className="mt-3 truncate font-mono text-2xs text-muted/70" title={model}>
+        <p className="mt-3 truncate font-mono text-2xs text-muted" title={model}>
           {model}
         </p>
       )}
@@ -114,7 +151,7 @@ function Row({ label, note, warn = false }: { label: string; note: string; warn?
   return (
     <li className="flex items-center justify-between gap-2.5 text-sm">
       <span className="flex min-w-0 items-center gap-2.5">
-        <span className={warn ? 'text-failed' : 'text-muted/50'}>
+        <span className={warn ? 'text-failed' : 'text-muted'}>
           <DotIcon />
         </span>
         <span className="truncate text-ink">{label}</span>
@@ -130,6 +167,9 @@ function Row({ label, note, warn = false }: { label: string; note: string; warn?
  * than no link, because it costs a click to discover.
  */
 export function FooterLinks() {
+  // Null while loading or if the call failed - the SDK's own documented semantics.
+  const capabilities = useServerCapabilities();
+
   const links = [
     { label: 'Repository', href: 'https://github.com/manumishra12/quartermaster' },
     { label: 'TrueForge', href: 'https://trueforge.dev' },
@@ -149,9 +189,14 @@ export function FooterLinks() {
           {label}
         </a>
       ))}
+      {/* Driven by whether the server actually answered. It used to be a hardcoded green dot and
+          the words "harness connected", which said connected while the harness was down - and
+          below the large breakpoint it is the only connectivity statement on screen. */}
       <span className="ml-auto inline-flex items-center gap-1.5">
-        <span className="inline-block size-1.5 rounded-full bg-verified" />
-        harness connected
+        <span
+          className={['inline-block size-1.5 rounded-full', capabilities ? 'bg-verified' : 'bg-muted'].join(' ')}
+        />
+        {capabilities ? 'harness connected' : 'harness not answering'}
       </span>
     </footer>
   );

@@ -1,6 +1,6 @@
-import { useCallback } from 'react';
 import { TrueForgeUI } from '@truefoundry/trueforge-ui';
 import { QuartermasterLayout } from './layout/QuartermasterLayout';
+import { ThemeContext } from './layout/ThemeContext';
 import { Welcome } from './layout/Welcome';
 import { useTheme } from './layout/useTheme';
 import { tokensFor } from './theme';
@@ -19,16 +19,12 @@ export default function App() {
 
   // The SDK renders the transcript and composer, so it needs the same palette we do. One resolved
   // theme drives both; two sources of colour would drift within a release.
-  const Layout = useCallback(
-    (props: { className?: string }) => <QuartermasterLayout {...props} mode={mode} resolved={resolved} onThemeChange={choose} agentName={AGENT_NAME} />,
-    [mode, resolved, choose],
-  );
-
   return (
+    <ThemeContext.Provider value={{ mode, resolved, onThemeChange: choose, agentName: AGENT_NAME }}>
     <div className="h-dvh">
       <TrueForgeUI
         server={{ type: 'trueforge', baseUrl: '/' }}
-        layout={Layout}
+        layout={QuartermasterLayout}
         agentConfig={{ mode: 'SingleAgent', name: AGENT_NAME }}
         theme={{ preset: 'trueforge', mode: resolved, brand: { name: 'Quartermaster', logo: { src: '/mark.svg' } }, tokens: tokensFor(resolved) } as never}
         // The empty state is the first thing a stranger sees, so it says what this agent is for
@@ -36,5 +32,6 @@ export default function App() {
         overrides={{ WelcomeScreen: Welcome } as never}
       />
     </div>
+    </ThemeContext.Provider>
   );
 }

@@ -30,7 +30,7 @@ function Section({
     <section className="border-b border-line-soft px-5 py-4">
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <h2 className="text-2xs font-semibold uppercase tracking-[0.09em] text-muted">{label}</h2>
-        {badge && <span className="qm-nums text-2xs text-muted/70">{badge}</span>}
+        {badge && <span className="qm-nums text-2xs text-muted">{badge}</span>}
       </div>
       {children}
     </section>
@@ -49,8 +49,8 @@ function Empty({ children, hint }: { children: React.ReactNode; hint?: string })
     <div className="rounded-lg border border-dashed border-line-soft p-3">
       <p className="max-w-[46ch] text-sm text-muted">{children}</p>
       {hint && (
-        <p className="mt-2 font-mono text-2xs text-muted/70">
-          <span className="select-none text-muted/50">try </span>
+        <p className="mt-2 font-mono text-2xs text-muted">
+          <span className="select-none text-muted">try </span>
           {hint}
         </p>
       )}
@@ -65,7 +65,7 @@ function Empty({ children, hint }: { children: React.ReactNode; hint?: string })
  * connected run of them reads as one process with a position in it. The filled portion is the
  * distance travelled.
  */
-function Steps({ index, settled }: { index: number; settled: boolean }) {
+function Steps({ index, settled, busy }: { index: number; settled: boolean; busy: boolean }) {
   const phases = PHASES as string[];
   return (
     <ol className="relative grid gap-2.5">
@@ -87,15 +87,15 @@ function Steps({ index, settled }: { index: number; settled: boolean }) {
             <span
               className={[
                 'relative z-10 inline-flex w-3.5 shrink-0 justify-center transition-colors duration-200',
-                done || (current && settled) ? 'text-verified' : current ? 'text-accent' : 'text-muted/50',
+                done || (current && settled) ? 'text-verified' : current ? 'text-accent' : 'text-muted',
               ].join(' ')}
             >
-              {done || (current && settled) ? <CheckIcon /> : current ? <SpinnerIcon /> : <DotIcon />}
+              {done || (current && settled) ? <CheckIcon /> : current && busy ? <SpinnerIcon /> : <DotIcon />}
             </span>
             <span
               className={[
                 'text-sm transition-colors duration-200',
-                done ? 'text-muted' : current ? 'font-medium text-ink' : 'text-muted/60',
+                done ? 'text-muted' : current ? 'font-medium text-ink' : 'text-muted',
               ].join(' ')}
             >
               {phase}
@@ -127,7 +127,10 @@ export function StatusRail() {
   return (
     <aside
       aria-label="Agent status"
-      className="w-full shrink-0 overflow-y-auto border-line-soft bg-bg text-ink lg:w-[22rem] lg:border-l"
+      // Below lg this is a column flex child with no ceiling, so its content height won every
+      // contest and the conversation and composer were squeezed to zero. Capped at half the
+      // viewport there, which is also what makes its own overflow-y-auto do anything.
+      className="max-h-[50vh] w-full shrink-0 overflow-y-auto border-t border-line-soft bg-bg text-ink lg:max-h-none lg:w-[22rem] lg:border-l lg:border-t-0"
     >
       <Section label="Doing" badge={step.index >= 0 ? `${step.index + 1} of ${(PHASES as string[]).length}` : undefined}>
         <p
@@ -137,7 +140,7 @@ export function StatusRail() {
           {isBusy ? <SpinnerIcon /> : <ClockIcon />}
           {isBusy ? `Working — ${step.label}` : step.index >= 0 ? 'Finished' : 'Idle'}
         </p>
-        <Steps index={step.index} settled={step.settled} />
+        <Steps index={step.index} settled={step.settled} busy={isBusy} />
       </Section>
 
       <Section label="Waiting on" badge={pendingApprovals.length > 1 ? `${pendingApprovals.length} pending` : undefined}>
@@ -206,6 +209,7 @@ function Verdict({ last }: { last: Run }) {
       {/* Colour is never the only signal - the icon and the words carry it too, so this reads the
           same to someone who cannot distinguish the two. */}
       <p
+        aria-live="polite"
         className={[
           'flex items-center gap-2.5 text-sm font-semibold',
           green ? 'text-verified' : 'text-failed',
@@ -266,10 +270,14 @@ function ApprovalPrompt({
 }) {
   const [pending] = approvals;
   const [sent, setSent] = useState<'allow' | 'deny' | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
 
   // Reset when a different approval takes its place, or the next one inherits this one's disabled
   // state and cannot be acted on at all.
-  useEffect(() => setSent(null), [pending?.approvalId]);
+  useEffect(() => {
+    setSent(null);
+    setFailed(null);
+  }, [pending?.approvalId]);
 
   /**
    * Focus the prompt once, when this approval arrives.
@@ -292,12 +300,28 @@ function ApprovalPrompt({
 
   const decide = (approved: boolean) => {
     if (sent) return;
+    if (!respond) {
+      // No way to send the decision. Saying nothing here would leave the agent paused forever
+      // behind a button that looked like it worked.
+      setFailed('This session cannot send a decision. The agent is still waiting.');
+      return;
+    }
+
     setSent(approved ? 'allow' : 'deny');
-    respond?.({
-      approvalId: pending.approvalId,
-      approved,
-      ...(approved ? {} : { reason: 'Denied by the operator' }),
-    });
+    setFailed(null);
+    try {
+      respond({
+        approvalId: pending.approvalId,
+        approved,
+        ...(approved ? {} : { reason: 'Denied by the operator' }),
+      });
+    } catch (error) {
+      // It reported "Allowed" and disabled both buttons before knowing the call succeeded, so a
+      // closed stream left the operator locked out of a decision that was never sent while the
+      // rail stated it had been granted.
+      setSent(null);
+      setFailed(error instanceof Error ? error.message : 'The decision could not be sent.');
+    }
   };
 
   return (
@@ -307,7 +331,7 @@ function ApprovalPrompt({
       aria-label={`Approval required for ${pending.toolName}`}
       ref={dialogRef}
       tabIndex={-1}
-      className="rounded-lg border border-waiting/60 bg-surface p-3 shadow-[var(--qm-shadow)] focus:outline-none"
+      className="rounded-lg border border-waiting/60 bg-surface p-3 shadow-[var(--qm-shadow)] focus:outline-2 focus:outline-offset-2 focus:outline-accent"
     >
       {/* Announced separately: an alertdialog label is read on focus, but this must reach someone
           whose focus is elsewhere entirely. */}
@@ -330,6 +354,12 @@ function ApprovalPrompt({
         </pre>
       )}
 
+      {failed && (
+        <p role="alert" className="mt-3 text-sm text-failed">
+          {failed} Nothing was sent - the agent is still waiting.
+        </p>
+      )}
+
       {/* Equal size, equal weight. Deny is first because it is the reversible one. */}
       <div className="mt-3 flex gap-2.5">
         <button
@@ -338,7 +368,7 @@ function ApprovalPrompt({
           disabled={sent !== null}
           className="min-h-11 flex-1 cursor-pointer rounded-lg border border-line text-sm font-medium text-ink transition-colors duration-200 hover:bg-raised disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {sent === 'deny' ? 'Denied' : 'Deny'}
+          {sent === 'deny' ? 'Sending…' : 'Deny'}
         </button>
         <button
           type="button"
@@ -346,7 +376,7 @@ function ApprovalPrompt({
           disabled={sent !== null}
           className="min-h-11 flex-1 cursor-pointer rounded-lg border border-accent text-sm font-medium text-accent transition-colors duration-200 hover:bg-accent hover:text-on-accent disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {sent === 'allow' ? 'Allowed' : 'Allow'}
+          {sent === 'allow' ? 'Sending…' : 'Allow'}
         </button>
       </div>
     </div>
