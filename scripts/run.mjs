@@ -91,7 +91,12 @@ const queued = [];
 if (piped) {
   let buffer = '';
   for await (const chunk of stdin) buffer += chunk;
-  queued.push(...buffer.split('\n').map((line) => line.trim()).filter(Boolean));
+  const lines = buffer.split('\n').map((line) => line.trim());
+  // A trailing newline is punctuation, not an answer; every other blank line is kept in place.
+  // Dropping blanks shifted the queue, so a blank meant to deny one prompt was discarded and the
+  // next line - written for the prompt after it - answered the one it was never meant for.
+  if (lines[lines.length - 1] === '') lines.pop();
+  queued.push(...lines);
 }
 
 /**
@@ -273,11 +278,25 @@ for (let hop = 0; hop < 24; hop++) {
       console.log(`  args: ${(call?.function?.arguments ?? '').slice(0, 800)}`);
       const answer = denyAll ? 'deny' : (await ask('  allow / deny > ', 'deny')).toLowerCase().trim();
       /**
+       * A pipe can refuse but it cannot approve.
+       *
+       * Reading piped answers made the documented denial real, and it made an unattended `echo
+       * allow` real at the same time - a script authorising an irreversible write with no person
+       * present at the moment of the decision. This agent's argument is that the unattended path
+       * must be the safe one, and a token in a file is not somebody deciding. Denials are taken
+       * from anywhere, because being refused by a script is still being refused.
+       */
+      const approvable = !piped;
+      /**
        * Exact words only. This used to accept anything starting with "a", so `abort` - the word an
        * operator reaches for when they have just realised they do not want this - approved the
        * call. Anything unrecognised is a denial.
        */
-      const allowed = !denyAll && ['allow', 'yes', 'y', 'approve'].includes(answer);
+      const wantedAllow = ['allow', 'yes', 'y', 'approve'].includes(answer);
+      const allowed = !denyAll && approvable && wantedAllow;
+      if (wantedAllow && !approvable) {
+        console.log('  refused: approval has to come from a person at a terminal, not from a pipe');
+      }
       resume.push({
         type: 'user.tool_approval',
         threadId: event.threadId,

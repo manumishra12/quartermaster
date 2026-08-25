@@ -147,12 +147,14 @@ echo deny | npm run agent -- --agent gate-demo "Post the comment 'gate check' on
 ```
 
 Nothing was posted, and the report records the refusal as a refusal rather than as something that
-happened. Pipe `allow` instead and the comment is posted - the point of denying first is that
-anyone can show a button that says Allow.
+happened. Run it without the pipe, type `allow` at the prompt, and the comment is posted - the
+point of denying first is that anyone can show a button that says Allow.
 
-Only the exact words `allow`, `yes`, `y` and `approve` approve. Anything else is a denial, and so
-is reaching the end of the input without an answer: `abort` denies, and an empty pipe denies. The
-unattended path is the safe one.
+**A pipe can refuse but it cannot approve.** `echo allow |` is read, and then declined, because a
+token in a file is not somebody deciding. Approving an irreversible action needs a person at a
+terminal. Denials are taken from anywhere - being refused by a script is still being refused - and
+so is silence: only the exact words `allow`, `yes`, `y` and `approve` approve, `abort` denies, and
+running out of input denies. The unattended path is the safe one.
 
 `analytics` is the honest exception. Its SQL runs through the sandbox shell, which is not an MCP
 tool, so there is no `require_approval_for_tools` entry that could gate it. It does pause before a
