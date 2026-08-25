@@ -17,34 +17,89 @@ import { CheckIcon, ClockIcon, CrossIcon, DotIcon, SpinnerIcon } from './icons';
 
 type Run = { exitCode: number | null; output: string };
 
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
+function Section({
+  label,
+  badge,
+  children,
+}: {
+  label: string;
+  badge?: string;
+  children: React.ReactNode;
+}) {
   return (
     <section className="border-b border-line-soft px-5 py-4">
-      <h2 className="mb-3 text-2xs font-semibold uppercase tracking-[0.09em] text-muted">{label}</h2>
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <h2 className="text-2xs font-semibold uppercase tracking-[0.09em] text-muted">{label}</h2>
+        {badge && <span className="qm-nums text-2xs text-muted/70">{badge}</span>}
+      </div>
       {children}
     </section>
   );
 }
 
-/** "Step 3 of 5" beats an undifferentiated spinner on any multi-step process. */
-function Steps({ index }: { index: number }) {
+/**
+ * An empty state is a place to say what happens next, not a blank.
+ *
+ * This one carries the argument as well as the instruction: until a run is recorded, anything the
+ * agent says about tests passing is unsupported. That is the product, stated where it is most
+ * obviously true.
+ */
+function Empty({ children, hint }: { children: React.ReactNode; hint?: string }) {
   return (
-    <ol className="grid gap-2">
-      {(PHASES as string[]).map((phase, i) => {
+    <div className="rounded-lg border border-dashed border-line-soft px-3 py-4">
+      <p className="max-w-[46ch] text-sm text-muted">{children}</p>
+      {hint && (
+        <p className="mt-2 font-mono text-2xs text-muted/70">
+          <span className="select-none text-muted/50">try </span>
+          {hint}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * "Step 3 of 4" beats an undifferentiated spinner on any multi-step process.
+ *
+ * The spine matters more than it looks: five separate lines read as a list of options, while a
+ * connected run of them reads as one process with a position in it. The filled portion is the
+ * distance travelled.
+ */
+function Steps({ index }: { index: number }) {
+  const phases = PHASES as string[];
+  return (
+    <ol className="relative grid gap-2.5">
+      {phases.map((phase, i) => {
         const done = i < index;
         const current = i === index;
+        const last = i === phases.length - 1;
         return (
-          <li
-            key={phase}
-            className={[
-              'flex items-center gap-2.5 text-sm transition-colors duration-200',
-              done ? 'text-verified' : current ? 'text-accent' : 'text-muted/60',
-            ].join(' ')}
-          >
-            <span className="inline-flex w-3.5 shrink-0">
+          <li key={phase} className="relative flex items-center gap-2.5">
+            {!last && (
+              <span
+                aria-hidden
+                className={[
+                  'absolute left-[6px] top-4 h-[calc(100%+0.125rem)] w-px transition-colors duration-300',
+                  done ? 'bg-verified/50' : 'bg-line-soft',
+                ].join(' ')}
+              />
+            )}
+            <span
+              className={[
+                'relative z-10 inline-flex w-3.5 shrink-0 justify-center transition-colors duration-200',
+                done ? 'text-verified' : current ? 'text-accent' : 'text-muted/50',
+              ].join(' ')}
+            >
               {done ? <CheckIcon /> : current ? <SpinnerIcon /> : <DotIcon />}
             </span>
-            <span className={current ? 'font-medium' : undefined}>{phase}</span>
+            <span
+              className={[
+                'text-sm transition-colors duration-200',
+                done ? 'text-muted' : current ? 'font-medium text-ink' : 'text-muted/60',
+              ].join(' ')}
+            >
+              {phase}
+            </span>
           </li>
         );
       })}
@@ -72,18 +127,18 @@ export function StatusRail() {
       aria-label="Agent status"
       className="w-full shrink-0 overflow-y-auto border-line-soft bg-bg text-ink lg:w-[22rem] lg:border-l"
     >
-      <Section label="Doing">
+      <Section label="Doing" badge={step.index >= 0 ? `${step.index + 1} of ${(PHASES as string[]).length}` : undefined}>
         <p
           aria-live="polite"
           className={['mb-3 flex items-center gap-2.5 text-sm', isBusy ? 'text-accent' : 'text-muted'].join(' ')}
         >
           {isBusy ? <SpinnerIcon /> : <ClockIcon />}
-          {isBusy ? `Working — ${step.label}` : 'Idle'}
+          {isBusy ? `Working — ${step.label}` : step.index >= 0 ? 'Finished' : 'Idle'}
         </p>
         <Steps index={step.index} />
       </Section>
 
-      <Section label="Waiting on">
+      <Section label="Waiting on" badge={pendingApprovals.length > 1 ? `${pendingApprovals.length} pending` : undefined}>
         {pendingApprovals.length > 0 ? (
           <ApprovalPrompt approvals={pendingApprovals} respond={respondToApproval} />
         ) : pendingQuestions.length > 0 ? (
@@ -101,19 +156,25 @@ export function StatusRail() {
         )}
       </Section>
 
-      <Section label="Did">
-        <p className="text-sm text-muted">
-          {executions.length} execution{executions.length === 1 ? '' : 's'} recorded
-          {runs.length > 0 && `, ${runs.length} of them test runs`}
-          {sandboxId ? ' — sandbox live' : ''}
-        </p>
+      <Section label="Did" badge={executions.length > 0 ? `${runs.length}/${executions.length} test runs` : undefined}>
+        {executions.length > 0 && (
+          <p className="qm-nums mb-3 text-sm text-muted">
+            {executions.length} execution{executions.length === 1 ? '' : 's'} recorded
+            {sandboxId && (
+              <span className="ml-2 inline-flex items-center gap-1.5 text-verified">
+                <span className="inline-block size-1.5 rounded-full bg-verified" />
+                sandbox live
+              </span>
+            )}
+          </p>
+        )}
         {last ? (
           <Verdict last={last} />
         ) : (
-          <p className="mt-3 max-w-[52ch] text-sm text-muted">
+          <Empty hint="Fix the failing test in ledger. Run it first.">
             No test run recorded yet. Until one is, anything the agent says about tests passing is
             unsupported.
-          </p>
+          </Empty>
         )}
       </Section>
     </aside>
@@ -129,7 +190,9 @@ function Verdict({ last }: { last: Run }) {
 
   const text = last.output.trim();
   const long = text.length > 400;
-  const shown = expanded || !long ? text : text.slice(-400);
+  // Show the tail: a runner puts its verdict at the end. Marked, because silently starting
+  // mid-line looks like corrupted output rather than a deliberate excerpt.
+  const shown = expanded || !long ? text : `… ${text.slice(-400).replace(/^[^\n]*\n/, '')}`;
 
   return (
     <div
@@ -138,20 +201,31 @@ function Verdict({ last }: { last: Run }) {
         green ? 'border-verified/40 bg-verified/[0.06]' : 'border-failed/40 bg-failed/[0.06]',
       ].join(' ')}
     >
-      {/* Colour is never the only signal - the icon and the words carry it too. */}
+      {/* Colour is never the only signal - the icon and the words carry it too, so this reads the
+          same to someone who cannot distinguish the two. */}
       <p
         className={[
-          'flex items-center gap-2.5 text-sm font-semibold',
+          'flex items-center gap-2 text-sm font-semibold',
           green ? 'text-verified' : 'text-failed',
         ].join(' ')}
       >
-        {green ? <CheckIcon /> : <CrossIcon />}
+        <span
+          className={[
+            'inline-flex size-5 shrink-0 items-center justify-center rounded-full',
+            green ? 'bg-verified/15' : 'bg-failed/15',
+          ].join(' ')}
+        >
+          {green ? <CheckIcon /> : <CrossIcon />}
+        </span>
         {green ? 'Last run passed' : 'Last run did not pass'}
+        {last.exitCode !== null && (
+          <span className="qm-nums ml-auto text-2xs font-normal text-muted">exit {last.exitCode}</span>
+        )}
       </p>
 
       <pre
         className={[
-          'mt-3 overflow-auto whitespace-pre-wrap break-words font-mono text-2xs leading-relaxed text-ink',
+          'mt-3 overflow-auto rounded-md border border-line-soft bg-bg/60 p-2.5 font-mono text-2xs leading-relaxed whitespace-pre-wrap break-words text-ink',
           expanded ? 'max-h-80' : 'max-h-40',
         ].join(' ')}
       >

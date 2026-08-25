@@ -49,9 +49,11 @@ export function QuartermasterLayout({
 function Brand({ mode, onThemeChange }: { mode: ThemeMode; onThemeChange: (m: ThemeMode) => void }) {
   return (
     <header className="flex items-center gap-3 border-b border-line-soft px-5 py-4">
-      <img src="/mark.svg" alt="" width={22} height={22} className="shrink-0" />
+      <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-line-soft bg-surface">
+        <img src="/mark.svg" alt="" width={18} height={18} />
+      </span>
       <div className="min-w-0 flex-1">
-        <div className="text-base font-semibold leading-tight">Quartermaster</div>
+        <div className="text-base font-semibold leading-tight tracking-[-0.01em]">Quartermaster</div>
         <div className="text-2xs text-muted">proves it, then asks</div>
       </div>
       <ThemeToggle mode={mode} onChange={onThemeChange} />

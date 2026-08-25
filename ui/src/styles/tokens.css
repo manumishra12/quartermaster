@@ -124,3 +124,39 @@
   animation: qm-spin 900ms linear infinite;
   transform-origin: 50% 50%;
 }
+
+/* Thin, quiet scrollbars. A default macOS-width scrollbar inside a 22rem rail eats a noticeable
+   share of the reading width and draws the eye to the wrong thing. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--qm-border-soft) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--qm-border-soft);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--qm-border);
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--qm-accent) 26%, transparent);
+  color: var(--qm-text);
+}
+
+/* Counts sit next to each other down the rail and change while you watch. Proportional digits make
+   them jitter as the value changes; tabular ones hold their column. */
+.qm-nums {
+  font-variant-numeric: tabular-nums;
+}
