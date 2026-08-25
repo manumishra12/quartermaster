@@ -152,12 +152,27 @@ export function looksLikeTestCommand(command = '') {
   if (!text.trim()) return false;
 
   // Any segment of a compound command can be the real invocation: `cd repo && pytest -q`.
-  // Quoted spans are arguments, not commands. Splitting on separators without accounting for
-  // quoting meant `echo "note | poetry run test Ran 1 tests"` produced a second segment that looked
-  // like a wrapped test script, while the only thing executed was echo.
-  const unquoted = text.replace(/'[^']*'|"[^"]*"/g, ' ');
+  /**
+   * Command substitutions execute, even inside quotes: `echo "$(cd project && pytest -q)"` really
+   * runs pytest. They are pulled out first and judged as commands in their own right, because
+   * deleting them with the surrounding quotes lost real test runs and reported honest work as
+   * unsubstantiated.
+   */
+  const substitutions = [...text.matchAll(/\$\(([^()]*)\)|`([^`]*)`/g)].map((m) => m[1] ?? m[2] ?? '');
 
-  return unquoted.split(/&&|\|\||;|\||\n/).some((raw) => {
+  /**
+   * What remains of a quoted span is a placeholder, not a space.
+   *
+   * A space creates a word boundary the shell does not: `'./fake'pytest` executes `./fakepytest`,
+   * and replacing the quoted part with a space left the word `pytest` standing alone as the leader
+   * of its segment. The placeholder keeps the word joined, so a fabricated name stays fabricated.
+   */
+  const unquoted = text.replace(/\$\([^()]*\)|`[^`]*`/g, 'Q').replace(/'[^']*'|"[^"]*"/g, 'Q');
+
+  // Substitutions are split on the same separators: `$(cd project && pytest -q)` is two commands.
+  const segments = [unquoted, ...substitutions].flatMap((part) => part.split(/&&|\|\||;|\||\n/));
+
+  return segments.some((raw) => {
     const bare = raw
       .trim()
       .replace(/^[({\s]+/, '')

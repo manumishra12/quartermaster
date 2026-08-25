@@ -451,6 +451,25 @@ test('a separator inside quotes does not create a second command', () => {
   assert.equal(looksLikeTestCommand("echo 'x; pytest'"), false);
 });
 
+test('stripping a quoted span does not split one shell word into two', () => {
+  // The shell concatenates adjacent words: ./fake'pytest' executes ./fakepytest, which is not a
+  // test runner. Replacing the quoted span with a space left "pytest" standing alone as the
+  // leader of its segment, so a hand-rolled script printing "1 passed" was read as a green suite.
+  assert.equal(looksLikeTestCommand("'./fake'pytest"), false);
+  assert.equal(looksLikeTestCommand("./fake'pytest'"), false);
+  assert.equal(looksLikeTestCommand('"my"pytest --version'), false);
+});
+
+test('a command substitution is executed, so it counts even inside quotes', () => {
+  // echo "$(cd project && pytest -q)" really runs pytest and captures its output. Dropping the
+  // quoted span dropped the run, and an honest passing claim came back unsubstantiated.
+  assert.equal(looksLikeTestCommand('echo "$(cd project && pytest -q)"'), true);
+  assert.equal(looksLikeTestCommand('result=$(pytest -q)'), true);
+  assert.equal(looksLikeTestCommand('echo `npx vitest run`'), true);
+  // The substitution has to hold a runner - quoting a mention of one is still just a mention.
+  assert.equal(looksLikeTestCommand('echo "$(cat pytest.log)"'), false);
+});
+
 test('a wrapped script name must be the whole word, not a substring of one', () => {
   // latest, contest and attest all contain "test".
   for (const name of ['latest', 'contest', 'attest', 'testify']) {
