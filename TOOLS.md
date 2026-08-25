@@ -19,10 +19,11 @@ Everything Quartermaster is allowed to touch, and what is gated. Kept in sync wi
 
 | Server | Auth | Phase | Tools enabled | Approval |
 | --- | --- | --- | --- | --- |
-| **GitHub** (shipped catalog) | header (PAT) | v1 | `@all` | `["@write", "@destructive"]` — every write pauses |
-| **Exa** (shipped catalog) | none | `research-desk` | `@read-only` | not needed - nothing it can do is irreversible |
-| **Sentry** (shipped catalog) | OAuth (DCR) | `incident-responder` | `@all` | `["@write", "@destructive"]` - every remediation |
-| **Linear** (shipped catalog) | OAuth (DCR) | `desk-assistant` | `@all` | `["@write", "@destructive"]` - every create, edit, close |
+| **GitHub** (shipped catalog) | header (PAT) | `quartermaster` | `@read-only` + 5 named writes (see section 7) | `["@write", "@destructive"]` + those 5 by name |
+| **Exa** (shipped catalog) | none | `research-desk` | `@read-only` | `["@write", "@destructive"]` - nothing it exposes is a write |
+| **deepwiki** (shipped catalog) | none | both quartermasters | 3 tools by name | `["@write", "@destructive"]` |
+| **Sentry** (shipped catalog) | OAuth (DCR) | `incident-responder` | `@read-only` - unaudited, so writes are not enabled at all | `["@all"]` |
+| **Linear** (shipped catalog) | OAuth (DCR) | `desk-assistant` | `@read-only` - unaudited, so writes are not enabled at all | `["@all"]` |
 
 Notes:
 - Verified against the live catalog: GitHub authenticates by **static header (a personal access

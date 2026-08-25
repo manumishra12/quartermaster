@@ -113,12 +113,22 @@ event stream rather than the transcript - turns out to generalise, and each is o
 | `quartermaster-local` | sandbox | nothing to gate | **yes** |
 | `quartermaster` | + GitHub | every write | needs a PAT |
 | `code-runner` | sandbox | nothing leaves it | **yes** |
-| `analytics` | sandbox + a SQLite warehouse | every write query | **yes** |
+| `analytics` | sandbox + a SQLite warehouse | instruction-only, see below | **yes** |
 | `research-desk` | Exa web search | read-only throughout | **yes** |
 | `incident-responder` | Sentry | every remediation | needs Sentry |
 | `desk-assistant` | Linear | every create, edit and close | needs Linear |
 
 Start with `quartermaster-local`. It needs no token and touches nothing outside the sandbox.
+
+`analytics` is the honest exception. Its SQL runs through the sandbox shell, which is not an MCP
+tool, so there is no `require_approval_for_tools` entry that could gate it. It does pause before a
+write, using the harness's question mechanism - but that pause is the agent choosing to ask, not
+something outside the agent enforcing it. The spec says so in as many words, and the spec validator
+now refuses any agent that promises a gate without either declaring one or admitting it has none.
+
+`incident-responder` and `desk-assistant` can currently only read. Their write tools are not
+enabled, because those two connectors' annotations have not been audited and this project's own
+rule is not to rely on selectors it has not verified.
 
 `code-runner` is the odd one: subagents are switched **off** for it. It runs code somebody else
 wrote, so widening the blast radius by handing that code to more agents is the wrong direction.

@@ -13,6 +13,8 @@ import { join, basename } from 'node:path';
 import { TrueForge, type TrueForgeApi } from '@truefoundry/trueforge-sdk';
 // @ts-expect-error - plain JS helper, no types needed
 import { loadEnv } from './lib/env.mjs';
+// @ts-expect-error - plain JS helper, no types needed
+import { validateSpec } from './lib/spec.mjs';
 
 loadEnv();
 
@@ -41,6 +43,13 @@ function load(file: string): Spec {
   const spec = JSON.parse(raw.replaceAll('${TRUEFORGE_MODEL}', MODEL ?? '')) as Spec;
   if (!spec.name || !spec.manifest) throw new Error(`${basename(file)} is missing name or manifest`);
   if (!spec.manifest.model?.name) throw new Error(`${basename(file)} has no model`);
+
+  // Validate here, not only in the test suite. An edited spec was previously applied without any
+  // check at all, and an unsound safety policy applies just as cleanly as a sound one.
+  const problems = validateSpec(spec, basename(file)) as string[];
+  if (problems.length > 0) {
+    throw new Error(`${basename(file)} is not sound:\n  ${problems.join('\n  ')}`);
+  }
   if (noSkills) delete (spec.manifest as { skills?: unknown }).skills;
   return spec;
 }

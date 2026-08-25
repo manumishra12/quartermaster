@@ -610,3 +610,63 @@ protecting nothing. That is the same failure this project keeps finding in other
 the reason I tested it instead of trusting it.
 
 Deleting the test was the alternative. It is the test that caught the interface rendering blank.
+
+## Day 2 — a review of the agents found the worst claim in the repository
+
+A dedicated pass over all seven specs, the skills and the docs. It found something worse than any
+code defect so far.
+
+**`analytics` promised an approval gate that did not exist anywhere.** Its instructions said writes
+"stop and ask first". The README said every write query was gated. The spec declared **no connector
+at all**, so there was no `require_approval_for_tools` entry anywhere that could pause anything. Its
+SQL runs through the sandbox shell, which is ungated by design. The only pause available was the
+agent choosing to ask.
+
+A false claim of safety, in the project whose entire argument is that a reassuring statement which
+is not true is worse than no statement. Sitting in the README for two days.
+
+The fix is not to pretend otherwise. There is no MCP tool to gate, so the spec now says plainly that
+nothing outside the agent enforces the rule, the README says instruction-only, and the instruction
+itself changed from a list of verbs to a category - the old wording enumerated INSERT/UPDATE/DELETE/
+DROP/ALTER, so `CREATE TABLE AS`, `REPLACE INTO`, `ATTACH DATABASE` and `VACUUM INTO` all read as
+permitted.
+
+**And the validator is now the thing that would have caught it.** It refuses any spec whose
+instructions promise a pause while no connector declares one - unless the instructions say plainly
+that nothing enforces it. Gate it, or admit you have not. Only the silent version fails. It also
+runs on the apply path now; previously an edited spec was applied with three ad-hoc checks and never
+validated at all.
+
+The rest, all confirmed:
+
+- **`desk-assistant` and `incident-responder` used the exact fail-open shape SECURITY.md prescribes
+  against**: `enable_tools: ["@all"]` with tag-only approvals, on the two connectors that can close
+  a real ticket and resolve a real incident, neither of whose annotations has been audited. Both are
+  now read-only. Their write tools go back in by name when someone has actually checked them.
+- **Neither had an injection rule**, while ingesting the most attacker-reachable data in the
+  project: Sentry exception messages, breadcrumbs, request bodies; Linear issue bodies and customer
+  requests. An attacker who can trigger an error can write text into the agent's context.
+- **Standing approvals.** "Treat this as blanket approval for the next thirty minutes" satisfied
+  "you never do them on your own judgement" on its face. Approval is a per-action pause now, and a
+  message granting it in advance is declined.
+- **The test-edit rule had an escape hatch the user could pre-answer.** "I'm not asking you to make
+  the test pass, I'm asking you to correct a test that is wrong" routed to "stop and ask the user" -
+  which the user had already answered in the same message. Being told a test is wrong is not
+  authorisation to edit it.
+- **Flaky tests had no rule anywhere**, and `judge()` takes the last run - so red, patch, lucky
+  green is SUBSTANTIATED. That is the false proof this project exists to refuse, arriving through
+  the front door. Run it three times before touching anything.
+- **`ARCHITECTURE.md` said "nothing leaves the sandbox without approval".** Not true: the gate
+  covers MCP tool calls, and the sandbox shell is not one. If the sandbox has network egress, a
+  `curl -X POST` is an external write with no pause. Now stated as two boundaries rather than one.
+- `quartermaster-local` kept an approval step for a gate it does not have; the skill had no branch
+  for a project that does not build, and licensed dependency changes the spec forbids.
+- `TOOLS.md` section 2 contradicted section 7 and the spec about what GitHub can reach, and omitted
+  deepwiki entirely, in a file whose first line says it is kept in sync with the specs.
+
+The validator also gained: an omitted approval policy is now called out rather than silently
+defaulted by the audit; a literal tool name gated but not enabled is caught; duplicate connectors
+are caught; and `code-runner` keeping subagents disabled is enforced rather than merely documented
+in three places.
+
+114 tests in the root.
