@@ -203,6 +203,26 @@ CI runs all of it on every pull request.
 `zustand@^5` is pinned as a direct dependency in `ui/` on purpose. Without it `@openuidev/*` hoists
 zustand 4.5.7 to the root, `@assistant-ui/core` cannot find `useShallow`, and the build fails.
 
+## Code review
+
+Every change lands through a pull request reviewed by [Qodo](https://www.qodo.ai). `main` is branch
+protected: no direct pushes, no force pushes, no deletions.
+
+`.pr_agent.toml` configures what the review looks for. It is deliberately specific to this project
+rather than a copy of the defaults - a false SUBSTANTIATED verdict is the worst defect this codebase
+can have, so the review is pointed at that first, and at any path where an approval could be granted
+without a human keystroke. Inline comments are limited to findings that must change, because this
+project's own review turned up the lesson that an alarm which fires on everything is one nobody
+reads.
+
+Representative reviewed pull requests:
+
+<!-- Filled in as reviews land. Each entry: what changed, what the review found, what was done. -->
+
+| PR | Change | What the review surfaced |
+| --- | --- | --- |
+| [#1](https://github.com/manumishra12/quartermaster/pull/1) | Interface rebuild, dual themes, UI tests | _pending review_ |
+
 ## AI assistance
 
 Built with the help of an AI coding assistant, as the hackathon rules permit and require to be
