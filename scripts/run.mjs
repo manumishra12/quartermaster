@@ -20,6 +20,7 @@ import { loadEnv } from './lib/env.mjs';
 loadEnv();
 import { judge, resultOf, SUBSTANTIATED, NO_CLAIM } from './lib/evidence.mjs';
 import { buildReport } from './lib/report.mjs';
+import { describeCall } from './lib/describe-call.mjs';
 
 const argv = process.argv.slice(2);
 const flag = (name, fallback) => {
@@ -226,8 +227,24 @@ for (let hop = 0; hop < 24; hop++) {
     for (const ref of event.toolCalls) {
       const call = describe(ref);
       console.log('\n  ── APPROVAL REQUIRED ──────────────────────────────');
-      console.log(`  tool: ${call?.toolInfo?.name ?? 'unknown tool'}`);
-      console.log(`  args: ${(call?.function?.arguments ?? '').slice(0, 800)}`);
+
+      if (!call) {
+        // The call cannot be displayed, so it cannot be consented to. Asking somebody to approve
+        // a blank is worse than not asking: it produces the appearance of oversight without any.
+        console.log('  This call could not be read, so it cannot be shown to you. Denying.');
+        resume.push({
+          type: 'user.tool_approval',
+          threadId: event.threadId,
+          toolCallId: ref.id,
+          approval: { status: 'deny', reason: 'The call could not be displayed for approval' },
+        });
+        continue;
+      }
+
+      // What it will change, not eight hundred characters of the JSON it will send.
+      for (const line of describeCall(call.toolInfo?.name, call.function?.arguments)) {
+        console.log(line);
+      }
       const answer = denyAll ? 'deny' : (await ask('  allow / deny > ', 'deny')).toLowerCase().trim();
       /**
        * Exact words only. This used to accept anything starting with "a", so `abort` - the word an
