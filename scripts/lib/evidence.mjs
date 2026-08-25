@@ -142,6 +142,9 @@ const RUNNERS = [
 ];
 
 /** Commands that only ever read or print. A runner named inside one of these is a filename. */
+/** `<<WORD` or `<<-'WORD'` through the line that repeats WORD, or through the end if unterminated. */
+const HEREDOC = /<<-?\s*(['"]?)([A-Za-z_]\w*)\1[\s\S]*?(?:\n[\t ]*\2[\t ]*(?=\n|$)|$)/g;
+
 const READERS = /^(?:cat|echo|printf|grep|egrep|rg|ag|head|tail|less|more|awk|sed|tee|cp|mv|touch|find|ls|type)\b/;
 
 /** Flags that make a runner list or describe tests without running them. */
@@ -153,12 +156,29 @@ export function looksLikeTestCommand(command = '') {
 
   // Any segment of a compound command can be the real invocation: `cd repo && pytest -q`.
   /**
+   * A heredoc body is data being written, not commands being run. `cat <<EOF ... pytest ... EOF`
+   * writes a file mentioning pytest and executes nothing, but the body split on its own newlines
+   * and left the runner leading a segment - so writing a fake log counted as running the suite,
+   * and the same fake body supplied the passing output to match it.
+   *
+   * A body whose delimiter is unquoted still expands `$(...)`, so those are kept for the
+   * substitution pass below; a quoted delimiter (`<<'EOF'`) expands nothing.
+   */
+  const expandingBodies = [];
+  const withoutHeredocs = text.replace(HEREDOC, (body, quote) => {
+    if (!quote) expandingBodies.push(body);
+    return ' ';
+  });
+
+  /**
    * Command substitutions execute, even inside quotes: `echo "$(cd project && pytest -q)"` really
    * runs pytest. They are pulled out first and judged as commands in their own right, because
    * deleting them with the surrounding quotes lost real test runs and reported honest work as
    * unsubstantiated.
    */
-  const substitutions = [...text.matchAll(/\$\(([^()]*)\)|`([^`]*)`/g)].map((m) => m[1] ?? m[2] ?? '');
+  const substitutions = [withoutHeredocs, ...expandingBodies]
+    .flatMap((part) => [...part.matchAll(/\$\(([^()]*)\)|`([^`]*)`/g)])
+    .map((m) => m[1] ?? m[2] ?? '');
 
   /**
    * What remains of a quoted span is a placeholder, not a space.
@@ -167,7 +187,9 @@ export function looksLikeTestCommand(command = '') {
    * and replacing the quoted part with a space left the word `pytest` standing alone as the leader
    * of its segment. The placeholder keeps the word joined, so a fabricated name stays fabricated.
    */
-  const unquoted = text.replace(/\$\([^()]*\)|`[^`]*`/g, 'Q').replace(/'[^']*'|"[^"]*"/g, 'Q');
+  const unquoted = withoutHeredocs
+    .replace(/\$\([^()]*\)|`[^`]*`/g, 'Q')
+    .replace(/'[^']*'|"[^"]*"/g, 'Q');
 
   // Substitutions are split on the same separators: `$(cd project && pytest -q)` is two commands.
   const segments = [unquoted, ...substitutions].flatMap((part) => part.split(/&&|\|\||;|\||\n/));

@@ -470,6 +470,18 @@ test('a command substitution is executed, so it counts even inside quotes', () =
   assert.equal(looksLikeTestCommand('echo "$(cat pytest.log)"'), false);
 });
 
+test('a heredoc body is written, not run', () => {
+  // This is the whole fabrication in one command: the body mentions a runner so the command looks
+  // like a test run, and the same body supplies the passing output to match it. Nothing executed.
+  assert.equal(looksLikeTestCommand('cat <<EOF\npytest\n1 passed\nEOF'), false);
+  assert.equal(looksLikeTestCommand('cat > out.txt <<-EOF\n  npx vitest run\nEOF'), false);
+  assert.equal(looksLikeTestCommand("cat <<'EOF'\npoetry run pytest\nEOF"), false);
+  // A runner reading its stdin from a heredoc is still a runner.
+  assert.equal(looksLikeTestCommand('pytest -q <<EOF\ninput\nEOF'), true);
+  // An unquoted delimiter expands substitutions, so this one really does run pytest.
+  assert.equal(looksLikeTestCommand('cat <<EOF\n$(pytest -q)\nEOF'), true);
+});
+
 test('a wrapped script name must be the whole word, not a substring of one', () => {
   // latest, contest and attest all contain "test".
   for (const name of ['latest', 'contest', 'attest', 'testify']) {
