@@ -96,7 +96,7 @@ export function ThreadList({ header, children }: { header: ReactNode; children: 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-baseline justify-between gap-2 px-5 pb-2 pt-4">
-        <h2 className="text-2xs font-semibold uppercase tracking-[0.09em] text-muted">Conversations</h2>
+        <h2 className="text-2xs font-[550] uppercase tracking-[0.07em] text-muted">Conversations</h2>
         {count > 0 && <span className="qm-nums text-2xs text-muted">{count}</span>}
       </div>
       {header}

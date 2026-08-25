@@ -20,70 +20,89 @@
  */
 
 @theme {
-  --font-sans: 'IBM Plex Sans', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* The system stack, as the reference uses. A webfont here buys nothing: this is dense interface
+     text at 11 to 14 pixels, where the system face is better hinted than anything we could load. */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* A restrained type scale. Five sizes is enough for an interface this dense; more sizes read as
      indecision rather than hierarchy. */
+  /* Denser than before, matching the reference: 11 to 15px, not 12 to 17. Interface text this
+     compact is scanned rather than read, and the extra size was making the sidebar feel crowded
+     when the real problem was that nothing was subordinate. */
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1rem;
-  --text-xs: 0.75rem;
-  --text-xs--line-height: 1.125rem;
-  --text-sm: 0.8125rem;
-  --text-sm--line-height: 1.375rem;
-  --text-base: 0.9375rem;
-  --text-base--line-height: 1.5rem;
-  --text-lg: 1.0625rem;
-  --text-lg--line-height: 1.5rem;
+  --text-xs: 0.71875rem;
+  --text-xs--line-height: 1.0625rem;
+  --text-sm: 0.78125rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.84375rem;
+  --text-base--line-height: 1.3125rem;
+  --text-lg: 0.9375rem;
+  --text-lg--line-height: 1.375rem;
+
+  /* The reference sets 550 as its workhorse weight - between normal and semibold, which the
+     system faces support and which reads as emphasis without shouting. */
+  --font-weight-medium: 500;
+  --font-weight-semibold: 550;
+  --font-weight-bold: 600;
+
+  /* Negative tracking on anything above body size, as the reference does throughout. */
+  --tracking-tight: -0.01em;
+  --tracking-tighter: -0.032em;
 }
 
 /* Light. Warm off-white rather than pure white: a full-brightness field beside a code block is
    fatiguing, and this interface is read for long stretches. */
 :root {
-  --qm-bg: #faf9f7;
+  --qm-bg: #fbfbfa;
   --qm-surface: #ffffff;
-  --qm-surface-raised: #f4f2ee;
-  /* Two border tokens, and the difference matters: --qm-border draws control boundaries and has to
-     clear 3:1 (WCAG 1.4.11), while --qm-border-soft only separates regions and does not. Using one
-     token for both would mean either illegible controls or heavy-handed dividers. */
+  --qm-surface-raised: #f1f0ed;
+  /* Two border tokens, and the difference matters. --qm-border draws control boundaries and must
+     clear 3:1 (WCAG 1.4.11); --qm-border-soft only separates regions and does not. The reference
+     uses #EAE8E4 for both, which is 1.18:1 - correct for a divider, illegible as a control edge. */
   --qm-border: #8a8279;
-  --qm-border-soft: #e7e3dc;
+  --qm-border-soft: #eae8e4;
 
-  --qm-text: #1c1917;
-  --qm-text-muted: #5c5651;
+  --qm-text: #1b1a18;
+  /* The reference's muted greys are #8C8983 (3.37:1) and #A8A6A1 (2.35:1). Both carry real
+     information here, so this is its next step darker, which clears 4.5:1 while staying warm. */
+  --qm-text-muted: #6e6b65;
 
-  --qm-accent: #5b48cc;
-  --qm-accent-hover: #4f3fb8;
+  --qm-accent: #5b4bd6;
+  --qm-accent-hover: #4a3bc4;
   --qm-on-accent: #ffffff;
   --qm-accent-wash: #eeecfb;
 
-  --qm-verified: #15803d;
-  --qm-failed: #b91c1c;
-  --qm-waiting: #a16207;
+  /* Sage rather than a signal green. It still means exactly one thing; it just says it quietly. */
+  --qm-verified: #4a7c59;
+  --qm-failed: #a8342c;
+  --qm-waiting: #8a6410;
 
-  --qm-shadow: 0 1px 2px rgb(28 25 23 / 0.06), 0 1px 3px rgb(28 25 23 / 0.04);
+  /* Warm-tinted, as the reference has them - a neutral grey shadow over greige reads as dirt. */
+  --qm-shadow: 0 1px 2px rgb(27 26 24 / 0.04), 0 8px 24px -12px rgb(27 26 24 / 0.14);
 }
 
 :root.dark {
-  --qm-bg: #0f172a;
-  --qm-surface: #1b2336;
-  --qm-surface-raised: #272f42;
-  --qm-border: #64748b;
-  --qm-border-soft: #2a3348;
+  --qm-bg: #171512;
+  --qm-surface: #201d19;
+  --qm-surface-raised: #2a2620;
+  --qm-border: #7a736a;
+  --qm-border-soft: #302c26;
 
-  --qm-text: #f8fafc;
-  --qm-text-muted: #94a3b8;
+  --qm-text: #f5f3f0;
+  --qm-text-muted: #a8a29a;
 
   --qm-accent: #a78bfa;
-  --qm-accent-hover: #b9a5fc;
-  --qm-on-accent: #0f172a;
-  --qm-accent-wash: #221f3d;
+  --qm-accent-hover: #b4a0fb;
+  --qm-on-accent: #171512;
+  --qm-accent-wash: #262040;
 
-  --qm-verified: #22c55e;
-  --qm-failed: #f87171;
-  --qm-waiting: #fbbf24;
+  --qm-verified: #7fb88c;
+  --qm-failed: #f0918c;
+  --qm-waiting: #e0b15c;
 
-  --qm-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 1px 3px rgb(0 0 0 / 0.3);
+  --qm-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -12px rgb(0 0 0 / 0.5);
 }
 
 @theme inline {

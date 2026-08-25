@@ -1,7 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <!-- Brackets: something enclosed and accounted for. Violet, matching the accent. -->
-  <path d="M11 5 H7 a2 2 0 0 0-2 2 v18 a2 2 0 0 0 2 2 h4" stroke="#7c6bf5" stroke-width="2.25" stroke-linecap="round"/>
-  <path d="M21 5 h4 a2 2 0 0 1 2 2 v18 a2 2 0 0 1-2 2 h-4" stroke="#7c6bf5" stroke-width="2.25" stroke-linecap="round"/>
-  <!-- The tick stays green. Green means one thing in this product: verified. -->
-  <path d="M11 16.5 l3.5 3.5 L21 12" stroke="#22c55e" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round"/>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#6C5CE7"/>
+      <stop offset="1" stop-color="#4A3BC4"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="9" fill="url(#g)"/>
+  <path d="M10 16.5 L14.5 21 L22 12" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

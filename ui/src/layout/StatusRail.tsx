@@ -29,7 +29,7 @@ function Section({
   return (
     <section className="border-b border-line-soft px-5 py-4">
       <div className="mb-3 flex items-baseline justify-between gap-3">
-        <h2 className="text-2xs font-semibold uppercase tracking-[0.09em] text-muted">{label}</h2>
+        <h2 className="text-2xs font-[550] uppercase tracking-[0.07em] text-muted">{label}</h2>
         {badge && <span className="qm-nums text-2xs text-muted">{badge}</span>}
       </div>
       {children}
@@ -212,7 +212,7 @@ function Verdict({ last }: { last: Run }) {
       <p
         aria-live="polite"
         className={[
-          'flex items-center gap-2.5 text-sm font-semibold',
+          'flex items-center gap-2.5 text-sm font-[550]',
           green ? 'text-verified' : 'text-failed',
         ].join(' ')}
       >
@@ -351,7 +351,7 @@ function ApprovalPrompt({
       <p role="alert" className="sr-only">
         Approval required before {pending.toolName} can run. The agent is paused.
       </p>
-      <p className="flex items-center gap-2.5 text-sm font-semibold text-waiting">
+      <p className="flex items-center gap-2.5 text-sm font-[550] text-waiting">
         <ClockIcon />
         Approval required
       </p>
@@ -431,7 +431,7 @@ function OutputDialog({ run, green, onClose }: { run: Run; green: boolean; onClo
       >
         <header className="flex items-center gap-2.5 border-b border-line-soft px-4 py-3">
           <span className={green ? 'text-verified' : 'text-failed'}>{green ? <CheckIcon /> : <CrossIcon />}</span>
-          <h2 className={['text-sm font-semibold', green ? 'text-verified' : 'text-failed'].join(' ')}>
+          <h2 className={['text-sm font-[550]', green ? 'text-verified' : 'text-failed'].join(' ')}>
             {green ? 'Last run passed' : 'Last run did not pass'}
           </h2>
           {run.exitCode !== null && (

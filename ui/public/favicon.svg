@@ -1,10 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <!--
-    A tab icon is read at 16 pixels. The app mark's brackets are 2.25px strokes with 4px of air
-    inside them, which at that size is a smudge. This is the same idea drawn to survive: a solid
-    ground so the shape holds against any tab colour, and one bold tick.
-    Green, because in this product green means exactly one thing and this is the mark of it.
-  -->
-  <rect width="32" height="32" rx="8" fill="#5b48cc"/>
-  <path d="M9 16.5 L14 21.5 L23 11" stroke="#4ade80" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Read at 16px in a tab: a solid ground so the shape holds against any tab colour, and one
+       heavy tick. Same gradient as the app mark so they are recognisably one thing. -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#6C5CE7"/>
+      <stop offset="1" stop-color="#4A3BC4"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="8" fill="url(#g)"/>
+  <path d="M9 16.5 L14 21.5 L23 11" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

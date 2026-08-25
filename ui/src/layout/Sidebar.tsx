@@ -53,7 +53,7 @@ export function SidebarHeader({
         </span>
       )}
       <div className="min-w-0 flex-1">
-        <h1 className="text-base font-semibold leading-tight tracking-[-0.01em]">Quartermaster</h1>
+        <h1 className="text-base font-[550] leading-tight tracking-[-0.01em]">Quartermaster</h1>
         <p className="text-2xs text-muted">proves it, then asks</p>
       </div>
       <ThemeToggle mode={mode} resolved={resolved} onChange={onThemeChange} />
@@ -104,7 +104,7 @@ function Reach() {
 
   return (
     <section className="border-t border-line-soft px-5 py-4" aria-labelledby="reach-heading">
-      <h2 id="reach-heading" className="mb-3 text-2xs font-semibold uppercase tracking-[0.09em] text-muted">
+      <h2 id="reach-heading" className="mb-3 text-2xs font-[550] uppercase tracking-[0.07em] text-muted">
         Can reach
       </h2>
 

@@ -64,7 +64,7 @@ export function Welcome({ heading }: { heading?: string }) {
         </span>
       </div>
 
-      <h2 className="text-center text-2xl font-semibold tracking-[-0.02em] text-ink">
+      <h2 className="text-center text-2xl font-[550] tracking-[-0.032em] text-ink">
         {heading ?? 'What should it prove?'}
       </h2>
       <p className="mt-2 max-w-[46ch] text-center text-sm text-muted">
