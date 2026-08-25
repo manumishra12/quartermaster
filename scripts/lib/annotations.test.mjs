@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { classify, wouldBeGated, ungatedRisks, UNANNOTATED } from './annotations.mjs';
 
 test('classify matches the harness selectors', () => {
@@ -70,7 +71,41 @@ test('an allowlist that also carries a tag is still a risk - the tag is the wide
   assert.equal(ungatedRisks(tools, undefined, ['@all', 'ask_question']).length, 1);
 });
 
-test('a tool not on the allowlist is still reported', () => {
+test('a tool absent from the allowlist is unreachable, so it is not a risk', () => {
+  // This test used to assert the opposite, and it was wrong. If enable_tools names one tool, every
+  // other tool on that server is disabled and cannot be called - there is nothing to gate. Qodo
+  // caught it on PR #1. The test had agreed with the bug, which is exactly the failure mode the
+  // review guidelines in .pr_agent.toml ask reviewers to look for.
   const tools = [{ name: 'delete_everything', annotations: undefined }];
-  assert.equal(ungatedRisks(tools, undefined, ['ask_question']).length, 1);
+  assert.equal(ungatedRisks(tools, undefined, ['ask_question']).length, 0);
+});
+
+test('a tool the allowlist excludes cannot run, so it is not a risk either', () => {
+  // Found by Qodo on PR #1. Only forgiving the named tools meant every tool the allowlist
+  // *excluded* was reported as ungated - the audit failing loudest for the specs doing it right.
+  const tools = [
+    { name: 'ask_question', annotations: undefined },
+    { name: 'delete_wiki', annotations: undefined },
+  ];
+  assert.equal(ungatedRisks(tools, undefined, ['ask_question']).length, 0);
+});
+
+test('a tag in the allowlist reopens the door, so unannotated tools are risks again', () => {
+  const tools = [{ name: 'delete_wiki', annotations: undefined }];
+  assert.equal(ungatedRisks(tools, undefined, ['@all', 'ask_question']).length, 1);
+});
+
+test('the two quartermaster specs declare the same deepwiki policy', () => {
+  // Qodo flagged the duplication on PR #1: the same approval policy is written into both specs and
+  // can drift. Agent specs are plain JSON with no include mechanism, and inventing one would put a
+  // build step between a reviewer and the safety policy they are trying to read. So the duplication
+  // stays and this test catches the drift instead.
+  const read = (name) =>
+    JSON.parse(readFileSync(new URL(`../../agents/${name}.json`, import.meta.url), 'utf8'))
+      .manifest.mcp_servers.find((s) => s.name === 'deepwiki');
+
+  const local = read('quartermaster-local');
+  const full = read('quartermaster');
+  assert.deepEqual(local.enable_tools, full.enable_tools);
+  assert.deepEqual(local.require_approval_for_tools, full.require_approval_for_tools);
 });

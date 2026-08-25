@@ -54,13 +54,14 @@ export function ungatedRisks(tools, selectors, enableSelectors) {
     if (kind === READ_ONLY) return false;
     if (wouldBeGated(tool.name, tool.annotations, selectors)) return false;
 
-    // An explicit allowlist contains the risk without needing annotations: a tool the server adds
-    // later is not enabled, so it cannot run at all. Only treat a tool as a risk if the spec
-    // reaches it through a tag rather than by name.
+    // An explicit allowlist contains the risk without needing annotations. A tool named in it is
+    // deliberately reachable; a tool absent from it cannot run at all, so it is not a risk either.
+    // The previous version only forgave the named ones, which meant every tool the allowlist
+    // *excluded* was reported as an ungated risk - the audit contradicting the fail-closed design
+    // that SECURITY.md prescribes, and failing loudest for the specs doing it right.
     if (Array.isArray(enableSelectors) && enableSelectors.length > 0) {
-      const namedExplicitly = enableSelectors.includes(tool.name);
-      const reachedByTag = enableSelectors.some((s) => s.startsWith('@'));
-      if (namedExplicitly && !reachedByTag) return false;
+      const reachedByTag = enableSelectors.some((sel) => sel.startsWith('@'));
+      if (!reachedByTag) return false; // nothing is reachable except by name, and named is fine
     }
     return true;
   });

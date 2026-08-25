@@ -355,7 +355,17 @@ export function judge({ finalText = '', toolResponses = [] }) {
     const claimedExit = claimedExitCode(finalText);
     if (claimedExit !== null) {
       const actual = executions.map((e) => e.exitCode).filter((c) => typeof c === 'number');
-      if (actual.length > 0 && !actual.includes(claimedExit)) {
+      if (actual.length === 0) {
+        // Nothing recorded an exit code, so there is nothing that could back this one. Skipping the
+        // check here let a fabricated `exit code: 0` through whenever the recorded envelopes
+        // happened to carry no numeric status - which is most of them from some servers.
+        return {
+          verdict: UNSUBSTANTIATED,
+          runs,
+          reason: `The answer reports exit code ${claimedExit}, but no recorded execution reported an exit code at all.`,
+        };
+      }
+      if (!actual.includes(claimedExit)) {
         return {
           verdict: UNSUBSTANTIATED,
           runs,

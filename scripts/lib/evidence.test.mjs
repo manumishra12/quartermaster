@@ -363,3 +363,12 @@ test('a claimed exit code is checked against the ones recorded', () => {
   assert.equal(claimedExitCode('- **exit code:** 137'), 137);
   assert.equal(claimedExitCode('no exit code here'), null);
 });
+
+test('a claimed exit code with nothing recorded to back it is unsubstantiated', () => {
+  // Found by Qodo on PR #1. Skipping the check when no execution reported a numeric status let a
+  // fabricated `exit code: 0` through whenever the envelopes happened to carry none.
+  const noStatus = { exitCode: null, output: 'some output', command: 'ls' };
+  const { verdict, reason } = judge({ finalText: 'exit code: 0', toolResponses: [noStatus] });
+  assert.equal(verdict, UNSUBSTANTIATED);
+  assert.match(reason, /no recorded execution reported an exit code/);
+});
