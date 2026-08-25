@@ -54,11 +54,14 @@ const CLAIM_REPORT_FORM =
  * evidence wherever they appear; "resolved", "verified" and "works now" are ordinary English about
  * the world and do not. This has to stay in step with CLAIM below - the first version of it did
  * not, so an agent could say "all checks pass" after running nothing test-shaped and be waved
- * through as making no claim at all. `claims and their evidence stay in step` holds the two
+ * through as making no claim at all. Widening it to bare nouns then broke the other direction:
+ * "I verified the product specs against the documentation" is a research finding, not a test
+ * claim. Build, spec, coverage, lint and check only count next to a result - green, clean,
+ * passing, failing - because that is what turns a noun into an assertion about a run. `claims and their evidence stay in step` holds the two
  * together, and any phrase added to one is added there too.
  */
 const ABOUT_TESTS =
-  /\b(tests?|suite|specs?|CI|pytest|jest|vitest|unittest|build|lint|typecheck|coverage)\b|\ball\s+checks?\b|\bchecks?\s+(pass\w*|ran|run|are|is)\b|\ball\s+green\b|\beverything\s+pass\w*\b|\b[1-9]\d*\s+passed\b/i;
+  /\b(tests?|pytest|jest|vitest|unittest|CI)\b|\b(?:the\s+)?(?:build|suite|specs?|coverage|lint|typecheck|checks?)\s+(?:is|are|was|were|now|all)?\s*(?:green|clean|passing|passed|pass\w*|red|failing|failed)\b|\ball\s+checks?\s+pass\w*\b|\ball\s+green\b|\beverything\s+pass\w*\b|\b[1-9]\d*\s+(?:tests?\s+)?passed\b/i;
 
 /** Language that asserts a passing result. Deliberately broad - over-detecting a claim is safe. */
 const CLAIM =

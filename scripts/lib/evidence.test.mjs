@@ -457,6 +457,12 @@ test('ordinary English about the world is still not a test claim', () => {
     'The migration works now.',
     'That is fixed.',
     'Nothing is failing in production.',
+    // Domain nouns, not test claims. Widening the vocabulary to bare words recreated for research
+    // agents exactly the failure this change exists to remove: "specs" is a thing a researcher
+    // reads, "build" is a thing an engineer describes, and neither is an assertion about a run.
+    'I verified the product specs against the documentation.',
+    'I verified the build order in their spec and it is right.',
+    'Coverage of the topic is good and the summary is verified.',
   ];
   for (const finalText of free) {
     assert.equal(
