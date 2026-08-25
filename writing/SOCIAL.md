@@ -18,11 +18,18 @@ Rule for all of them: post the *finding*, not the progress. "Day 3, still buildi
 >
 > It never ran anything. No sandbox, no tool call. It just wrote the line.
 >
-> Building the fix on @truefoundry TrueForge this week.
+> It reported stdout, stderr and an exit code. The harness recorded zero executions.
 >
-> #AgentHarnessHackathon
+> So the check moved somewhere the model cannot reach: the event stream.
+>
+> Building this on @truefoundry TrueForge this week. Reviewed with @QodoAI.
+>
+> @WeMakeDevs #AgentHarnessHackathon
+>
+> github.com/manumishra12/quartermaster
 
-*Attach: the screenshot of the invented output.*
+*Attach: `writing/assets/post-01-fabrication.png` - the real answer, the real recorded count, and
+the real verdict. Nothing in it is mocked up.*
 
 ---
 
