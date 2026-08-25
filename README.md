@@ -206,7 +206,12 @@ zustand 4.5.7 to the root, `@assistant-ui/core` cannot find `useShallow`, and th
 ## Code review
 
 Every change lands through a pull request reviewed by [Qodo](https://www.qodo.ai). `main` is branch
-protected: no direct pushes, no force pushes, no deletions.
+protected: no direct pushes, no force pushes, no deletions, **including for administrators**.
+
+That last clause is there because Qodo caught its absence. The protection was originally configured
+with `enforce_admins: false`, so the repository owner could have pushed straight to `main` while the
+README said nobody could. A governance statement that is true for everyone except the person most
+able to break it is not a governance statement. Enforcement now applies to admins too.
 
 `.pr_agent.toml` configures what the review looks for. It is deliberately specific to this project
 rather than a copy of the defaults - a false SUBSTANTIATED verdict is the worst defect this codebase
@@ -219,9 +224,10 @@ Representative reviewed pull requests:
 
 <!-- Filled in as reviews land. Each entry: what changed, what the review found, what was done. -->
 
-| PR | Change | What the review surfaced |
+| PR | Change | What the review surfaced, and what was done |
 | --- | --- | --- |
-| [#1](https://github.com/manumishra12/quartermaster/pull/1) | Interface rebuild, dual themes, UI tests | _pending review_ |
+| [#2](https://github.com/manumishra12/quartermaster/pull/2) | Qodo configuration and this section | Flagged the README claiming `main` was fully protected while `enforce_admins` was false. Fixed by turning enforcement on for admins rather than by weakening the claim. |
+| [#1](https://github.com/manumishra12/quartermaster/pull/1) | Interface rebuild, dual themes, UI tests | _review in progress_ |
 
 ## AI assistance
 
