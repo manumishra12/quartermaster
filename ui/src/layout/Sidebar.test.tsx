@@ -11,7 +11,12 @@ let spec: unknown = {};
 vi.mock('@truefoundry/trueforge-ui', () => ({
   ThreadListContainer: () => <div data-testid="thread-list" />,
 }));
-vi.mock('@truefoundry/assistant-ui-runtime', () => ({ useTrueFoundryAgentSpec: () => spec }));
+// The real hook returns { agentSpec, isSpecLoading, updateAgentSpec, ... }, not the spec. These
+// tests used to mock it as the spec itself, which is exactly how the component came to read the
+// wrapper and render an empty panel: the test agreed with the bug.
+vi.mock('@truefoundry/assistant-ui-runtime', () => ({
+  useTrueFoundryAgentSpec: () => ({ agentSpec: spec, isSpecLoading: false, isSpecSyncing: false, specError: null }),
+}));
 
 const { Sidebar } = await import('./Sidebar');
 

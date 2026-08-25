@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useComposerBusyState } from '@truefoundry/trueforge-ui';
 // @ts-expect-error - shared JS module, aliased in vite.config.ts
-import { PHASES, progress, testRuns } from '@evidence';
+import { PHASES, isGreen, progress, testRuns } from '@evidence';
 import { useAgentState } from './useAgentState';
 import { CheckIcon, ClockIcon, CrossIcon, DotIcon, SpinnerIcon } from './icons';
 
@@ -185,10 +185,10 @@ export function StatusRail() {
 
 function Verdict({ last }: { last: Run }) {
   const [expanded, setExpanded] = useState(false);
-  const failed = /\b(FAILED|FAIL|failures=[1-9]|errors=[1-9]|\d+\s+failed|assertionerror|traceback|not ok)/i.test(
-    last.output,
-  );
-  const green = !failed && (last.exitCode === 0 || /^OK$/im.test(last.output));
+  // The shared rule, not a copy of it. The copy had already drifted: it treated any "N failed" as
+  // a failure including "0 failed", and it did not know that a non-zero exit code decides. Two
+  // implementations of "did this pass" is one more than a product about verdicts can afford.
+  const green = isGreen(last) as boolean;
 
   const text = last.output.trim();
   const long = text.length > 400;

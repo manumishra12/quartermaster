@@ -1,4 +1,4 @@
-import { ComposerContainer, ThreadContainer } from '@truefoundry/trueforge-ui';
+import { ComposerBusyProvider, ComposerContainer, ThreadContainer } from '@truefoundry/trueforge-ui';
 import { StatusRail } from './StatusRail';
 import { Sidebar, SidebarHeader } from './Sidebar';
 import { Topbar } from './Topbar';
@@ -25,7 +25,17 @@ export function QuartermasterLayout({
   onThemeChange: (m: ThemeMode) => void;
   agentName: string;
 }) {
+  /**
+   * ComposerBusyProvider is wired by default inside <Thread />, which this layout does not use - it
+   * composes ThreadContainer and ComposerContainer separately so the rail can sit beside them. The
+   * rail and the topbar both read busy state, so they need the provider mounted above them here.
+   *
+   * Without it they throw on mount and the whole surface renders blank. That shipped, because the
+   * component tests mocked the very hook that was failing and a smoke check on the dev server only
+   * proved the HTML shell was served. There is a mount test now that renders this real tree.
+   */
   return (
+    <ComposerBusyProvider>
     <div className={['flex h-full flex-col bg-bg text-ink lg:flex-row', className].filter(Boolean).join(' ')}>
       <nav
         aria-label="Conversations and agent reach"
@@ -46,5 +56,6 @@ export function QuartermasterLayout({
 
       <StatusRail />
     </div>
+    </ComposerBusyProvider>
   );
 }

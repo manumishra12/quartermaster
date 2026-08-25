@@ -46,10 +46,16 @@ export function SidebarHeader({ mode, onThemeChange }: { mode: ThemeMode; onThem
   );
 }
 
+type Server = {
+  name?: string;
+  require_approval_for_tools?: string[];
+  requireApprovalForTools?: string[];
+};
+
 type SpecShape = {
   model?: { name?: string };
-  mcp_servers?: Array<{ name?: string; require_approval_for_tools?: string[] }>;
-  skills?: Array<{ name?: string }>;
+  mcp_servers?: Server[];
+  mcpServers?: Server[];
   config?: { sandbox?: { enabled?: boolean } };
 };
 
@@ -62,8 +68,18 @@ type SpecShape = {
  * and comments go stale silently.
  */
 function Reach() {
-  const spec = useTrueFoundryAgentSpec() as SpecShape | undefined;
-  const servers = spec?.mcp_servers ?? [];
+  /**
+   * The hook returns a wrapper - { agentSpec, isSpecLoading, updateAgentSpec, ... } - not the spec.
+   * This read the wrapper directly and looked for snake_case fields the runtime does not use, so
+   * the panel was permanently empty: it told every viewer the agent could reach nothing, which for
+   * a panel whose whole job is disclosing reach is the worst way to be wrong.
+   *
+   * Both casings are accepted because the runtime uses camelCase while the JSON specs on disk and
+   * the HTTP API use snake_case, and this panel is fed from whichever the SDK hands over.
+   */
+  const { agentSpec } = (useTrueFoundryAgentSpec() ?? {}) as { agentSpec?: SpecShape | null };
+  const spec = agentSpec ?? undefined;
+  const servers: Server[] = spec?.mcpServers ?? spec?.mcp_servers ?? [];
   const model = spec?.model?.name;
   const sandbox = spec?.config?.sandbox?.enabled;
 
@@ -79,7 +95,7 @@ function Reach() {
         )}
         {servers.length === 0 && !sandbox && <li className="text-sm text-muted">Nothing yet.</li>}
         {servers.map((server) => {
-          const gate = server.require_approval_for_tools ?? ['@write', '@destructive'];
+          const gate = server.require_approval_for_tools ?? server.requireApprovalForTools ?? ['@write', '@destructive'];
           const gated = gate.includes('@all') ? 'all gated' : gate.length > 0 ? 'writes gated' : 'ungated';
           return <Row key={server.name} label={server.name ?? 'connector'} note={gated} warn={gate.length === 0} />;
         })}

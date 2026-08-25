@@ -97,7 +97,7 @@ describe('what it did', () => {
 
   test('long output is truncated with a marker and can be expanded', async () => {
     const user = userEvent.setup();
-    state.executions = [exec(`${'line of output\n'.repeat(60)}OK`, 0)];
+    state.executions = [exec(`${'line of output\n'.repeat(60)}Ran 60 tests in 0.4s\n\nOK`, 0)];
     render(<StatusRail />);
 
     const toggle = screen.getByRole('button', { name: /show full output/i });

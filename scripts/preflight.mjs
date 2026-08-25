@@ -65,7 +65,7 @@ const asList = (v) => (Array.isArray(v) ? v : (v?.items ?? []));
 try {
   await get('/api/v1/capabilities');
   record(true, 'TrueForge server', BASE);
-} catch (err) {
+} catch {
   record(false, 'TrueForge server', `unreachable at ${BASE}`, 'npx @truefoundry/trueforge');
   report();
 }

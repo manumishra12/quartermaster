@@ -16,3 +16,19 @@ Object.defineProperty(window, 'matchMedia', {
     dispatchEvent: vi.fn(),
   }),
 });
+
+/**
+ * jsdom implements neither of these, and the SDK's chat surface uses both. Without them a mount
+ * test fails for a reason that has nothing to do with the code under test.
+ */
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+Object.defineProperty(window, 'ResizeObserver', { writable: true, value: ResizeObserverStub });
+globalThis.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver;
+
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = function scrollIntoView() {};
+}

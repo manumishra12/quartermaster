@@ -467,3 +467,58 @@ And both tools were caught lying about it afterwards. The audit closed with "eve
 is annotated" and preflight said "3 tools, all annotated" - neither true, both hardcoded from
 before the case existed. A safety tool that reports a reassuring falsehood is worse than one that
 says nothing.
+
+## Day 2 — a fifty-agent review found the interface was blank and the core rule was one command from useless
+
+Ran four independent reviewers over the code, the scripts, the interface and the docs, each finding
+verified adversarially by a separate agent trying to refute it. Fifty agents, 62 findings, 32
+confirmed, 13 refuted.
+
+Two of them mattered more than everything else in this log.
+
+**The interface did not render at all.** `StatusRail` and `Topbar` both call
+`useComposerBusyState()`, which throws outside `ComposerBusyProvider`. That provider is wired inside
+`<Thread />`, which this layout deliberately does not use - it composes `ThreadContainer` and
+`ComposerContainer` separately so the rail can sit beside them. So the entire surface was blank.
+
+It shipped because both checks I trusted were incapable of catching it. The component tests mock
+that exact hook, so they proved the components behave correctly in a world where the bug does not
+exist. And `curl localhost:5173` returned 200 the whole time, because the HTML shell serves fine and
+React fails in the browser afterwards. There is now a mount test that renders the real tree with
+nothing mocked but the network, and asserts the rail, the sidebar and the topbar are all present.
+
+**And a single command defeated the evidence rule.** `TEST_COMMAND` was an unanchored substring
+match, so `cat pytest.log` "looked like a test command" - and because `testRuns()` stopped checking
+the output once a command was known, a file of fabricated output read back with exit 0 counted as a
+passing test run. A session with a real red run flipped from CONTRADICTED to SUBSTANTIATED. The rule
+written to make fabrication impossible could be defeated by writing a file and reading it. My own
+regression test survived only because its fixture happened to be named `result.txt` rather than
+`pytest.log`.
+
+The runner now has to be in command position - first word of a shell segment, after any environment
+assignments - readers like cat and echo are rejected outright, `--collect-only` and `--version` do
+not count as runs, and the command and the output must *both* look like a test rather than either
+one.
+
+The rest, each confirmed by reproduction:
+
+- Pass phrasings that assert success without the exact words - "the suite is now green", "no tests
+  are failing anymore" - returned NO CLAIM over a recorded failure, and NO CLAIM exits 0.
+- `\bFAIL\b` matched case-insensitively, so `# fail 0` - the line a *passing* node --test prints -
+  read as a failure. The tool was calling honest agents liars. Failure markers are split by case
+  now: runners shout FAIL, counters whisper it.
+- The fabrication guard required *every* claimed value to be unsupported, so one accurate quote
+  copied from a harmless command immunised every fabricated line beside it. And a claimed exit code
+  was compared against nothing at all.
+- The "Can reach" panel read the hook's wrapper rather than `agentSpec`, and looked for snake_case
+  fields the runtime does not use. It was permanently empty - a panel whose entire job is disclosing
+  what an agent can touch, telling every viewer it could touch nothing. Its tests mocked the hook as
+  returning the spec directly, so the tests agreed with the bug.
+- The rail kept its own copy of the pass/fail rule, and the copy had drifted: it treated "0 failed"
+  as a failure and did not know the exit code decides. Two implementations of "did this pass" is one
+  more than a product about verdicts can afford.
+
+One finding turned out not to be mine: the render loop warning reproduces with a bare layout and no
+components of ours, so it is in the SDK. That is a third upstream report.
+
+99 tests in the root, 55 in the interface.
