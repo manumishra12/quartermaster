@@ -19,6 +19,10 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Vite binds to `localhost`, which on this machine resolved to ::1 only. A browser resolving
+    // localhost to 127.0.0.1 then cannot connect at all, which looks identical to the server
+    // being down. Binding to every interface removes the ambiguity.
+    host: true,
     fs: { allow: ['..'] },
     proxy: {
       '/api': {
