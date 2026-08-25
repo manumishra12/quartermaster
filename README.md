@@ -213,31 +213,41 @@ CI runs all of it on every pull request.
 `zustand@^5` is pinned as a direct dependency in `ui/` on purpose. Without it `@openuidev/*` hoists
 zustand 4.5.7 to the root, `@assistant-ui/core` cannot find `useShallow`, and the build fails.
 
-## Code review
+## Qodo Code Review Evidence
 
-Every change lands through a pull request reviewed by [Qodo](https://www.qodo.ai). `main` is branch
-protected: no direct pushes, no force pushes, no deletions, **including for administrators**.
+Every substantive change lands through a pull request reviewed by [Qodo](https://www.qodo.ai) before
+merge. `main` is branch protected - no direct pushes, no force pushes, no deletions, **including for
+administrators**. That last clause is there because Qodo caught its absence: the protection was
+originally configured with `enforce_admins: false`, so the repository owner could have pushed
+straight to `main` while this file said nobody could. It was fixed by turning enforcement on rather
+than by weakening the claim.
 
-That last clause is there because Qodo caught its absence. The protection was originally configured
-with `enforce_admins: false`, so the repository owner could have pushed straight to `main` while the
-README said nobody could. A governance statement that is true for everyone except the person most
-able to break it is not a governance statement. Enforcement now applies to admins too.
+**Representative merged pull request:
+[#1 - Rebuild the interface on Tailwind with light and dark themes](https://github.com/manumishra12/quartermaster/pull/1)**
+
+Qodo reviewed it twice: once on the initial branch, and again against the final code after the
+fixes. Both reviews and the decisions between them are in the thread.
+
+What it surfaced, and what changed:
+
+| Finding | Decision |
+| --- | --- |
+| **Verifier failures exit successfully** - `npm run verify` had no `errexit`, never checked `agents:apply`, and ended on a successful `echo`, so it returned 0 while printing failures | **Fixed.** It counts failures and exits non-zero, verified by running it against a dead harness. A verification tool that always says yes is worse than none, which is the argument this whole project is built on |
+| **Output dialog steals focus** - an inline `ref={(node) => node?.focus()}` is re-invoked by React on every commit, so focus was dragged back into the dialog continuously while an agent streamed | **Fixed.** Focus is taken once, on open. This was the identical defect Qodo had already found in the approval prompt, reintroduced the moment a second dialog was written |
+| **Disabled tools flagged ungated** - a tool absent from an explicit `enable_tools` allowlist cannot run, yet the audit reported it as an ungated risk | **Fixed.** The audit was contradicting the fail-closed design `SECURITY.md` prescribes, and failing loudest for the specs doing it right. One of our own tests asserted the wrong behaviour and was corrected with it |
+| **Unverified exit codes accepted** - a claimed exit code was only checked when some execution reported a numeric one, so a fabricated `exit code: 0` passed whenever none did | **Fixed.** Having nothing to check against is not the same as having checked |
+| **Mobile sheet stays open** - selecting a conversation left the drawer covering it | **Fixed.** The row closes the sheet, so it works by keyboard as well as pointer |
+| **GitHub writes lack durable approval** - no repository-bound approval artifact independent of the harness | **Dismissed, with reasoning in the thread.** The approval *is* the harness's `tool.approval_required` pause: the turn stops server-side and resumes only when a `user.tool_approval` arrives for that `toolCallId`. Building a second gate beside TrueForge's would contradict the premise of the submission. The blast radius concern is addressed instead by enabling five of the seventeen GitHub write tools, so the agent cannot merge, delete, fork, or create a repository at all |
+| **deepwiki policy duplicated** across both quartermaster specs | **Dismissed, with reasoning.** Agent specs are plain JSON with no include mechanism, and inventing one would put a build step between a reviewer and the safety policy they are reading. A test now fails if the two drift apart |
+
+Also merged: [#2 - Qodo configuration and this section](https://github.com/manumishra12/quartermaster/pull/2),
+where Qodo caught the branch-protection claim above.
 
 `.pr_agent.toml` configures what the review looks for. It is deliberately specific to this project
-rather than a copy of the defaults - a false SUBSTANTIATED verdict is the worst defect this codebase
-can have, so the review is pointed at that first, and at any path where an approval could be granted
-without a human keystroke. Inline comments are limited to findings that must change, because this
-project's own review turned up the lesson that an alarm which fires on everything is one nobody
-reads.
-
-Representative reviewed pull requests:
-
-<!-- Filled in as reviews land. Each entry: what changed, what the review found, what was done. -->
-
-| PR | Change | What the review surfaced, and what was done |
-| --- | --- | --- |
-| [#2](https://github.com/manumishra12/quartermaster/pull/2) | Qodo configuration and this section | Flagged the README claiming `main` was fully protected while `enforce_admins` was false. Fixed by turning enforcement on for admins rather than by weakening the claim. |
-| [#1](https://github.com/manumishra12/quartermaster/pull/1) | Interface rebuild, dual themes, UI tests | _review in progress_ |
+rather than a copy of the defaults: a false SUBSTANTIATED verdict is the worst defect this codebase
+can have, so the review is pointed there first, then at any path where an approval could be granted
+without a human keystroke, then at tests that agree with the bug. That last one has now caught us
+twice.
 
 ## AI assistance
 
