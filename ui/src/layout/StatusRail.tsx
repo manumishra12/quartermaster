@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useComposerBusyState } from '@truefoundry/trueforge-ui';
 // @ts-expect-error - shared JS module, aliased in vite.config.ts
 import { PHASES, isGreen, progress, testRuns } from '@evidence';
@@ -271,6 +271,23 @@ function ApprovalPrompt({
   // state and cannot be acted on at all.
   useEffect(() => setSent(null), [pending?.approvalId]);
 
+  /**
+   * Focus the prompt once, when this approval arrives.
+   *
+   * This was an inline `ref={(node) => node?.focus()}`, which React re-invokes on every commit -
+   * and while an agent streams there is a commit every few hundred milliseconds. The result was
+   * focus being yanked back to the dialog continuously: a keyboard user could not read the
+   * arguments, could not tab to Deny, could not leave. A keyboard trap on the one surface in this
+   * product where someone is deciding whether to allow something irreversible.
+   *
+   * Focus belongs to the person once they have it. This takes it when the prompt appears and never
+   * takes it again.
+   */
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (pending?.approvalId) dialogRef.current?.focus();
+  }, [pending?.approvalId]);
+
   if (!pending) return null;
 
   const decide = (approved: boolean) => {
@@ -288,10 +305,7 @@ function ApprovalPrompt({
       role="alertdialog"
       aria-modal="false"
       aria-label={`Approval required for ${pending.toolName}`}
-      // The agent is stopped and cannot continue until somebody acts, so this takes focus when it
-      // appears. Without it a keyboard user has to hunt for a control that appeared silently
-      // somewhere else on the page, while a turn sits paused.
-      ref={(node) => node?.focus()}
+      ref={dialogRef}
       tabIndex={-1}
       className="rounded-lg border border-waiting/60 bg-surface p-3 shadow-[var(--qm-shadow)] focus:outline-none"
     >

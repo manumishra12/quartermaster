@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
@@ -250,5 +251,37 @@ describe('progress settles', () => {
     state.executions = [RED];
     const { container } = render(<StatusRail />);
     expect(container.querySelector('.qm-spin')).not.toBeNull();
+  });
+});
+
+describe('the approval prompt does not trap focus', () => {
+  const approval = { approvalId: 'ap_1', toolName: 'create_pull_request', argsText: '{}' };
+
+  test('focus is taken once when the prompt appears, and never taken back', async () => {
+    // It used to be an inline ref callback, which React re-invokes on every commit. While an agent
+    // streams that is several times a second, so focus was yanked back continuously: a keyboard
+    // user could not read the arguments, reach Deny, or leave. A trap on the one surface where
+    // somebody decides whether to allow something irreversible.
+    function Harness() {
+      const [n, setN] = useState(0);
+      return (
+        <div>
+          <button type="button" onClick={() => setN(n + 1)}>
+            bump {n}
+          </button>
+          <StatusRail />
+        </div>
+      );
+    }
+
+    state.pendingApprovals = [approval];
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    const bump = screen.getByRole('button', { name: /bump/i });
+    bump.focus();
+    await user.click(bump);
+
+    expect(document.activeElement).toBe(bump);
   });
 });
