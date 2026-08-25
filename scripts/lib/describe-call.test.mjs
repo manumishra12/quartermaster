@@ -19,33 +19,67 @@ test('a pull request shows what it is and where it goes', () => {
   assert.match(out, /base: main/);
 });
 
-test('a file write shows the paths and sizes, not four thousand characters of JSON', () => {
-  // The case this exists for: the operator used to see 800 characters of a blob and type allow.
+test('a file write shows the whole body, not its first line', () => {
+  // Two unrelated files share a first line every day. Showing only that let an operator approve
+  // code they had never seen, while the display read as a complete account of the change.
   const out = render('push_files', {
     owner: 'o',
     repo: 'r',
     branch: 'fix/x',
     files: [
-      { path: 'ledger/money.py', content: 'def split_evenly():\n' + 'y'.repeat(3000) },
-      { path: 'tests/test_money.py', content: 'import unittest\n' + 'z'.repeat(500) },
+      { path: 'ledger/money.py', content: 'def split_evenly():\n    return REMAINDER_GOES_HERE' },
+      { path: 'tests/test_money.py', content: 'import unittest\nassert True' },
     ],
   });
   assert.match(out, /writes 2 file\(s\)/);
-  assert.match(out, /ledger\/money\.py {2}3020 bytes/);
-  assert.match(out, /first line: def split_evenly\(\):/);
-  assert.ok(out.length < 900, 'the summary must stay readable');
+  assert.match(out, /ledger\/money\.py {2}50 bytes/);
+  assert.match(out, /REMAINDER_GOES_HERE/, 'the body must be visible, not just the first line');
+  assert.match(out, /assert True/);
 });
 
-test('a long value is truncated with its true length stated', () => {
-  const out = render('create_issue', { title: 'a'.repeat(400) });
-  assert.match(out, /\(400 chars\)/);
+test('bytes are counted as bytes, not as UTF-16 code units', () => {
+  // e-acute is two bytes and the emoji is four. Calling string length "bytes" understated both.
+  const out = render('create_or_update_file', { path: 'note.md', content: 'é😀' });
+  assert.match(out, /note\.md {2}6 bytes/);
 });
 
-test('many files are counted rather than listed forever', () => {
+test('text that will be published is shown in full', () => {
+  // A pull request body and an issue comment are read by other people. Truncating them at 120
+  // characters meant everything after that was approved unseen and published anyway.
+  const body = `${'a'.repeat(300)}TRAILING_CLAUSE`;
+  const out = render('create_pull_request', { owner: 'o', repo: 'r', title: 't', body });
+  assert.match(out, /TRAILING_CLAUSE/);
+});
+
+test('every path is listed, however many there are', () => {
+  // Stopping at ten meant the eleventh path - the interesting one - never reached the operator.
   const files = Array.from({ length: 25 }, (_, i) => ({ path: `f${i}.txt`, content: 'x' }));
   const out = render('push_files', { files });
   assert.match(out, /writes 25 file\(s\)/);
-  assert.match(out, /… and 15 more/);
+  assert.match(out, /f24\.txt/);
+  assert.doesNotMatch(out, /and \d+ more/);
+});
+
+test('terminal control characters cannot rewrite the prompt', () => {
+  // Formatted output has to escape these deliberately; the raw JSON it replaced escaped them
+  // for free. A carriage return alone lets a crafted path overwrite the line above it.
+  const esc = String.fromCharCode(27);
+  const out = render('create_or_update_file', {
+    path: `ok.txt${esc}[2J${String.fromCharCode(13)}  tool: harmless_tool`,
+    content: `body${String.fromCharCode(7)}`,
+  });
+  assert.doesNotMatch(out, new RegExp(esc), 'no raw escape character may reach the terminal');
+  assert.doesNotMatch(out, /\r/, 'no raw carriage return may reach the terminal');
+  assert.match(out, /\\x1b/, 'it is escaped and still visible');
+  assert.match(out, /\\x07/);
+});
+
+test('a display it cannot complete says so instead of trailing off', () => {
+  const out = render('push_files', {
+    files: [{ path: 'huge.txt', content: 'x'.repeat(60_000) }],
+  });
+  assert.match(out, /display incomplete/);
+  assert.match(out, /deny unless/);
 });
 
 test('fields it does not recognise are still shown, so the summary hides nothing', () => {
