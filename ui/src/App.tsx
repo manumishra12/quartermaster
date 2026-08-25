@@ -19,7 +19,7 @@ export default function App() {
   // The SDK renders the transcript and composer, so it needs the same palette we do. One resolved
   // theme drives both; two sources of colour would drift within a release.
   const Layout = useCallback(
-    (props: { className?: string }) => <QuartermasterLayout {...props} mode={mode} onThemeChange={choose} />,
+    (props: { className?: string }) => <QuartermasterLayout {...props} mode={mode} onThemeChange={choose} agentName={AGENT_NAME} />,
     [mode, choose],
   );
 

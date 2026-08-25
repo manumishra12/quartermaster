@@ -1,6 +1,7 @@
 import { ComposerContainer, ThreadContainer } from '@truefoundry/trueforge-ui';
 import { StatusRail } from './StatusRail';
 import { Sidebar, SidebarHeader } from './Sidebar';
+import { Topbar } from './Topbar';
 import type { ThemeMode } from './useTheme';
 
 /**
@@ -17,10 +18,12 @@ export function QuartermasterLayout({
   className,
   mode,
   onThemeChange,
+  agentName,
 }: {
   className?: string;
   mode: ThemeMode;
   onThemeChange: (m: ThemeMode) => void;
+  agentName: string;
 }) {
   return (
     <div className={['flex h-full flex-col bg-bg text-ink lg:flex-row', className].filter(Boolean).join(' ')}>
@@ -37,6 +40,7 @@ export function QuartermasterLayout({
         <div className="lg:hidden">
           <SidebarHeader mode={mode} onThemeChange={onThemeChange} />
         </div>
+        <Topbar agentName={agentName} />
         <ThreadContainer composer={<ComposerContainer placeholder="Point it at a failing test…" />} />
       </main>
 
