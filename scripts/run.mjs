@@ -67,8 +67,32 @@ const denied = new Set();
 let finalText = '';
 /** A turn that stopped because a connector needs authorizing has not finished, whatever it says. */
 let blockedOnAuth = false;
-const interactive = stdin.isTTY;
-const rl = interactive ? createInterface({ input: stdin, output: stdout }) : null;
+/**
+ * A pipe is an operator too.
+ *
+ * The readline interface was created only for a TTY, so `echo deny | ...` was not read at all - the
+ * answer came from the fallback, and `echo allow | ...` denied just the same. That is safe, but it
+ * is safe by not listening, which made the documented example a demonstration of nothing and would
+ * have made a scripted approval silently impossible. Reading the pipe changes none of the safety:
+ * the answer still has to be one of the exact allowing words, and reaching end of input without
+ * one is still a denial.
+ */
+const piped = !stdin.isTTY;
+const rl = piped ? null : createInterface({ input: stdin, output: stdout });
+
+/**
+ * Piped answers are read up front, not when the question is asked.
+ *
+ * A pipe reaches end of input long before the agent gets far enough to need an answer, so a
+ * readline attached to it had already seen and discarded every line by the time anything was
+ * asked. Draining it first keeps the answers in the order they were written.
+ */
+const queued = [];
+if (piped) {
+  let buffer = '';
+  for await (const chunk of stdin) buffer += chunk;
+  queued.push(...buffer.split('\n').map((line) => line.trim()).filter(Boolean));
+}
 
 /**
  * Ask the operator, or fall back when there is no operator to ask.
@@ -77,11 +101,14 @@ const rl = interactive ? createInterface({ input: stdin, output: stdout }) : nul
  * is not a gate, and this agent's whole argument is that the unattended path must be the safe one.
  */
 async function ask(question, fallback) {
-  if (!rl) {
-    console.log(`${question}${fallback}   [non-interactive]`);
+  const answer = piped ? queued.shift() : (await rl.question(question).catch(() => null))?.trim();
+  // Running out of answers is not an answer. Whatever the caller's fallback is, silence gets it.
+  if (answer == null || answer === '') {
+    console.log(`${question}${fallback}   [no answer given]`);
     return fallback;
   }
-  return (await rl.question(question)).trim();
+  if (piped) console.log(`${question}${answer}   [from stdin]`);
+  return answer;
 }
 
 /** Fold one event into local state. Shared by the live stream and the replay path. */

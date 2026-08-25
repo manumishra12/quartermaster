@@ -136,7 +136,7 @@ echo deny | npm run agent -- --agent gate-demo "Post the comment 'gate check' on
   -- APPROVAL REQUIRED ------------------------------
   tool: add_issue_comment
   args: {"issue_number":1,"body":"gate check","owner":"...","repo":"..."}
-  allow / deny > deny
+  allow / deny > deny   [from stdin]
   -> denied
 
   [tool] refused: add_issue_comment
@@ -147,8 +147,12 @@ echo deny | npm run agent -- --agent gate-demo "Post the comment 'gate check' on
 ```
 
 Nothing was posted, and the report records the refusal as a refusal rather than as something that
-happened. Answer `allow` instead and the comment is posted - the point of denying first is that
+happened. Pipe `allow` instead and the comment is posted - the point of denying first is that
 anyone can show a button that says Allow.
+
+Only the exact words `allow`, `yes`, `y` and `approve` approve. Anything else is a denial, and so
+is reaching the end of the input without an answer: `abort` denies, and an empty pipe denies. The
+unattended path is the safe one.
 
 `analytics` is the honest exception. Its SQL runs through the sandbox shell, which is not an MCP
 tool, so there is no `require_approval_for_tools` entry that could gate it. It does pause before a
