@@ -25,12 +25,17 @@ const HEADLINE = ['owner', 'repo', 'repository', 'branch', 'base', 'head', 'ref'
  * colour a forged line - rewriting the approval prompt the operator is reading. Raw JSON was
  * accidentally safe here, because JSON escapes its own control characters; formatted output has to
  * do it deliberately. Tab and newline survive, since layout is this file's own business.
+ *
+ * Bidirectional controls belong here too. They are not C0 or C1 and they print as nothing, but
+ * U+202E reverses the run that follows it and the isolates U+2066-U+2069 reorder text around it -
+ * so a path or a title can be made to read as something other than what will be sent, which is
+ * the same attack as clearing the screen, done quietly.
  */
 function visible(value) {
   return String(value).replace(
     // Matching control characters is the whole point here: they are what has to be escaped.
     // eslint-disable-next-line no-control-regex
-    /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/g,
+    /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200E\u200F\u061C\u202A-\u202E\u2066-\u2069]/g,
     (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`,
   );
 }
@@ -56,12 +61,16 @@ function byteLength(text) {
 
 function field(label, value) {
   if (value === undefined || value === null || value === '') return [];
+  // The label is a JSON property name from the call, so it is argument-controlled like any value.
+  // Unknown keys are deliberately rendered, so a key holding a newline or an escape sequence could
+  // inject or overwrite a line of the very prompt the operator is reading.
+  const safe = oneLine(label);
   const text = typeof value === 'string' ? value : JSON.stringify(value) ?? '';
   // Anything that will be published or written is shown whole, on its own lines if it has any.
   if (text.includes('\n') || text.length > 200) {
-    return [`    ${label}: ${byteLength(text)} bytes`, ...block(text, '      ')];
+    return [`    ${safe}: ${byteLength(text)} bytes`, ...block(text, '      ')];
   }
-  return [`    ${label}: ${oneLine(text)}`];
+  return [`    ${safe}: ${oneLine(text)}`];
 }
 
 /**

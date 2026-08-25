@@ -96,3 +96,29 @@ test('unparseable arguments are shown raw rather than summarised away', () => {
 test('a call with no arguments still names the tool', () => {
   assert.match(describeCall('merge_pull_request', '').join('\n'), /merge_pull_request/);
 });
+
+test('bidirectional controls cannot reorder what the operator reads', () => {
+  /**
+   * These are not C0 or C1 and they print as nothing, but U+202E reverses the run after it and
+   * the isolates reorder text around it - so a path can be made to read as something other than
+   * what will be sent. Same attack as clearing the screen, done quietly.
+   */
+  const rlo = String.fromCharCode(0x202e);
+  const isolate = String.fromCharCode(0x2066);
+  const out = describeCall(
+    'create_or_update_file',
+    JSON.stringify({ path: `safe${rlo}gnp.exe`, title: `a${isolate}b` }),
+  ).join('\n');
+  assert.doesNotMatch(out, new RegExp(rlo));
+  assert.doesNotMatch(out, new RegExp(isolate));
+  assert.match(out, /\\x202e/);
+  assert.match(out, /\\x2066/);
+});
+
+test('a field name cannot forge a line of the prompt', () => {
+  // Unknown keys are deliberately rendered, so the label is argument-controlled like any value.
+  // A key holding a newline could inject a line into the display the operator is reading.
+  const out = describeCall('some_tool', JSON.stringify({ 'bad\nkey': 'x' })).join('\n');
+  assert.doesNotMatch(out, /^bad$/m);
+  assert.match(out, /bad\\nkey/);
+});
