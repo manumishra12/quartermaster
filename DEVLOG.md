@@ -408,3 +408,34 @@ Also normalised the spacing rhythm to three gap values. Four had accumulated, wh
 decision, and it shows up as lines that almost line up.
 
 122 tests across the two packages.
+
+## Day 2 — dependencies, and a sidebar that answers the right question
+
+Updated the whole toolchain: Vite 6 to 8, Vitest 3 to 4, jsdom 25 to 30, plugin-react 4 to 6,
+jest-dom 6 to 7, @types/node 22 to 26, and TypeScript 5.9 to 7. Everything passed on the first try.
+The UI build went from 27 seconds to under three - Vite 8 and the native TypeScript compiler
+between them are close to an order of magnitude.
+
+Then rebuilt the sidebar, which had been a brand header and a list of past conversations.
+
+The list is the least important thing in that column. This product exists to answer one question
+before anything else - **what is this agent allowed to touch** - and that was only visible by
+opening a settings page in a different application. The sidebar now ends with the agent's standing
+reach: its sandbox, every connector, and the gate standing in front of each one.
+
+Read from the live agent spec, not written by hand. A hand-written list of what an agent can reach
+is a comment, and comments go stale silently. For this panel, going stale means telling somebody a
+write is gated when it is not.
+
+The dangerous case gets said out loud: a connector attached with `require_approval_for_tools: []`
+renders as **ungated**, in the failure colour. An interface that stayed quiet there would be hiding
+the exact thing it exists to surface. There is a test for it.
+
+Also fixed something the extraction exposed: the narrow-screen layout was rendering the entire
+sidebar - thread list, reach panel and all - stacked on top of the conversation. Only the header
+crosses that breakpoint now.
+
+And added proper heading levels. The rail was using h2 with no h1 anywhere, which is how the page
+reads to somebody navigating by headings.
+
+Forty-seven UI tests, 131 across the project.

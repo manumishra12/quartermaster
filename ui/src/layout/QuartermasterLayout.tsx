@@ -1,6 +1,6 @@
-import { ComposerContainer, ThreadContainer, ThreadListContainer } from '@truefoundry/trueforge-ui';
+import { ComposerContainer, ThreadContainer } from '@truefoundry/trueforge-ui';
 import { StatusRail } from './StatusRail';
-import { ThemeToggle } from './ThemeToggle';
+import { Sidebar, SidebarHeader } from './Sidebar';
 import type { ThemeMode } from './useTheme';
 
 /**
@@ -25,38 +25,22 @@ export function QuartermasterLayout({
   return (
     <div className={['flex h-full flex-col bg-bg text-ink lg:flex-row', className].filter(Boolean).join(' ')}>
       <nav
-        aria-label="Conversations"
-        className="hidden min-h-0 w-64 shrink-0 flex-col border-r border-line-soft lg:flex"
+        aria-label="Conversations and agent reach"
+        className="hidden w-64 shrink-0 border-r border-line-soft lg:block"
       >
-        <Brand mode={mode} onThemeChange={onThemeChange} />
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <ThreadListContainer />
-        </div>
+        <Sidebar mode={mode} onThemeChange={onThemeChange} />
       </nav>
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {/* On a narrow screen only the header comes across. The conversation list and the reach
+            panel belong behind a control there, not stacked on top of the conversation. */}
         <div className="lg:hidden">
-          <Brand mode={mode} onThemeChange={onThemeChange} />
+          <SidebarHeader mode={mode} onThemeChange={onThemeChange} />
         </div>
         <ThreadContainer composer={<ComposerContainer placeholder="Point it at a failing test…" />} />
       </main>
 
       <StatusRail />
     </div>
-  );
-}
-
-function Brand({ mode, onThemeChange }: { mode: ThemeMode; onThemeChange: (m: ThemeMode) => void }) {
-  return (
-    <header className="flex items-center gap-2.5 border-b border-line-soft px-5 py-4">
-      <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-line-soft bg-surface">
-        <img src="/mark.svg" alt="" width={18} height={18} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="text-base font-semibold leading-tight tracking-[-0.01em]">Quartermaster</div>
-        <div className="text-2xs text-muted">proves it, then asks</div>
-      </div>
-      <ThemeToggle mode={mode} onChange={onThemeChange} />
-    </header>
   );
 }
