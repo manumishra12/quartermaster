@@ -273,6 +273,29 @@ export function isGreen(run) {
   return PASSED.test(run.output);
 }
 
+/** The runner and the report disagreed about this once; they share it now. */
+function normalise(toolResponses = []) {
+  return toolResponses.map((r) => (r?.output !== undefined ? r : resultOf(r)));
+}
+
+/**
+ * The calls that actually ran.
+ *
+ * A call the operator refused is still delivered as a tool response, with no output and no exit
+ * code - indistinguishable from a command that ran and printed nothing. Counting it as an
+ * execution let a refusal strengthen the evidence rather than weaken it: the guard that catches an
+ * answer with nothing behind it asks whether anything ran at all, and a denial answered yes. The
+ * gate exists to stop things happening, so what it stops cannot be filed under what happened.
+ */
+export function performed(toolResponses = []) {
+  return normalise(toolResponses).filter((r) => !r.denied);
+}
+
+/** The calls the operator refused. Worth reporting; never worth counting as evidence. */
+export function refused(toolResponses = []) {
+  return normalise(toolResponses).filter((r) => r.denied);
+}
+
 /**
  * Every recorded execution that is a test run.
  *
@@ -280,8 +303,7 @@ export function isGreen(run) {
  * `echo ok`, a curl header, and a file the agent wrote itself and read back all count as proof.
  */
 export function testRuns(toolResponses) {
-  const executions = toolResponses.map((r) => (r?.exitCode !== undefined && r?.output !== undefined ? r : resultOf(r)));
-  return executions.filter((r) => {
+  return performed(toolResponses).filter((r) => {
     // When the command is known it must be a test invocation AND the output must look like one.
     // Either alone is forgeable: the command by naming a log file, the output by writing it.
     if (r.command != null) return looksLikeTestCommand(r.command) && RAN_TESTS.test(r.output);
@@ -309,7 +331,7 @@ export function judge({ finalText = '', toolResponses = [] }) {
   const claimedPass = CLAIM.test(finalText);
   const claimedRun = CLAIM_EXECUTED.test(finalText) || CLAIM_REPORT_FORM.test(finalText);
 
-  const executions = toolResponses.map((r) => (r?.output !== undefined ? r : resultOf(r)));
+  const executions = performed(toolResponses);
 
   if (executions.length === 0 && looksLikeUnexecutedToolCall(finalText)) {
     return {

@@ -18,7 +18,7 @@ import { TrueForge, isEventDelta, mergeEventDelta } from '@truefoundry/trueforge
 import { loadEnv } from './lib/env.mjs';
 
 loadEnv();
-import { judge, resultOf, SUBSTANTIATED, NO_CLAIM } from './lib/evidence.mjs';
+import { judge, performed, refused, resultOf, SUBSTANTIATED, NO_CLAIM } from './lib/evidence.mjs';
 import { buildReport } from './lib/report.mjs';
 
 const argv = process.argv.slice(2);
@@ -55,6 +55,8 @@ const save = () => {
 
 const events = new Map();
 const toolResponses = [];
+/** Tool call ids the operator refused, so the record can tell a refusal from a silent success. */
+const denied = new Set();
 let finalText = '';
 /** A turn that stopped because a connector needs authorizing has not finished, whatever it says. */
 let blockedOnAuth = false;
@@ -113,8 +115,14 @@ function absorb(event, sequenceId) {
       // Attach the command that produced this output. Without it the evidence rules can only
       // classify a test run by how its text looks, and `echo ok` looks like a passing test.
       const command = commandFor(event.toolCallId);
-      toolResponses.push(resultOf(event, command));
-      console.log(`\n  [tool] recorded${command ? `: ${command.slice(0, 70)}` : ''}`);
+      /**
+       * A refused call arrives here like any other, with no output and no exit code. Recorded
+       * plainly it is indistinguishable from a command that ran and printed nothing, and the
+       * evidence then counts the thing the gate stopped as a thing that happened.
+       */
+      const wasDenied = denied.has(event.toolCallId);
+      toolResponses.push({ ...resultOf(event, command), denied: wasDenied });
+      console.log(`\n  [tool] ${wasDenied ? 'refused' : 'recorded'}${command ? `: ${command.slice(0, 70)}` : ''}`);
       break;
     }
   }
@@ -243,6 +251,7 @@ for (let hop = 0; hop < 24; hop++) {
           ? { status: 'allow' }
           : { status: 'deny', reason: denyAll ? 'denied by --deny-all' : 'denied by the operator' },
       });
+      if (!allowed) denied.add(ref.id);
       console.log(`  -> ${allowed ? 'allowed' : 'denied'}\n`);
     }
   }
@@ -314,7 +323,14 @@ const label = LABELS[verdict] ?? `UNKNOWN VERDICT (${verdict})`;
 console.log('\n  ── EVIDENCE CHECK ─────────────────────────────────');
 console.log(`  ${label}`);
 console.log(`  ${reason}`);
-console.log(`  recorded executions: ${toolResponses.length}, of which test runs: ${runs.length}`);
+// The terminal and the written report have to agree; counting raw responses here meant the line
+// on screen said one execution while the report on disk said none, for the same refused call.
+const ran = performed(toolResponses);
+const stopped = refused(toolResponses);
+console.log(`  recorded executions: ${ran.length}, of which test runs: ${runs.length}`);
+if (stopped.length) {
+  console.log(`  refused at the gate: ${stopped.length} (not counted as evidence)`);
+}
 
 // The terminal scrolls. The artifact does not - and a reviewer needs the executions themselves,
 // not a summary of them.
