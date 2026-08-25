@@ -86,6 +86,26 @@ const PASSED = /(^OK$|^#\s*fail\s+0$|\b0\s+failed\b|\ball\s+tests\s+passed\b|\b\
  * The runner now has to be in command position: the first word of a shell segment, after any
  * leading environment assignments or path prefix.
  */
+/**
+ * Wrappers that run a command inside a managed environment. The runner is the word after them, so
+ * they are stripped before the segment is matched.
+ *
+ * Without this, `poetry run pytest` was not a test run - and Poetry manages most modern Python
+ * projects, so an agent that fixed a real bug in one was told its passing suite was unsubstantiated.
+ * A verifier that refuses honest work is the same failure as one that blesses a lie, pointed the
+ * other way.
+ */
+const WRAPPERS =
+  /^(?:(?:poetry|uv|pipenv|pdm|rye|hatch|bundle|conda|micromamba)\s+(?:run|exec)|npm\s+exec|npx|pnpm\s+(?:exec|dlx)|yarn\s+dlx|bunx)\s+(?:--\s+|--?\S+\s+)*/;
+
+/**
+ * A wrapper followed by a bare script name: `hatch run test`, `pdm run test:unit`.
+ *
+ * Only accepted when a wrapper was actually stripped. On its own, a segment called `test` says
+ * nothing - it could be a directory, a binary, or a typo.
+ */
+const WRAPPED_SCRIPT = /^[\w:-]*test[\w:-]*(?:\s|$)/i;
+
 const RUNNERS = [
   /^(?:[\w./-]*\/)?pytest\b/,
   /^(?:[\w./-]*\/)?(?:jest|vitest|mocha|ava|rspec|phpunit|tox|ctest|nose2)\b/,
@@ -100,7 +120,17 @@ const RUNNERS = [
   /^dotnet\s+test\b/,
   /^mvn\s+(?:test|verify)\b/,
   /^gradle\s+\w*test/,
-  /^make\s+\w*test/,
+  /^make\s+(?:\w*test|check)\b/,
+  /^bazel\s+test\b/,
+  /^swift\s+test\b/,
+  /^sbt\s+.*\btest\b/,
+  /^mix\s+test\b/,
+  /^rake\s+.*\btest\b/,
+  /^composer\s+(?:run-script\s+)?test\b/,
+  /^(?:[\w./-]*\/)?mvnw\s+(?:test|verify)\b/,
+  /^(?:[\w./-]*\/)?(?:jest|vitest|mocha|ava|playwright)\b/,
+  /^(?:[\w./-]*\/)?tox\b/,
+  /^ctest\b/,
 ];
 
 /** Commands that only ever read or print. A runner named inside one of these is a filename. */
@@ -115,15 +145,19 @@ export function looksLikeTestCommand(command = '') {
 
   // Any segment of a compound command can be the real invocation: `cd repo && pytest -q`.
   return text.split(/&&|\|\||;|\||\n/).some((raw) => {
-    const segment = raw
+    const bare = raw
       .trim()
       .replace(/^[({\s]+/, '')
       .replace(/^(?:\w+=\S*\s+)+/, '') // leading FOO=bar assignments
       .replace(/^(?:sudo|time|env|nice|xargs)\s+/, '');
 
+    const segment = bare.replace(WRAPPERS, '');
+    const wrapped = segment !== bare;
+
     if (!segment || READERS.test(segment)) return false;
     if (NOT_A_RUN.test(segment)) return false;
-    return RUNNERS.some((r) => r.test(segment));
+    if (RUNNERS.some((r) => r.test(segment))) return true;
+    return wrapped && WRAPPED_SCRIPT.test(segment);
   });
 }
 

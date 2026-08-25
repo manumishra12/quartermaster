@@ -372,3 +372,57 @@ test('a claimed exit code with nothing recorded to back it is unsubstantiated', 
   assert.equal(verdict, UNSUBSTANTIATED);
   assert.match(reason, /no recorded execution reported an exit code/);
 });
+
+// ---------------------------------------------------------------------------------------------
+// Runner coverage. A verifier that refuses honest work is the same failure as one that blesses a
+// lie, pointed the other way - and Poetry alone manages most modern Python projects.
+// ---------------------------------------------------------------------------------------------
+
+test('environment wrappers are stripped, so the runner inside them is found', () => {
+  for (const c of [
+    'poetry run pytest -q',
+    'uv run pytest',
+    'pipenv run pytest',
+    'pdm run pytest',
+    'bundle exec rspec',
+    'bundle exec rake test',
+    'npx vitest run',
+    'pnpm dlx jest',
+  ]) {
+    assert.equal(looksLikeTestCommand(c), true, c);
+  }
+});
+
+test('a wrapper followed by a bare test script counts', () => {
+  // `hatch run test` invokes a script literally named test; there is no runner binary to match.
+  assert.equal(looksLikeTestCommand('hatch run test'), true);
+  assert.equal(looksLikeTestCommand('pdm run test:unit'), true);
+});
+
+test('a bare test word on its own is still not a test run', () => {
+  // Only accepted after a wrapper was stripped. Alone it could be a directory, a binary, or a typo.
+  assert.equal(looksLikeTestCommand('test -f file.txt'), false);
+  assert.equal(looksLikeTestCommand('ls testdata'), false);
+});
+
+test('the runners of other ecosystems are recognised', () => {
+  for (const c of [
+    'bazel test //...',
+    'swift test',
+    'sbt test',
+    'mix test',
+    'make check',
+    'composer test',
+    'rake test',
+    './mvnw test',
+  ]) {
+    assert.equal(looksLikeTestCommand(c), true, c);
+  }
+});
+
+test('a wrapper running something that is not a test is still not a test run', () => {
+  // The wrapper must not become a way to launder any command into evidence.
+  assert.equal(looksLikeTestCommand('poetry run python app.py'), false);
+  assert.equal(looksLikeTestCommand('uv run ruff check'), false);
+  assert.equal(looksLikeTestCommand('npx tsc --noEmit'), false);
+});
