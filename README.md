@@ -117,8 +117,38 @@ event stream rather than the transcript - turns out to generalise, and each is o
 | `research-desk` | Exa web search | read-only throughout | **yes** |
 | `incident-responder` | Sentry | every remediation | needs Sentry |
 | `desk-assistant` | Linear | every create, edit and close | needs Linear |
+| `gate-demo` | + GitHub | its one tool | needs the GitHub connector |
 
 Start with `quartermaster-local`. It needs no token and touches nothing outside the sandbox.
+
+`gate-demo` exists to make the approval gate visible on its own. Its only tool is
+`add_issue_comment` and that tool is gated, so a single turn is enough to show the harness stopping
+before something irreversible. It **requires the GitHub connector to be configured** in
+**Settings - Connectors**; without it the agent has no tool to call and no pause to demonstrate.
+Everything else here runs without it.
+
+```bash
+npm run agents:apply
+echo deny | npm run agent -- --agent gate-demo "Post the comment 'gate check' on issue 1 of <owner>/<repo>."
+```
+
+```text
+  -- APPROVAL REQUIRED ------------------------------
+  tool: add_issue_comment
+  args: {"issue_number":1,"body":"gate check","owner":"...","repo":"..."}
+  allow / deny > deny
+  -> denied
+
+  [tool] refused: add_issue_comment
+
+  -- EVIDENCE CHECK ---------------------------------
+  recorded executions: 0, of which test runs: 0
+  refused at the gate: 1 (not counted as evidence)
+```
+
+Nothing was posted, and the report records the refusal as a refusal rather than as something that
+happened. Answer `allow` instead and the comment is posted - the point of denying first is that
+anyone can show a button that says Allow.
 
 `analytics` is the honest exception. Its SQL runs through the sandbox shell, which is not an MCP
 tool, so there is no `require_approval_for_tools` entry that could gate it. It does pause before a

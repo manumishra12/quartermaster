@@ -47,7 +47,7 @@ const client = new TrueForge({
  * server. This process is disposable by design.
  */
 const CHECKPOINT = '.quartermaster/run.json';
-let checkpoint = { sessionId: null, turnId: null, lastSequenceNumber: 0, agentName };
+let checkpoint = { sessionId: null, turnId: null, lastSequenceNumber: 0, agentName, denied: [] };
 const save = () => {
   mkdirSync('.quartermaster', { recursive: true });
   writeFileSync(CHECKPOINT, JSON.stringify(checkpoint, null, 2));
@@ -55,7 +55,14 @@ const save = () => {
 
 const events = new Map();
 const toolResponses = [];
-/** Tool call ids the operator refused, so the record can tell a refusal from a silent success. */
+/**
+ * Tool call ids the operator refused, so the record can tell a refusal from a silent success.
+ *
+ * This lives in the checkpoint rather than only in memory. A refusal is a decision a person made,
+ * and it has to outlive the process: on --resume the response for a stopped call is replayed, and
+ * a set that started empty filed it as a real execution - so the report said the call ran, and the
+ * guard against a claim with nothing behind it counted the thing the gate had stopped.
+ */
 const denied = new Set();
 let finalText = '';
 /** A turn that stopped because a connector needs authorizing has not finished, whatever it says. */
@@ -155,6 +162,7 @@ async function consume(stream) {
 async function reattach() {
   try {
     checkpoint = { ...checkpoint, ...JSON.parse(readFileSync(CHECKPOINT, 'utf8')) };
+  for (const id of checkpoint.denied ?? []) denied.add(id);
   } catch {
     console.error(`No checkpoint at ${CHECKPOINT}. Start a run first.`);
     process.exit(2);
@@ -251,7 +259,11 @@ for (let hop = 0; hop < 24; hop++) {
           ? { status: 'allow' }
           : { status: 'deny', reason: denyAll ? 'denied by --deny-all' : 'denied by the operator' },
       });
-      if (!allowed) denied.add(ref.id);
+      if (!allowed) {
+        denied.add(ref.id);
+        checkpoint.denied = [...denied];
+        save();
+      }
       console.log(`  -> ${allowed ? 'allowed' : 'denied'}\n`);
     }
   }

@@ -53,6 +53,18 @@ function fenceFor(content = '') {
  */
 const openFence = (content) => `${fenceFor(content)}text`;
 
+/**
+ * Inline code that cannot be closed from inside. The delimiter is longer than any run of backticks
+ * in the content, and newlines become spaces because inline code is one line by definition.
+ */
+function inlineCode(value) {
+  const text = String(value).replace(/\r?\n/g, ' ');
+  const longest = Math.max(0, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
+  const ticks = '`'.repeat(longest + 1);
+  // A space keeps a leading or trailing backtick in the content from merging with the delimiter.
+  return `${ticks} ${text} ${ticks}`;
+}
+
 function render(r, runs) {
   const lines = [
     `# Evidence report`,
@@ -107,7 +119,10 @@ function render(r, runs) {
     // Named, so the report says what the agent wanted to do and was not allowed to - which is the
     // interesting part of a gated run - without filing any of it under what happened.
     lines.push('## Refused at the gate', '');
-    for (const e of r.refused) lines.push(`- \`${e.command ?? 'unnamed call'}\` - denied, did not run`);
+    // The command is model-controlled. Interpolated raw into inline code it could close its own
+    // span and write headings or a reassuring verdict into the report a person reads to find out
+    // what happened - a call the gate stopped, editing the record of having been stopped.
+    for (const e of r.refused) lines.push(`- ${inlineCode(e.command ?? 'unnamed call')} - denied, did not run`);
     lines.push('');
   }
 
