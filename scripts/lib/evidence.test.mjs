@@ -530,3 +530,25 @@ test('a wrapped script name must be the whole word, not a substring of one', () 
   assert.equal(looksLikeTestCommand('hatch run test'), true);
   assert.equal(looksLikeTestCommand('pdm run test:unit'), true);
 });
+
+test('constructions that only look like commands are not runs', () => {
+  /**
+   * Each of these was found by review after a previous loosening. They share a shape: the command
+   * carries text that reads like an invocation and text that reads like its passing output, so one
+   * recorded execution supplies both halves of a proof with no test behind either.
+   */
+  // $((...)) is arithmetic. Bash evaluates it as a variable and runs nothing.
+  assert.equal(looksLikeTestCommand('echo $((pytest)) 1 passed'), false);
+  // Only echo runs here; the quoted text is its argument, not a second command.
+  assert.equal(looksLikeTestCommand(`echo "$(echo 'x; pytest') 1 passed"`), false);
+  // A heredoc nested inside a substitution is still a heredoc.
+  assert.equal(looksLikeTestCommand('echo "$(cat <<EOF\npytest\n1 passed\nEOF)"'), false);
+});
+
+test('nesting does not hide a genuine run either', () => {
+  // The same constructions with something real inside them. Every guard above has to be a guard
+  // against fabrication, not against depth - calling honest work a lie is the same failure.
+  assert.equal(looksLikeTestCommand(`echo "$(printf ')' && pytest -q)"`), true);
+  assert.equal(looksLikeTestCommand("cat <<$'EOF'\ndata\nEOF\npytest -q"), true);
+  assert.equal(looksLikeTestCommand('echo "$(cd project && pytest -q)"'), true);
+});

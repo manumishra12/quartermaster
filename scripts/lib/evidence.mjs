@@ -195,6 +195,11 @@ function heredocsOn(line) {
           else delim += d;
           continue;
         }
+        // `<<$'EOF'` is ANSI-C quoting: the delimiter is EOF, not $EOF. Keeping the dollar meant
+        // the real terminator never matched and the commands after it were eaten as data.
+        if (d === '$' && (line[j + 1] === "'" || line[j + 1] === '"')) {
+          continue;
+        }
         if (d === "'" || d === '"') {
           inner = d;
           quoted = true;
@@ -296,11 +301,30 @@ function expandedSubstitutions(text) {
 
     // Double quotes still expand, so this runs whether or not we are inside them.
     if (c === '$' && text[i + 1] === '(') {
+      // `$((...))` is arithmetic, not a command: bash evaluates `$((pytest))` as a variable and
+      // runs nothing. Counted as a substitution it produced the segment `pytest)`, which reads as
+      // an invocation, and an echoed "1 passed" beside it completed the forgery.
+      if (text[i + 2] === '(') {
+        const close = text.indexOf('))', i + 3);
+        i = close === -1 ? text.length : close + 1;
+        continue;
+      }
       let depth = 1;
       let j = i + 2;
+      // Parentheses inside quotes are data. Counting them truncated the body of
+      // `$(printf ')' && pytest -q)` at the printf argument and lost a genuine run.
+      let inner = null;
       for (; j < text.length && depth > 0; j += 1) {
-        if (text[j] === '(') depth += 1;
-        else if (text[j] === ')') depth -= 1;
+        const d = text[j];
+        if (inner) {
+          if (d === '\\' && inner === '"') j += 1;
+          else if (d === inner) inner = null;
+          continue;
+        }
+        if (d === "'" || d === '"') inner = d;
+        else if (d === '\\') j += 1;
+        else if (d === '(') depth += 1;
+        else if (d === ')') depth -= 1;
         if (depth === 0) break;
       }
       found.push(text.slice(i + 2, j));
@@ -321,30 +345,47 @@ export function looksLikeTestCommand(command = '') {
   const text = String(command);
   if (!text.trim()) return false;
 
-  // Any segment of a compound command can be the real invocation: `cd repo && pytest -q`.
-  const { code: withoutHeredocs, expandingBodies } = splitHeredocs(text);
-
   /**
-   * Command substitutions execute, even inside quotes: `echo "$(cd project && pytest -q)"` really
-   * runs pytest. They are pulled out first and judged as commands in their own right, because
-   * deleting them with the surrounding quotes lost real test runs and reported honest work as
-   * unsubstantiated.
-   */
-  const substitutions = [withoutHeredocs, ...expandingBodies].flatMap(expandedSubstitutions);
-
-  /**
-   * What remains of a quoted span is a placeholder, not a space.
+   * Everything the shell would execute, unwrapped until nothing new appears.
    *
-   * A space creates a word boundary the shell does not: `'./fake'pytest` executes `./fakepytest`,
-   * and replacing the quoted part with a space left the word `pytest` standing alone as the leader
-   * of its segment. The placeholder keeps the word joined, so a fabricated name stays fabricated.
+   * Substitutions run, and what is inside one is a command in its own right - which can be another
+   * substitution, or a heredoc, or both. Handling one level meant a construction nested one deeper
+   * slipped past: `echo "$(cat <<EOF ... pytest ... 1 passed ... EOF)"` hid a body from the
+   * outer pass and offered it back as commands. So each part is put through the same treatment
+   * until the worklist runs dry.
    */
-  const unquoted = withoutHeredocs
-    .replace(/\$\([^()]*\)|`[^`]*`/g, 'Q')
-    .replace(/'[^']*'|"[^"]*"/g, 'Q');
+  const segments = [];
+  const seen = new Set();
+  const queue = [text];
 
-  // Substitutions are split on the same separators: `$(cd project && pytest -q)` is two commands.
-  const segments = [unquoted, ...substitutions].flatMap((part) => part.split(/&&|\|\||;|\||\n/));
+  while (queue.length > 0 && seen.size < 64) {
+    const part = queue.shift();
+    if (part == null || seen.has(part)) continue;
+    seen.add(part);
+
+    // A heredoc body is data being written, not commands being run.
+    const { code, expandingBodies } = splitHeredocs(part);
+
+    // An unquoted delimiter still expands `$(...)` inside the body; a quoted one expands nothing.
+    for (const body of expandingBodies) queue.push(...expandedSubstitutions(body));
+    queue.push(...expandedSubstitutions(code));
+
+    /**
+     * What remains of a quoted span is a placeholder, not a space.
+     *
+     * A space creates a word boundary the shell does not: `'./fake'pytest` executes
+     * `./fakepytest`, and replacing the quoted part with a space left the word `pytest` standing
+     * alone as the leader of its segment. The placeholder keeps the word joined, so a fabricated
+     * name stays fabricated. Substitution bodies go through this too - they used to be split raw,
+     * so `echo "$(echo 'x; pytest') 1 passed"` offered up the quoted text as a second command.
+     */
+    const collapsed = code
+      .replace(/\$\([^()]*\)|`[^`]*`/g, 'Q')
+      .replace(/'[^']*'|"[^"]*"/g, 'Q');
+
+    // Any segment of a compound command can be the real invocation: `cd repo && pytest -q`.
+    segments.push(...collapsed.split(/&&|\|\||;|\||\n/));
+  }
 
   return segments.some((raw) => {
     const bare = raw
