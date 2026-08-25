@@ -32,11 +32,33 @@ git push -u origin main
 
 # Everything after this lands through pull requests, never straight to main.
 # That trail is the entire Best Code Quality qualifier and it cannot be reconstructed later.
-gh api -X PUT "repos/$OWNER/$REPO_NAME/branches/main/protection" \
-  -f "required_pull_request_reviews[required_approving_review_count]=0" \
-  -F "enforce_admins=false" -F "required_status_checks=null" -F "restrictions=null" \
-  >/dev/null 2>&1 && echo "main is protected - PRs only" \
-  || echo "note: branch protection needs a paid plan on private repos; this repo is public so it should apply"
+# Enforcement covers administrators too. A rule the repository owner can step around is a
+# convention, not a protection, and the README claims it as a protection.
+cat > /tmp/qm-protection.json <<'PROTECTION'
+{
+  "required_status_checks": null,
+  "enforce_admins": true,
+  "required_pull_request_reviews": {
+    "dismiss_stale_reviews": false,
+    "require_code_owner_reviews": false,
+    "required_approving_review_count": 0
+  },
+  "restrictions": null,
+  "allow_force_pushes": false,
+  "allow_deletions": false
+}
+PROTECTION
+
+if gh api -X PUT "repos/$OWNER/$REPO_NAME/branches/main/protection" --input /tmp/qm-protection.json >/dev/null; then
+  echo "main is protected - pull requests only, admins included"
+else
+  # Do not reassure. An unprotected main while the README says otherwise is exactly the kind of
+  # comfortable falsehood this project exists to refuse.
+  echo "WARNING: branch protection was NOT applied. The error above is the reason."
+  echo "         main is unprotected. Fix this before relying on anything the README says about it."
+  exit 1
+fi
+rm -f /tmp/qm-protection.json
 
 cat <<'NEXT'
 

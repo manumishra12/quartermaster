@@ -40,10 +40,10 @@
 
 ### Typography
 
-- **Heading Font:** JetBrains Mono
-- **Body Font:** IBM Plex Sans
-- **Mood:** code, developer, technical, precise, functional, hacker
-- **Google Fonts:** [JetBrains Mono + IBM Plex Sans](https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap)
+-**Heading Font:** JetBrains Mono
+-**Body Font:** IBM Plex Sans
+-**Mood:** code, developer, technical, precise, functional, hacker
+-**Google Fonts:** [JetBrains Mono + IBM Plex Sans](https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap)
 
 **CSS Import:**
 ```css
@@ -179,9 +179,9 @@
 
 **Pattern Name:** FAQ/Documentation Landing
 
-- **Conversion Strategy:** Reduce support tickets. Track search analytics. Show related articles. Contact escalation path.
-- **CTA Placement:** Search bar prominent + Contact CTA for unresolved questions
-- **Section Order:** Hero with search bar > Popular categories > FAQ accordion > Contact/support CTA
+-**Conversion Strategy:** Reduce support tickets. Track search analytics. Show related articles. Contact escalation path.
+-**CTA Placement:** Search bar prominent + Contact CTA for unresolved questions
+-**Section Order:** Hero with search bar > Popular categories > FAQ accordion > Contact/support CTA
 
 ---
 
@@ -195,25 +195,25 @@ gsap.from(el, { opacity: 0, y: 12, duration: 0.35, ease: 'power1.out', scrollTri
 
 **Framework notes:** Requires the ScrollTrigger plugin registered once via gsap.registerPlugin(ScrollTrigger); Use matchMedia('(prefers-reduced-motion: reduce)') to skip non-essential motion and render the final state immediately
 
-- ✅ Keep the y offset small (8-16px) so it reads as a fade, not a slide
-- ❌ Don't reveal below-the-fold content needed for SEO/crawlers as invisible-by-default without a no-JS fallback
-- ⚡ toggleActions 'play none none reverse' avoids re-triggering on every scroll direction change
+- Keep the y offset small (8-16px) so it reads as a fade, not a slide
+- Don't reveal below-the-fold content needed for SEO/crawlers as invisible-by-default without a no-JS fallback
+- toggleActions 'play none none reverse' avoids re-triggering on every scroll direction change
 
 ---
 
 ## Anti-Patterns (Do NOT Use)
 
-- ❌ Light mode default
-- ❌ Slow performance
+- Light mode default
+- Slow performance
 
 ### Additional Forbidden Patterns
 
-- ❌ **Emojis as icons** — Use SVG icons (Heroicons, Lucide, Simple Icons)
-- ❌ **Missing cursor:pointer** — All clickable elements must have cursor:pointer
-- ❌ **Layout-shifting hovers** — Avoid scale transforms that shift layout
-- ❌ **Low contrast text** — Maintain 4.5:1 minimum contrast ratio
-- ❌ **Instant state changes** — Always use transitions (150-300ms)
-- ❌ **Invisible focus states** — Focus states must be visible for a11y
+- **Emojis as icons** — Use SVG icons (Heroicons, Lucide, Simple Icons)
+- **Missing cursor:pointer** — All clickable elements must have cursor:pointer
+- **Layout-shifting hovers** — Avoid scale transforms that shift layout
+- **Low contrast text** — Maintain 4.5:1 minimum contrast ratio
+- **Instant state changes** — Always use transitions (150-300ms)
+- **Invisible focus states** — Focus states must be visible for a11y
 
 ---
 
@@ -221,13 +221,13 @@ gsap.from(el, { opacity: 0, y: 12, duration: 0.35, ease: 'power1.out', scrollTri
 
 Before delivering any UI code, verify:
 
-- [ ] No emojis used as icons (use SVG instead)
-- [ ] All icons from consistent icon set (Heroicons/Lucide)
-- [ ] `cursor-pointer` on all clickable elements
-- [ ] Hover states with smooth transitions (150-300ms)
-- [ ] Light mode: text contrast 4.5:1 minimum
-- [ ] Focus states visible for keyboard navigation
-- [ ] `prefers-reduced-motion` respected
-- [ ] Responsive: 375px, 768px, 1024px, 1440px
-- [ ] No content hidden behind fixed navbars
-- [ ] No horizontal scroll on mobile
+-[ ] No emojis used as icons (use SVG instead)
+-[ ] All icons from consistent icon set (Heroicons/Lucide)
+-[ ] `cursor-pointer` on all clickable elements
+-[ ] Hover states with smooth transitions (150-300ms)
+-[ ] Light mode: text contrast 4.5:1 minimum
+-[ ] Focus states visible for keyboard navigation
+-[ ] `prefers-reduced-motion` respected
+-[ ] Responsive: 375px, 768px, 1024px, 1440px
+-[ ] No content hidden behind fixed navbars
+-[ ] No horizontal scroll on mobile

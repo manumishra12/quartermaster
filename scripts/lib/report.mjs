@@ -6,7 +6,7 @@
  * codes, the captured output - not a summary of them. So every run writes both a machine-readable
  * record and something a person can read.
  */
-import { PHASES, judge, progress, resultOf, testRuns } from './evidence.mjs';
+import { PHASES, judge, progress, resultOf } from './evidence.mjs';
 
 const VERDICT_TEXT = {
   substantiated: 'SUBSTANTIATED',

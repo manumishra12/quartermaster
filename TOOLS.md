@@ -19,10 +19,11 @@ Everything Quartermaster is allowed to touch, and what is gated. Kept in sync wi
 
 | Server | Auth | Phase | Tools enabled | Approval |
 | --- | --- | --- | --- | --- |
-| **GitHub** (shipped catalog) | header (PAT) | v1 | `@all` | `["@write", "@destructive"]` — every write pauses |
-| **Exa** (shipped catalog) | none | `research-desk` | `@read-only` | not needed - nothing it can do is irreversible |
-| **Sentry** (shipped catalog) | OAuth (DCR) | `incident-responder` | `@all` | `["@write", "@destructive"]` - every remediation |
-| **Linear** (shipped catalog) | OAuth (DCR) | `desk-assistant` | `@all` | `["@write", "@destructive"]` - every create, edit, close |
+| **GitHub** (shipped catalog) | header (PAT) | `quartermaster` | `@read-only` + 5 named writes (see section 7) | `["@write", "@destructive"]` + those 5 by name |
+| **Exa** (shipped catalog) | none | `research-desk` | `@read-only` | `["@write", "@destructive"]` - nothing it exposes is a write |
+| **deepwiki** (shipped catalog) | none | both quartermasters | 3 tools by name | `["@write", "@destructive"]` |
+| **Sentry** (shipped catalog) | OAuth (DCR) | `incident-responder` | `@read-only` - unaudited, so writes are not enabled at all | `["@all"]` |
+| **Linear** (shipped catalog) | OAuth (DCR) | `desk-assistant` | `@read-only` - unaudited, so writes are not enabled at all | `["@all"]` |
 
 Notes:
 - Verified against the live catalog: GitHub authenticates by **static header (a personal access
@@ -48,12 +49,34 @@ So the default policy `["@write", "@destructive"]` is **fail-open**: point the a
 does not annotate its tools and the writes execute with no gate, silently, while the spec still
 reads as though it is protected.
 
-Verified so far on a live server:
+Verified on a live server:
 
 | Server | Tools | Annotated | Verdict |
 | --- | --- | --- | --- |
 | `exa` | 2 | yes, all read-only | default policy is honest here |
-| `github` | ? | **unverified** | needs a PAT to audit - do this before the demo |
+| `parallel-web` | 2 | yes, all read-only | honest |
+| **`deepwiki`** | 3 | **none of them** | **the hole, in the shipped catalog** |
+| **`github`** | 44 | **yes, all of them** | 27 read-only, 16 write, 1 destructive - the default policy gates every write |
+
+GitHub, where every dangerous action lives, annotates all 44 of its tools correctly - so the
+default policy really does gate all 17 writes there. `deepwiki` was the outlier, not the rule. But
+it ships in TrueForge's own catalog and publishes no annotations on any of its three
+tools. Under the default policy `["@write", "@destructive"]` all three would execute with no
+approval gate. They happen to be read-only in practice, so nothing dangerous follows from it here -
+but it is proof the hole is real in the catalog people will actually connect from, not a
+hypothetical about some hand-written server.
+
+The fix used here is stronger than gating: the spec names the three tools in `enable_tools`
+instead of reaching them with a tag. A tool the server adds later is then not enabled at all, so
+there is nothing to gate. Fail closed at the enable layer, not the approval layer.
+
+```json
+{
+  "name": "deepwiki",
+  "enable_tools": ["ask_question", "read_wiki_contents", "read_wiki_structure"],
+  "require_approval_for_tools": ["@write", "@destructive"]
+}
+```
 
 GitHub is where every dangerous write lives, so it is the one that has to be checked rather than
 assumed. `npm run tools:audit` does the checking and exits non-zero if anything would run ungated.
@@ -112,3 +135,24 @@ Model providers: `openai`, `anthropic`, `google-gemini`, `fireworks`, `zai`, `mo
 The cheap/strong split this project uses: a `zai/glm-5-*` or `fireworks/*` model for mechanical
 work, a frontier model for root-cause reasoning. TrueForge swapping models per task is the
 sponsor's own cost argument, so demonstrating it is worth the small extra config.
+
+## 7. What `quartermaster` can actually reach on GitHub
+
+Reading is unrestricted. Writing is limited to the five tools the job needs:
+
+```json
+{
+  "name": "github",
+  "enable_tools": ["@read-only", "create_branch", "create_or_update_file", "push_files", "create_pull_request", "add_issue_comment"],
+  "require_approval_for_tools": ["@write", "@destructive", "create_branch", "create_or_update_file", "push_files", "create_pull_request", "add_issue_comment"]
+}
+```
+
+Of the 17 write tools the server exposes, five are enabled. The agent **cannot merge a pull
+request, delete a file, fork a repository, or create one** - not because it is instructed not to,
+but because those tools are not enabled for it and it has no way to call them. Instructions can be
+argued with; an absent tool cannot.
+
+The five it does have are named in `require_approval_for_tools` as well as covered by `@write` and
+`@destructive`. That is redundant today, because GitHub annotates correctly. It is not redundant
+against the day it stops, and the spec outlives the annotation.

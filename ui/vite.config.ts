@@ -1,13 +1,14 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
 /**
  * The API is proxied rather than called cross-origin, so `TrueForgeUI` runs same-origin against
  * `baseUrl: '/'`. No CORS configuration, and no server URL baked into the bundle.
  */
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
       // One source of truth for the evidence rules. The CLI and the UI must never disagree about
@@ -18,6 +19,10 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Vite binds to `localhost`, which on this machine resolved to ::1 only. A browser resolving
+    // localhost to 127.0.0.1 then cannot connect at all, which looks identical to the server
+    // being down. Binding to every interface removes the ambiguity.
+    host: true,
     fs: { allow: ['..'] },
     proxy: {
       '/api': {

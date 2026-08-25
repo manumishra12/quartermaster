@@ -56,6 +56,8 @@ const save = () => {
 const events = new Map();
 const toolResponses = [];
 let finalText = '';
+/** A turn that stopped because a connector needs authorizing has not finished, whatever it says. */
+let blockedOnAuth = false;
 const interactive = stdin.isTTY;
 const rl = interactive ? createInterface({ input: stdin, output: stdout }) : null;
 
@@ -267,10 +269,18 @@ for (let hop = 0; hop < 24; hop++) {
   }
 
   if (pending.auth.length) {
+    blockedOnAuth = true;
     for (const event of pending.auth) {
       for (const server of event.mcpServers ?? []) console.log(`\n  authorize ${server.name}: ${server.authUrl}`);
     }
-    await ask('  press enter once authorized > ', '');
+    const acknowledged = await ask('  press enter once authorized > ', null);
+    if (acknowledged === null) {
+      // Nobody is here to authorize it, so the run cannot continue. Reporting this as a finished
+      // turn and exiting 0 told CI the work was done when it had not started.
+      console.log('\n  Cannot authorize a connector without an operator. Stopping.');
+      break;
+    }
+    blockedOnAuth = false;
     // A turn resuming after mcp.auth_required must not carry a user message, but approvals and
     // answers already given are not user messages and were being thrown away here.
     carry = await consume(
@@ -291,7 +301,16 @@ rl?.close();
 
 // The closing verdict. The agent does not get the last word on whether it succeeded.
 const { verdict, runs, reason } = judge({ finalText, toolResponses });
-const label = { substantiated: 'SUBSTANTIATED', unsubstantiated: 'UNSUBSTANTIATED', contradicted: 'CONTRADICTED', 'no-claim': 'NO CLAIM' }[verdict];
+const LABELS = {
+  substantiated: 'SUBSTANTIATED',
+  unsubstantiated: 'UNSUBSTANTIATED',
+  contradicted: 'CONTRADICTED',
+  'no-claim': 'NO CLAIM',
+  'no-answer': 'NO ANSWER',
+};
+// A verdict this map does not know is a bug, not a blank. Printing `undefined` in the one line a
+// person reads to decide whether to trust the run is the worst place to be vague.
+const label = LABELS[verdict] ?? `UNKNOWN VERDICT (${verdict})`;
 console.log('\n  ── EVIDENCE CHECK ─────────────────────────────────');
 console.log(`  ${label}`);
 console.log(`  ${reason}`);
@@ -312,5 +331,10 @@ mkdirSync(dir, { recursive: true });
 writeFileSync(`${dir}/report.json`, JSON.stringify(report.json, null, 2));
 writeFileSync(`${dir}/report.md`, report.markdown);
 console.log(`  written: ${dir}/report.md\n`);
+
+if (blockedOnAuth) {
+  console.log('  This run stopped waiting for a connector to be authorized. It did not finish.\n');
+  process.exit(1);
+}
 
 process.exit(verdict === SUBSTANTIATED || verdict === NO_CLAIM ? 0 : 1);

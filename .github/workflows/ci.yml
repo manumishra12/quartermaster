@@ -16,6 +16,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
       - run: npm test
       # Design tokens are covered by the same suite - a colour change that drops a label below
       # 4.5:1 fails here rather than shipping.
@@ -35,7 +37,7 @@ jobs:
       - run: node scripts/check-fixtures.mjs
 
   ui:
-    name: ui builds
+    name: ui tests and build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,6 +47,12 @@ jobs:
           cache: npm
           cache-dependency-path: ui/package-lock.json
       - run: npm ci
+        working-directory: ui
+      - run: npm run lint
+        working-directory: ui
+      # The rail is the safety surface: it is what a person reads before approving something
+      # irreversible. It gets the same treatment as the rules behind it.
+      - run: npm test
         working-directory: ui
       - run: npm run build
         working-directory: ui

@@ -105,4 +105,20 @@ nothing is replayed twice. If it finished while we were gone, it rebuilds from `
 1. Never edit a test to make it pass. If the test looks wrong, stop and ask.
 2. Never claim a result that was not executed. No run, no claim.
 3. Minimal diff. One root cause per patch.
-4. Nothing leaves the sandbox without approval.
+4. Nothing leaves the sandbox **through a gated tool** without approval.
+
+## Where the gate does not reach
+
+Worth stating plainly, because the sentence above used to read "nothing leaves the sandbox without
+approval" and that was not true.
+
+`require_approval_for_tools` gates **MCP tool calls**. The sandbox shell is not an MCP tool and is
+not gated - by design, because gating every `ls` would make the agent unusable. So if the sandbox
+has network egress, a `curl -X POST`, a `git push`, or a `make test` whose Makefile calls something
+hostile performs an external write with no pause.
+
+That is a real limit, not a bug in the policy, and the honest framing is: the approval gate covers
+what the agent asks the harness to do, and the sandbox covers what the agent runs itself. Two
+boundaries, not one. The instructions tell the agents not to use the shell as an egress path; that
+is an instruction, and instructions are the weaker of the two mechanisms this project keeps saying
+so.

@@ -20,11 +20,22 @@ git clone --depth 50 <repo> /work/repo && cd /work/repo
 Save the raw output to `/work/evidence/before.txt`. That file is the baseline and you will quote
 from it later.
 
-Three outcomes:
-- **It fails as described** — good, continue.
+Four outcomes:
+- **It fails as described** — good, but run it twice more before you touch anything. A test that
+  fails only sometimes is not a bug you can patch: you will change something, it will pass by luck,
+  and the green run will be reported as proof. If it is not deterministic, say so and stop.
 - **It passes** — stop. Report that it passes and show the output. Do not go looking for something
   else to fix.
-- **It errors before running** — that is the real bug. Fix the environment problem first and say so.
+- **It errors before running** — an import error, a missing fixture, a syntax error in the test
+  file. That is the real bug; fix it and say so.
+- **The project does not build at all** — dependencies will not resolve, the toolchain is missing,
+  compilation fails for reasons unconnected to the named test. Report the build failure as the
+  result and stop. Repairing someone's build is a different job with a different blast radius, and
+  nobody asked you to do it.
+
+A dependency change is never part of a fix. If the fix appears to need a version bump, a lockfile
+edit, or a new package, propose it separately and stop - do not apply it, and never in the same
+patch as a code change.
 
 ## Step 2 — Isolate
 
