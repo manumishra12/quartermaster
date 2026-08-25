@@ -90,21 +90,29 @@ const PASSED = /(^OK$|^#\s*fail\s+0$|\b0\s+failed\b|\ball\s+tests\s+passed\b|\b\
  * Wrappers that run a command inside a managed environment. The runner is the word after them, so
  * they are stripped before the segment is matched.
  *
+ * Only valueless flags are consumed. Stripping `--?\S+` blindly ate the flag but left its value,
+ * so `npx --package vitest node -e "..."` normalised to `vitest node ...` and was read as a test
+ * run when the command executed was only `node`.
+ *
  * Without this, `poetry run pytest` was not a test run - and Poetry manages most modern Python
  * projects, so an agent that fixed a real bug in one was told its passing suite was unsubstantiated.
  * A verifier that refuses honest work is the same failure as one that blesses a lie, pointed the
  * other way.
  */
 const WRAPPERS =
-  /^(?:(?:poetry|uv|pipenv|pdm|rye|hatch|bundle|conda|micromamba)\s+(?:run|exec)|npm\s+exec|npx|pnpm\s+(?:exec|dlx)|yarn\s+dlx|bunx)\s+(?:--\s+|--?\S+\s+)*/;
+  /^(?:(?:poetry|uv|pipenv|pdm|rye|hatch|bundle|conda|micromamba)\s+(?:run|exec)|npm\s+exec|npx|pnpm\s+(?:exec|dlx)|yarn\s+dlx|bunx)\s+(?:(?:--\s+|--yes|-y|--silent|--quiet|-q|--no-install)\s+)*/;
 
 /**
  * A wrapper followed by a bare script name: `hatch run test`, `pdm run test:unit`.
  *
  * Only accepted when a wrapper was actually stripped. On its own, a segment called `test` says
  * nothing - it could be a directory, a binary, or a typo.
+ *
+ * Anchored to the whole word. A substring match treated `latest`, `contest` and `attest` as test
+ * scripts, and a wrapped command by any of those names exiting 0 with test-shaped output would
+ * have substantiated a passing claim.
  */
-const WRAPPED_SCRIPT = /^[\w:-]*test[\w:-]*(?:\s|$)/i;
+const WRAPPED_SCRIPT = /^tests?(?::[\w-]+)?(?:\s|$)/i;
 
 const RUNNERS = [
   /^(?:[\w./-]*\/)?pytest\b/,
@@ -144,7 +152,12 @@ export function looksLikeTestCommand(command = '') {
   if (!text.trim()) return false;
 
   // Any segment of a compound command can be the real invocation: `cd repo && pytest -q`.
-  return text.split(/&&|\|\||;|\||\n/).some((raw) => {
+  // Quoted spans are arguments, not commands. Splitting on separators without accounting for
+  // quoting meant `echo "note | poetry run test Ran 1 tests"` produced a second segment that looked
+  // like a wrapped test script, while the only thing executed was echo.
+  const unquoted = text.replace(/'[^']*'|"[^"]*"/g, ' ');
+
+  return unquoted.split(/&&|\|\||;|\||\n/).some((raw) => {
     const bare = raw
       .trim()
       .replace(/^[({\s]+/, '')

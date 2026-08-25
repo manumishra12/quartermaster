@@ -426,3 +426,36 @@ test('a wrapper running something that is not a test is still not a test run', (
   assert.equal(looksLikeTestCommand('uv run ruff check'), false);
   assert.equal(looksLikeTestCommand('npx tsc --noEmit'), false);
 });
+
+// ---------------------------------------------------------------------------------------------
+// Regressions introduced by the wrapper support above, found by Qodo on the pull request that
+// added it. All three let a command that ran no tests be read as a passing test run.
+// ---------------------------------------------------------------------------------------------
+
+test('a flag value is not mistaken for the runner', () => {
+  // Stripping `--?\S+` blindly ate the flag and left its value, so this normalised to
+  // `vitest node ...` while the command actually executed was only node.
+  assert.equal(looksLikeTestCommand('npx --package vitest node -e "console.log(1)"'), false);
+  assert.equal(looksLikeTestCommand('npx -p jest node script.js'), false);
+});
+
+test('valueless flags are still skipped, so real invocations survive', () => {
+  assert.equal(looksLikeTestCommand('npx --yes jest'), true);
+  assert.equal(looksLikeTestCommand('npx --quiet vitest run'), true);
+});
+
+test('a separator inside quotes does not create a second command', () => {
+  // Only echo ran here. Splitting without regard for quoting turned its argument into a segment
+  // that looked like a wrapped test script, and the echoed markers looked like passing output.
+  assert.equal(looksLikeTestCommand('echo "note | poetry run test Ran 1 tests; 1 passed"'), false);
+  assert.equal(looksLikeTestCommand("echo 'x; pytest'"), false);
+});
+
+test('a wrapped script name must be the whole word, not a substring of one', () => {
+  // latest, contest and attest all contain "test".
+  for (const name of ['latest', 'contest', 'attest', 'testify']) {
+    assert.equal(looksLikeTestCommand(`poetry run ${name}`), false, name);
+  }
+  assert.equal(looksLikeTestCommand('hatch run test'), true);
+  assert.equal(looksLikeTestCommand('pdm run test:unit'), true);
+});
