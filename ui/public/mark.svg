@@ -1,5 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <path d="M11 5 H7 a2 2 0 0 0-2 2 v18 a2 2 0 0 0 2 2 h4" stroke="#c8a35a" stroke-width="2.25" stroke-linecap="round"/>
-  <path d="M21 5 h4 a2 2 0 0 1 2 2 v18 a2 2 0 0 1-2 2 h-4" stroke="#c8a35a" stroke-width="2.25" stroke-linecap="round"/>
+  <!-- Brackets: something enclosed and accounted for. Violet, matching the accent. -->
+  <path d="M11 5 H7 a2 2 0 0 0-2 2 v18 a2 2 0 0 0 2 2 h4" stroke="#7c6bf5" stroke-width="2.25" stroke-linecap="round"/>
+  <path d="M21 5 h4 a2 2 0 0 1 2 2 v18 a2 2 0 0 1-2 2 h-4" stroke="#7c6bf5" stroke-width="2.25" stroke-linecap="round"/>
+  <!-- The tick stays green. Green means one thing in this product: verified. -->
   <path d="M11 16.5 l3.5 3.5 L21 12" stroke="#22c55e" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

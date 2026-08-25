@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <!--
+    A tab icon is read at 16 pixels. The app mark's brackets are 2.25px strokes with 4px of air
+    inside them, which at that size is a smudge. This is the same idea drawn to survive: a solid
+    ground so the shape holds against any tab colour, and one bold tick.
+    Green, because in this product green means exactly one thing and this is the mark of it.
+  -->
+  <rect width="32" height="32" rx="8" fill="#5b48cc"/>
+  <path d="M9 16.5 L14 21.5 L23 11" stroke="#4ade80" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

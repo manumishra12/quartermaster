@@ -3,7 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/svg+xml" href="/mark.svg" />
+
+    <!--
+      Two icons on purpose. `mark.svg` is the app mark, read at 18 to 32 pixels inside the
+      interface. A browser tab renders at 16, where that mark's 2.25px brackets around 4px of air
+      become a smudge, so the tab gets a bolder variant with a solid ground.
+      PNGs for Safari's touch icon and Android, which do not take SVG.
+    -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="alternate icon" type="image/png" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="mask-icon" href="/favicon.svg" color="#5b48cc" />
+
+    <!-- The browser paints its own chrome behind the page; without these the address bar stays
+         light while the interface is dark. -->
+    <meta name="theme-color" content="#faf9f7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
+
+    <meta
+      name="description"
+      content="An agent that never says it fixed it. It shows you the test output that proves it, then asks permission before touching anything outside the sandbox."
+    />
+
     <title>Quartermaster</title>
   </head>
   <body>
