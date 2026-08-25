@@ -1,6 +1,10 @@
-import { Children, isValidElement, type ReactNode } from 'react';
-import { ChatIcon } from './icons';
+import { Children, isValidElement, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useAuiState } from '@truefoundry/trueforge-ui/assistant-ui';
+import { ChatIcon, PencilIcon } from './icons';
 import { useCloseSheet } from './SheetContext';
+import { useThreadTitle } from './useThreadTitle';
+
+type AuiSnapshot = { threadListItem?: { remoteId?: string | null; id?: string | null } };
 
 /**
  * A conversation in the list.
@@ -26,6 +30,86 @@ export function ThreadRow({
   actions?: ReactNode;
 }) {
   const closeSheet = useCloseSheet();
+
+  /**
+   * The row renders inside the SDK's thread-list item, so the session it belongs to is readable
+   * from state even though the slot is not handed an id. The remote id is the durable one; the
+   * local id is the fallback for a conversation that has not been persisted yet.
+   */
+  const id = useAuiState((s: AuiSnapshot) => {
+    try {
+      return s.threadListItem?.remoteId ?? s.threadListItem?.id ?? null;
+    } catch {
+      // Outside an AuiProvider the default client throws on scope access. A row rendered there
+      // has no session to name, but it still has a conversation to show - and one row taking the
+      // sidebar down with it would be a worse bug than the missing button.
+      return null;
+    }
+  });
+  const { title: shown, rename } = useThreadTitle(id, title);
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(shown);
+  const input = useRef<HTMLInputElement>(null);
+  /**
+   * Escape has to beat the blur that follows it.
+   *
+   * Closing the field unmounts the input, which fires blur, which was saving - so the one key
+   * whose whole job is to abandon the edit was committing it. This flag is what makes cancelling
+   * mean cancelling.
+   */
+  const cancelling = useRef(false);
+
+  // Focus once, when the field opens. An inline ref callback re-runs on every commit and drags
+  // focus back mid-typing - the same defect this project has now fixed twice elsewhere.
+  useEffect(() => {
+    if (editing) input.current?.select();
+  }, [editing]);
+
+  const startEditing = () => {
+    setDraft(shown);
+    setEditing(true);
+  };
+
+  const commit = () => {
+    rename(draft);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg px-2.5 py-2">
+        <span className="shrink-0 text-muted">
+          <ChatIcon />
+        </span>
+        <input
+          ref={input}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={() => {
+            // Clicking away saves: losing a name you have just typed to a stray click is worse
+            // than keeping one you were unsure about, which you can always edit again.
+            if (cancelling.current) {
+              cancelling.current = false;
+              return;
+            }
+            commit();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') commit();
+            // Escape abandons the edit - it is the undo for having started one.
+            if (event.key === 'Escape') {
+              cancelling.current = true;
+              setEditing(false);
+            }
+          }}
+          aria-label={`Rename ${shown}`}
+          placeholder={title}
+          className="min-w-0 flex-1 rounded border border-line bg-surface px-1.5 py-0.5 text-xs text-ink outline-none focus:border-accent"
+        />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -57,7 +141,7 @@ export function ThreadRow({
             active ? 'font-medium text-ink' : 'text-ink',
           ].join(' ')}
         >
-          {title}
+          {shown}
         </span>
         {agentName && <span className="mt-0.5 block truncate text-2xs text-muted">{agentName}</span>}
       </button>
@@ -72,7 +156,25 @@ export function ThreadRow({
         </time>
       )}
 
-      {actions && <span className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100">{actions}</span>}
+      {/*
+        * Hidden until hover or focus, like the overflow actions beside it: a rename button on every
+        * row, always visible, would compete with the titles it is there to serve. focus-within
+        * keeps it reachable by keyboard, where hover never happens.
+        */}
+      <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        {id && (
+          <button
+            type="button"
+            onClick={startEditing}
+            aria-label={`Rename ${shown}`}
+            title="Rename"
+            className="cursor-pointer rounded p-1 text-muted hover:bg-surface hover:text-ink"
+          >
+            <PencilIcon />
+          </button>
+        )}
+        {actions}
+      </span>
     </div>
   );
 }

@@ -106,3 +106,27 @@ export const CloseIcon = () => (
     <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" />
   </svg>
 );
+
+/** A disclosure arrow. Rotated by CSS rather than swapped, so the turn is the affordance. */
+export const ChevronIcon = ({ className }: { className?: string }) => (
+  <svg {...base} className={className}>
+    <path d="M6 3.5 10.5 8 6 12.5" />
+  </svg>
+);
+
+/** Reasoning. Two lobes rather than a lightbulb: this is working, not an idea. */
+export const BrainIcon = ({ className }: { className?: string }) => (
+  <svg {...base} className={className}>
+    <path d="M8 3.25v9.5" />
+    <path d="M8 4.5A2 2 0 0 0 4.5 5.6 1.9 1.9 0 0 0 3.5 8a1.9 1.9 0 0 0 1.1 2.4A2 2 0 0 0 8 11.5" />
+    <path d="M8 4.5a2 2 0 0 1 3.5 1.1A1.9 1.9 0 0 1 12.5 8a1.9 1.9 0 0 1-1.1 2.4A2 2 0 0 1 8 11.5" />
+  </svg>
+);
+
+/** Rename. A pencil, because the row it sits on is a name and this edits it. */
+export const PencilIcon = ({ className }: { className?: string }) => (
+  <svg {...base} className={className}>
+    <path d="M11.4 2.9a1.4 1.4 0 0 1 2 2L6.2 12.1l-2.7.6.6-2.7Z" />
+    <path d="M10.2 4.1 11.9 5.8" />
+  </svg>
+);
