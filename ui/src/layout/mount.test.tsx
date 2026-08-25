@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { act, cleanup, render, screen, within } from '@testing-library/react';
 import { expect, test, vi } from 'vitest';
 import { TrueForgeUI } from '@truefoundry/trueforge-ui';
 import { QuartermasterLayout } from './QuartermasterLayout';
@@ -24,22 +24,26 @@ test('the real component tree mounts inside TrueForgeUI', async () => {
       const url = String(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
       const body = url.includes('/capabilities')
         ? { data: { sandbox: { enabled: true }, skill: { enabled: true }, settings: { enabled: true } } }
-        : { data: [], nextPageToken: null };
+        : // The adapter reads page.response.pagination.nextPageToken. Omitting `pagination`
+          // made every session-list load throw, and the failing list retried hard enough to drive
+          // the shell into an update loop - which looked like an upstream bug and was my stub.
+          { data: [], pagination: { nextPageToken: null } };
       return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
     }),
   );
 
-  render(
-    <TrueForgeUI
-      server={{ type: 'trueforge', baseUrl: '/' } as never}
-      layout={(p: { className?: string }) => (
-        <QuartermasterLayout {...p} mode="dark" onThemeChange={() => {}} agentName="quartermaster-local" />
-      )}
-      agentConfig={{ mode: 'SingleAgent', name: 'quartermaster-local' }}
-    />,
-  );
-
-  await new Promise((r) => setTimeout(r, 400));
+  await act(async () => {
+    render(
+      <TrueForgeUI
+        server={{ type: 'trueforge', baseUrl: '/' } as never}
+        layout={(p: { className?: string }) => (
+          <QuartermasterLayout {...p} mode="dark" onThemeChange={() => {}} agentName="quartermaster-local" />
+        )}
+        agentConfig={{ mode: 'SingleAgent', name: 'quartermaster-local' }}
+      />,
+    );
+    await new Promise((r) => setTimeout(r, 400));
+  });
 
   // The three surfaces that must exist for the interface to do its job at all.
   const rail = screen.queryByLabelText('Agent status');
@@ -54,4 +58,9 @@ test('the real component tree mounts inside TrueForgeUI', async () => {
   // one of them. jsdom applies no CSS, so both are found here.
   expect(screen.getAllByRole('heading', { level: 1, name: 'Quartermaster' }).length).toBeGreaterThan(0);
   expect(screen.getAllByText('quartermaster-local').length).toBeGreaterThan(0);
+
+  // Unmount inside act so the shell's effects settle here rather than escaping into teardown.
+  await act(async () => {
+    cleanup();
+  });
 });

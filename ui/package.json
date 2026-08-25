@@ -6,9 +6,11 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "vitest run",
+    "test": "npm run test:unit && npm run test:mount",
     "test:watch": "vitest",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test:unit": "vitest run --project unit",
+    "test:mount": "vitest run --project mount --dangerouslyIgnoreUnhandledErrors"
   },
   "dependencies": {
     "@truefoundry/assistant-ui-runtime": "^0.1.21",

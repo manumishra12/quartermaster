@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
@@ -58,7 +58,12 @@ describe('Topbar', () => {
     await user.click(screen.getByRole('button', { name: 'Stop' }));
     const button = screen.getByRole('button', { name: /stopping/i });
     expect(button).toBeDisabled();
-    release();
+
+    // Resolving inside act so the resulting state update is flushed here rather than escaping the
+    // test and being reported as an unwrapped update.
+    await act(async () => {
+      release();
+    });
   });
 
   test('a live sandbox is shown as a fact, not inferred from activity', () => {

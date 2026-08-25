@@ -579,3 +579,34 @@ a test now fails if the two drift apart.
   than obeying.
 
 108 tests in the root, 61 in the interface.
+
+## Day 2 — CI was red while every test passed, and my own checks had been lying
+
+The build failed with 61 of 61 tests green. Vitest exits non-zero on unhandled errors regardless of
+assertions, and the mount test produced two: "Maximum update depth exceeded. The result of
+getSnapshot should be cached."
+
+Three things came out of chasing it.
+
+**My local verification had been masking exit codes all along.** Every check in this session ran
+`npm test | grep ...`, which reports grep's exit status, not the test runner's. `npm test` had been
+exiting 1 locally too and I had been reading "87 passed" and calling it green. Every command is now
+checked by its real exit code.
+
+**One of the two errors was mine.** The stub in the mount test returned
+`{ data: [], nextPageToken: null }`, but the adapter reads `page.response.pagination.nextPageToken`.
+Every session-list load threw, and the failing list retried hard enough to look like part of the
+update loop. Fixed by matching the contract; that error is gone.
+
+**The remaining loop is upstream.** It reproduces with a bare layout containing none of our
+components, and it escapes asynchronously where neither `act()` nor an explicit unmount can contain
+it. So the tolerance is scoped as narrowly as it can be: two Vitest projects, and
+`--dangerouslyIgnoreUnhandledErrors` on the `test:mount` script only.
+
+I checked that the narrowing is real rather than assumed, by putting a deliberate unhandled
+rejection in a unit-project file: it fails the run. The first attempt at scoping did not work -
+the option is not honoured per project in the config, so it sat there reading as protection while
+protecting nothing. That is the same failure this project keeps finding in other people's code, and
+the reason I tested it instead of trusting it.
+
+Deleting the test was the alternative. It is the test that caught the interface rendering blank.
