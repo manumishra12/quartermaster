@@ -470,6 +470,21 @@ test('a command substitution is executed, so it counts even inside quotes', () =
   assert.equal(looksLikeTestCommand('echo "$(cat pytest.log)"'), false);
 });
 
+test('a substitution the shell would not expand is not a run', () => {
+  /**
+   * Single quotes suppress expansion entirely and a backslash suppresses the next character, so
+   * both of these print their argument and execute nothing. Matching $(...) with a pattern found
+   * them anyway, and the "1 passed" they echo then supplied the passing output to match the
+   * invocation they appeared to be. Quoting is state, not a pattern.
+   */
+  assert.equal(looksLikeTestCommand("echo '$(pytest -q) 1 passed'"), false);
+  assert.equal(looksLikeTestCommand('echo "\\$(pytest -q) 1 passed"'), false);
+  assert.equal(looksLikeTestCommand("echo '`pytest -q`'"), false);
+  // Double quotes do expand, so the distinction has to survive in the other direction too.
+  assert.equal(looksLikeTestCommand('echo "$(pytest -q)"'), true);
+  assert.equal(looksLikeTestCommand('echo $(pytest -q)'), true);
+});
+
 test('a heredoc body is written, not run', () => {
   // This is the whole fabrication in one command: the body mentions a runner so the command looks
   // like a test run, and the same body supplies the passing output to match it. Nothing executed.

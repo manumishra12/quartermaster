@@ -150,6 +150,62 @@ const READERS = /^(?:cat|echo|printf|grep|egrep|rg|ag|head|tail|less|more|awk|se
 /** Flags that make a runner list or describe tests without running them. */
 const NOT_A_RUN = /(?:^|\s)--(?:collect-only|version|help|list-tests?|dry-run|co)\b|(?:^|\s)-(?:h|V)(?:\s|$)/;
 
+/**
+ * The command substitutions the shell would actually run.
+ *
+ * Matching `$(...)` with a regex found the ones that never execute. Single quotes suppress
+ * expansion entirely and a backslash suppresses the next character, so `echo '$(pytest -q) 1
+ * passed'` and `echo "\\$(pytest -q) 1 passed"` print that text and run nothing - yet both were
+ * read as pytest invocations, and their echoed "1 passed" then supplied the passing output to
+ * match. Quoting is state, not a pattern, so this walks the string and tracks it.
+ */
+function expandedSubstitutions(text) {
+  const found = [];
+  let quote = null;
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i];
+
+    // Inside single quotes nothing expands and a backslash is an ordinary character.
+    if (quote === "'") {
+      if (c === "'") quote = null;
+      continue;
+    }
+    if (c === '\\') {
+      i += 1;
+      continue;
+    }
+    if (c === '"') {
+      quote = quote === '"' ? null : '"';
+      continue;
+    }
+    if (c === "'" && quote === null) {
+      quote = "'";
+      continue;
+    }
+
+    // Double quotes still expand, so this runs whether or not we are inside them.
+    if (c === '$' && text[i + 1] === '(') {
+      let depth = 1;
+      let j = i + 2;
+      for (; j < text.length && depth > 0; j += 1) {
+        if (text[j] === '(') depth += 1;
+        else if (text[j] === ')') depth -= 1;
+        if (depth === 0) break;
+      }
+      found.push(text.slice(i + 2, j));
+      i = j;
+      continue;
+    }
+    if (c === '`') {
+      const end = text.indexOf('`', i + 1);
+      if (end === -1) continue;
+      found.push(text.slice(i + 1, end));
+      i = end;
+    }
+  }
+  return found;
+}
+
 export function looksLikeTestCommand(command = '') {
   const text = String(command);
   if (!text.trim()) return false;
@@ -176,9 +232,7 @@ export function looksLikeTestCommand(command = '') {
    * deleting them with the surrounding quotes lost real test runs and reported honest work as
    * unsubstantiated.
    */
-  const substitutions = [withoutHeredocs, ...expandingBodies]
-    .flatMap((part) => [...part.matchAll(/\$\(([^()]*)\)|`([^`]*)`/g)])
-    .map((m) => m[1] ?? m[2] ?? '');
+  const substitutions = [withoutHeredocs, ...expandingBodies].flatMap(expandedSubstitutions);
 
   /**
    * What remains of a quoted span is a placeholder, not a space.
