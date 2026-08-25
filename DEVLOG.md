@@ -339,3 +339,31 @@ Twenty regression tests, every one built from the exact input that exploited it.
 The lesson is the same one the project is about, turned on itself: I had tests, and they passed, and
 the thing was still wrong - because the tests were written from the same assumptions as the code.
 It took someone adversarial, looking specifically for a blessed lie, to find them.
+
+## Day 2 — published, and the interface rebuilt
+
+The repo is public: `manumishra12/quartermaster`, with the fixture split into its own repo so an
+agent pointed at it cannot read these notes. `main` is branch-protected - pull requests required, no
+force pushes, no deletions. The PR discipline is enforced rather than promised.
+
+CI passed on a clean runner on the first try, which is the only real test of "a stranger can clone
+and run this". Three jobs: unit tests, the UI build, and the check that both fixtures are still
+broken.
+
+Then rebuilt the interface on Tailwind with a light theme alongside the dark one.
+
+- Three theme states, not two. System is the default: a viewer who has told their operating system
+  they prefer dark has already answered this question, and overriding that on first load is
+  presumptuous.
+- A restrained type scale - five sizes. More sizes read as indecision rather than hierarchy.
+- Light is warm off-white, not pure white. A full-brightness field beside a code block is fatiguing
+  and this interface gets read for long stretches.
+- The light theme failed its own contrast rule immediately: `--qm-border` at 1.40:1 where WCAG
+  1.4.11 wants 3:1 for control boundaries. Caught by the test, not by eye. Now 3.60:1.
+
+And a real bug the rewrite exposed: `readTokens` flattened every declaration into a single map, so
+adding a second theme would have shipped it entirely unchecked. That was listed as latent in the
+review because the stylesheet had no duplicates at the time. Writing the light theme is exactly the
+change that made it live. It reads per theme now, and both are asserted - 23 contrast checks.
+
+84 tests.
