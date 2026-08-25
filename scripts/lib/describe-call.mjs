@@ -28,6 +28,8 @@ const HEADLINE = ['owner', 'repo', 'repository', 'branch', 'base', 'head', 'ref'
  */
 function visible(value) {
   return String(value).replace(
+    // Matching control characters is the whole point here: they are what has to be escaped.
+    // eslint-disable-next-line no-control-regex
     /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/g,
     (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`,
   );
