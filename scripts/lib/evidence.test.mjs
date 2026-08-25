@@ -497,6 +497,31 @@ test('a heredoc body is written, not run', () => {
   assert.equal(looksLikeTestCommand('cat <<EOF\n$(pytest -q)\nEOF'), true);
 });
 
+test('every valid heredoc form hides its body, not just the tidy one', () => {
+  /**
+   * The delimiter is a word, not an identifier, and quoting it is what turns expansion off. A
+   * pattern that insisted on a bare or fully quoted identifier let the other forms through, and
+   * their bodies were read as commands - supplying both the fake invocation and the passing
+   * output to match it.
+   */
+  assert.equal(looksLikeTestCommand("cat <<'EOF-1'\npytest\n1 passed\nEOF-1"), false);
+  assert.equal(looksLikeTestCommand('cat <<E"OF"\npytest\n1 passed\nEOF'), false);
+
+  // Leading tabs are stripped only for <<-; a space-indented word ends nothing.
+  assert.equal(looksLikeTestCommand('cat <<EOF\npytest\n EOF\n1 passed\nEOF'), false);
+  assert.equal(looksLikeTestCommand('cat <<-EOF\npytest\n1 passed\n\tEOF'), false);
+
+  // Bodies are consumed in the order the redirections appear, which one pattern cannot do.
+  assert.equal(looksLikeTestCommand('cat <<A <<B\npytest\nA\npytest\n1 passed\nB'), false);
+
+  // A here-string is one line of data with no terminator, so it hides nothing after it.
+  assert.equal(looksLikeTestCommand('echo hi <<< pytest'), false);
+
+  // And a command genuinely after the terminator still runs, which is why the body is skipped
+  // rather than everything from the first << onwards.
+  assert.equal(looksLikeTestCommand('cat <<EOF\ndata\nEOF\npytest -q'), true);
+});
+
 test('a wrapped script name must be the whole word, not a substring of one', () => {
   // latest, contest and attest all contain "test".
   for (const name of ['latest', 'contest', 'attest', 'testify']) {

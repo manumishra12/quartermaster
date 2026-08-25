@@ -142,13 +142,124 @@ const RUNNERS = [
 ];
 
 /** Commands that only ever read or print. A runner named inside one of these is a filename. */
-/** `<<WORD` or `<<-'WORD'` through the line that repeats WORD, or through the end if unterminated. */
-const HEREDOC = /<<-?\s*(['"]?)([A-Za-z_]\w*)\1[\s\S]*?(?:\n[\t ]*\2[\t ]*(?=\n|$)|$)/g;
-
 const READERS = /^(?:cat|echo|printf|grep|egrep|rg|ag|head|tail|less|more|awk|sed|tee|cp|mv|touch|find|ls|type)\b/;
 
 /** Flags that make a runner list or describe tests without running them. */
 const NOT_A_RUN = /(?:^|\s)--(?:collect-only|version|help|list-tests?|dry-run|co)\b|(?:^|\s)-(?:h|V)(?:\s|$)/;
+
+/**
+ * Heredoc redirections on one line, in the order the shell will consume their bodies.
+ *
+ * The delimiter is a word, not an identifier, and quoting it is what turns expansion off: `<<EOF`,
+ * `<<-'EOF-1'` and `<<E"OF"` are all valid and only the first expands. A pattern that insisted on
+ * a bare or fully quoted identifier missed the other two entirely, leaving their bodies to be read
+ * as commands.
+ */
+function heredocsOn(line) {
+  const docs = [];
+  let quote = null;
+  for (let i = 0; i < line.length; i += 1) {
+    const c = line[i];
+    if (quote === "'") {
+      if (c === "'") quote = null;
+      continue;
+    }
+    if (c === '\\') {
+      i += 1;
+      continue;
+    }
+    if (c === '"') {
+      quote = quote === '"' ? null : '"';
+      continue;
+    }
+    if (c === "'" && quote === null) {
+      quote = "'";
+      continue;
+    }
+    if (quote !== null) continue;
+
+    // `<<<` is a here-string: one line of data, no terminator, so nothing to skip.
+    if (c === '<' && line[i + 1] === '<' && line[i + 2] !== '<') {
+      let j = i + 2;
+      const stripTabs = line[j] === '-';
+      if (stripTabs) j += 1;
+      while (line[j] === ' ' || line[j] === '\t') j += 1;
+
+      let delim = '';
+      let quoted = false;
+      let inner = null;
+      for (; j < line.length; j += 1) {
+        const d = line[j];
+        if (inner) {
+          if (d === inner) inner = null;
+          else delim += d;
+          continue;
+        }
+        if (d === "'" || d === '"') {
+          inner = d;
+          quoted = true;
+          continue;
+        }
+        if (d === '\\') {
+          quoted = true;
+          j += 1;
+          if (j < line.length) delim += line[j];
+          continue;
+        }
+        if (/[\s;|&<>()]/.test(d)) break;
+        delim += d;
+      }
+      if (delim) docs.push({ delim, stripTabs, expands: !quoted });
+      i = j - 1;
+    }
+  }
+  return docs;
+}
+
+/**
+ * A terminator is the delimiter alone on its line. Leading tabs are stripped only for `<<-`, and
+ * leading spaces never are - accepting them let a space-indented word end the body early and
+ * expose the rest of the data as commands.
+ */
+function isTerminator(line, doc) {
+  return (doc.stripTabs ? line.replace(/^\t+/, '') : line) === doc.delim;
+}
+
+/**
+ * Split a command into the lines the shell executes and the heredoc bodies it only reads.
+ *
+ * A heredoc body is data being written, not commands being run. `cat <<EOF ... pytest ... EOF`
+ * writes a file mentioning pytest and executes nothing, but read as code the body supplies both
+ * halves of a fabricated proof: a line that looks like an invocation and a line that looks like
+ * its passing output. Bodies are consumed in the order their redirections appear, which a single
+ * pattern cannot do - `cat <<A <<B` has two of them, and matching the first swallowed only as far
+ * as A and handed B's body back as code.
+ */
+function splitHeredocs(text) {
+  const lines = String(text).split('\n');
+  const code = [];
+  const expandingBodies = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    code.push(line);
+    i += 1;
+    for (const doc of heredocsOn(line)) {
+      const body = [];
+      while (i < lines.length && !isTerminator(lines[i], doc)) {
+        body.push(lines[i]);
+        i += 1;
+      }
+      // Past the terminator, or past the end when the body is never closed.
+      i += 1;
+      // An unquoted delimiter still expands `$(...)` inside the body; a quoted one expands nothing.
+      if (doc.expands) expandingBodies.push(body.join('\n'));
+    }
+  }
+
+  return { code: code.join('\n'), expandingBodies };
+}
 
 /**
  * The command substitutions the shell would actually run.
@@ -211,20 +322,7 @@ export function looksLikeTestCommand(command = '') {
   if (!text.trim()) return false;
 
   // Any segment of a compound command can be the real invocation: `cd repo && pytest -q`.
-  /**
-   * A heredoc body is data being written, not commands being run. `cat <<EOF ... pytest ... EOF`
-   * writes a file mentioning pytest and executes nothing, but the body split on its own newlines
-   * and left the runner leading a segment - so writing a fake log counted as running the suite,
-   * and the same fake body supplied the passing output to match it.
-   *
-   * A body whose delimiter is unquoted still expands `$(...)`, so those are kept for the
-   * substitution pass below; a quoted delimiter (`<<'EOF'`) expands nothing.
-   */
-  const expandingBodies = [];
-  const withoutHeredocs = text.replace(HEREDOC, (body, quote) => {
-    if (!quote) expandingBodies.push(body);
-    return ' ';
-  });
+  const { code: withoutHeredocs, expandingBodies } = splitHeredocs(text);
 
   /**
    * Command substitutions execute, even inside quotes: `echo "$(cd project && pytest -q)"` really
