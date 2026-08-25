@@ -18,7 +18,7 @@ Rule for all of them: post the *finding*, not the progress. "Day 3, still buildi
 >
 > It never ran anything. No sandbox, no tool call. It just wrote the line.
 >
-> Building the fix on @truefoundry TrueForge this week. 🧵
+> Building the fix on @truefoundry TrueForge this week.
 >
 > #AgentHarnessHackathon
 

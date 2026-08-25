@@ -107,14 +107,20 @@ try {
 try {
   const skills = asList(await get('/api/v1/settings/skills'));
   const names = skills.map((s) => s.name ?? s.manifest?.name);
-  record(
-    names.includes('verified-fix'),
-    'Skill: verified-fix',
-    names.length ? names.join(', ') : 'no skills registered',
-    `open ${BASE} -> Settings -> Skills -> Import from GitHub, pointing at skills/verified-fix`,
-  );
+  // Every spec references both. Checking only one meant a missing evidence-report read as fine
+  // right up until agents:apply rejected every agent that needs it.
+  for (const required of ['verified-fix', 'evidence-report']) {
+    record(
+      names.includes(required),
+      `Skill: ${required}`,
+      names.includes(required) ? 'registered' : `not registered (found: ${names.join(', ') || 'none'})`,
+      `open ${BASE} -> Settings -> Skills -> Import from GitHub, pointing at skills/${required}`,
+    );
+  }
 } catch {
-  record(false, 'Skill: verified-fix', 'could not list skills', `open ${BASE} -> Settings -> Skills`);
+  for (const required of ['verified-fix', 'evidence-report']) {
+    record(false, `Skill: ${required}`, 'could not list skills', `open ${BASE} -> Settings -> Skills`);
+  }
 }
 
 // 5. Connectors, and whether their approval gate is real.

@@ -69,10 +69,12 @@ const CASES = [
   },
   {
     agent: 'research-desk',
-    what: 'reaches the web through Exa',
-    prompt: 'Search the web for "TrueForge agent harness TrueFoundry" and quote one sentence from a result.',
-    expect: /\w{20,}/,
-    viaTool: true,
+    what: 'reaches the web through a connector',
+    prompt: 'Search the web for "TrueFoundry TrueForge agent harness" and quote one sentence from a result, with its URL.',
+    // A URL in the recorded output is the evidence that something was actually fetched. The old
+    // assertion was /\w{20,}/, which any sentence of prose satisfies - so the case reported
+    // "reaches the web through Exa" without establishing that it had reached anything.
+    expect: /https?:\/\/[^\s"']+/,
   },
 ];
 

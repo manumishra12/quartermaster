@@ -522,3 +522,60 @@ One finding turned out not to be mine: the render loop warning reproduces with a
 components of ours, so it is in the SDK. That is a third upstream report.
 
 99 tests in the root, 55 in the interface.
+
+## Day 2 — Qodo installed, and it found things on its first pass
+
+Installed and working. It did not auto-review the two open pull requests because both were opened
+before the install, so both were triggered by hand with `/agentic_review`.
+
+**On PR #2 it caught the README lying about the repository's own governance.** The document said
+`main` allows no direct pushes, force pushes or deletions, while the protection was configured with
+`enforce_admins: false` - so the owner could push straight to it. Fixed by making the statement true
+rather than by softening it: enforcement now applies to administrators. A rule that holds for
+everyone except the person most able to break it is a convention, not a protection.
+
+**On PR #1 it found three, two of them real bugs.**
+
+An unannotated tool *absent* from an explicit `enable_tools` allowlist was reported as an ungated
+risk, even though it cannot run at all. The audit was contradicting the fail-closed design
+`SECURITY.md` prescribes, and failing loudest for the specs doing it right. One of my own tests
+asserted that wrong behaviour - which is guideline five in `.pr_agent.toml`, a test that agrees with
+the bug, demonstrated on me within hours of my writing it down.
+
+A claimed exit code was only checked when some execution reported a numeric one. When none did -
+most envelopes from some servers - a fabricated `exit code: 0` passed as NO CLAIM and exited 0.
+Having nothing to check against is not the same as having checked.
+
+The third, duplicated approval policy across both quartermaster specs, I disagreed with and said so
+in the thread. Agent specs are plain JSON with no include mechanism, and inventing one would put a
+build step between a reviewer and the safety policy they are trying to read. The duplication stays;
+a test now fails if the two drift apart.
+
+## Day 2 — the rest of the review findings
+
+- A run blocked waiting for a connector to be authorized reported itself finished and exited 0. It
+  now exits 1 and says what it was waiting for. Unattended, it stops rather than pretending.
+- The verdict label map had four keys and five verdicts, so NO ANSWER printed as the literal word
+  "undefined" in the one line a person reads to decide whether to trust a run.
+- Allow and Deny had no in-flight guard, so a double click sent two approval responses for the same
+  call. Both now disable on the first, and say which decision was taken.
+- The approval prompt was never announced and never took focus. The agent is stopped until somebody
+  acts, so it now takes focus and announces separately for anyone whose focus is elsewhere.
+- The final phase spun forever after a run finished, because the interface discarded
+  `progress().settled`.
+- `tools:audit` printed a global "nothing runs ungated" while a connector sat unauditable for want
+  of credentials. A connector we could not read is not a connector we cleared; it exits 1 now.
+- `preflight` checked one of the two skills every spec requires.
+- `bootstrap-repo.sh` printed a reassuring note when branch protection failed, and hid the error. It
+  now says the protection was not applied, and exits non-zero.
+- The `research-desk` smoke case asserted `/\w{20,}/` - any sentence of prose - while reporting
+  "reaches the web through Exa". It now requires a URL in the recorded output.
+- Nothing validated the agent specs: not tsc, which does not read JSON, and not CI. A typo in
+  `require_approval_for_tools` would apply cleanly and gate nothing. `scripts/lib/spec.mjs`
+  validates every spec, and the suite fails if one is unsound.
+- Added a prompt-injection rule to `research-desk`, and to both quartermaster agents. One reads
+  arbitrary web pages, the others read repositories they did not write. Text found in either is
+  data, not instruction - and a page trying to steer the agent is a finding worth reporting rather
+  than obeying.
+
+108 tests in the root, 61 in the interface.

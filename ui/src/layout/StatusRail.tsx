@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useComposerBusyState } from '@truefoundry/trueforge-ui';
 // @ts-expect-error - shared JS module, aliased in vite.config.ts
 import { PHASES, isGreen, progress, testRuns } from '@evidence';
@@ -65,7 +65,7 @@ function Empty({ children, hint }: { children: React.ReactNode; hint?: string })
  * connected run of them reads as one process with a position in it. The filled portion is the
  * distance travelled.
  */
-function Steps({ index }: { index: number }) {
+function Steps({ index, settled }: { index: number; settled: boolean }) {
   const phases = PHASES as string[];
   return (
     <ol className="relative grid gap-2.5">
@@ -80,17 +80,17 @@ function Steps({ index }: { index: number }) {
                 aria-hidden
                 className={[
                   'absolute left-[6px] top-4 h-[calc(100%+0.125rem)] w-px transition-colors duration-300',
-                  done ? 'bg-verified/50' : 'bg-line-soft',
+                  done || (current && settled) ? 'bg-verified/50' : 'bg-line-soft',
                 ].join(' ')}
               />
             )}
             <span
               className={[
                 'relative z-10 inline-flex w-3.5 shrink-0 justify-center transition-colors duration-200',
-                done ? 'text-verified' : current ? 'text-accent' : 'text-muted/50',
+                done || (current && settled) ? 'text-verified' : current ? 'text-accent' : 'text-muted/50',
               ].join(' ')}
             >
-              {done ? <CheckIcon /> : current ? <SpinnerIcon /> : <DotIcon />}
+              {done || (current && settled) ? <CheckIcon /> : current ? <SpinnerIcon /> : <DotIcon />}
             </span>
             <span
               className={[
@@ -121,7 +121,7 @@ export function StatusRail() {
     [executions],
   );
   const runs = useMemo(() => testRuns(asResponses) as Run[], [asResponses]);
-  const step = useMemo(() => progress(asResponses) as { index: number; label: string }, [asResponses]);
+  const step = useMemo(() => progress(asResponses) as { index: number; label: string; settled: boolean }, [asResponses]);
   const last = runs[runs.length - 1];
 
   return (
@@ -137,7 +137,7 @@ export function StatusRail() {
           {isBusy ? <SpinnerIcon /> : <ClockIcon />}
           {isBusy ? `Working — ${step.label}` : step.index >= 0 ? 'Finished' : 'Idle'}
         </p>
-        <Steps index={step.index} />
+        <Steps index={step.index} settled={step.settled} />
       </Section>
 
       <Section label="Waiting on" badge={pendingApprovals.length > 1 ? `${pendingApprovals.length} pending` : undefined}>
@@ -265,14 +265,41 @@ function ApprovalPrompt({
   respond?: (r: { approvalId: string; approved: boolean; reason?: string }) => void;
 }) {
   const [pending] = approvals;
+  const [sent, setSent] = useState<'allow' | 'deny' | null>(null);
+
+  // Reset when a different approval takes its place, or the next one inherits this one's disabled
+  // state and cannot be acted on at all.
+  useEffect(() => setSent(null), [pending?.approvalId]);
+
   if (!pending) return null;
+
+  const decide = (approved: boolean) => {
+    if (sent) return;
+    setSent(approved ? 'allow' : 'deny');
+    respond?.({
+      approvalId: pending.approvalId,
+      approved,
+      ...(approved ? {} : { reason: 'Denied by the operator' }),
+    });
+  };
 
   return (
     <div
       role="alertdialog"
+      aria-modal="false"
       aria-label={`Approval required for ${pending.toolName}`}
-      className="rounded-lg border border-waiting/60 bg-surface p-3 shadow-[var(--qm-shadow)]"
+      // The agent is stopped and cannot continue until somebody acts, so this takes focus when it
+      // appears. Without it a keyboard user has to hunt for a control that appeared silently
+      // somewhere else on the page, while a turn sits paused.
+      ref={(node) => node?.focus()}
+      tabIndex={-1}
+      className="rounded-lg border border-waiting/60 bg-surface p-3 shadow-[var(--qm-shadow)] focus:outline-none"
     >
+      {/* Announced separately: an alertdialog label is read on focus, but this must reach someone
+          whose focus is elsewhere entirely. */}
+      <p role="alert" className="sr-only">
+        Approval required before {pending.toolName} can run. The agent is paused.
+      </p>
       <p className="flex items-center gap-2.5 text-sm font-semibold text-waiting">
         <ClockIcon />
         Approval required
@@ -293,17 +320,19 @@ function ApprovalPrompt({
       <div className="mt-3 flex gap-2.5">
         <button
           type="button"
-          onClick={() => respond?.({ approvalId: pending.approvalId, approved: false, reason: 'Denied by the operator' })}
-          className="min-h-11 flex-1 cursor-pointer rounded-lg border border-line text-sm font-medium text-ink transition-colors duration-200 hover:bg-raised"
+          onClick={() => decide(false)}
+          disabled={sent !== null}
+          className="min-h-11 flex-1 cursor-pointer rounded-lg border border-line text-sm font-medium text-ink transition-colors duration-200 hover:bg-raised disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Deny
+          {sent === 'deny' ? 'Denied' : 'Deny'}
         </button>
         <button
           type="button"
-          onClick={() => respond?.({ approvalId: pending.approvalId, approved: true })}
-          className="min-h-11 flex-1 cursor-pointer rounded-lg border border-accent text-sm font-medium text-accent transition-colors duration-200 hover:bg-accent hover:text-on-accent"
+          onClick={() => decide(true)}
+          disabled={sent !== null}
+          className="min-h-11 flex-1 cursor-pointer rounded-lg border border-accent text-sm font-medium text-accent transition-colors duration-200 hover:bg-accent hover:text-on-accent disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Allow
+          {sent === 'allow' ? 'Allowed' : 'Allow'}
         </button>
       </div>
     </div>

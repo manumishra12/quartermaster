@@ -63,6 +63,7 @@ if (!list.length) {
 
 let ungated = 0;
 let seenUnannotated = 0;
+let unauditable = 0;
 
 for (const server of list) {
   const name = server.name ?? server.manifest?.name;
@@ -71,6 +72,7 @@ for (const server of list) {
     const res = await get(`/api/v1/mcp-servers/${encodeURIComponent(name)}/tools`);
     tools = Array.isArray(res) ? res : (res.items ?? res.tools ?? []);
   } catch (err) {
+    unauditable += 1;
     console.log(`\n${name}: could not list tools - ${err.message}`);
     console.log('  (a server needing credentials must be authenticated before it can be audited)');
     continue;
@@ -102,6 +104,15 @@ if (ungated > 0) {
       'Fix by making the spec fail closed: restrict `enable_tools` to ["@read-only", ...literal write tools you\n' +
       'actually want], and name those same tools in `require_approval_for_tools` so the gate does not depend\n' +
       'on the server annotating them correctly.',
+  );
+  process.exit(1);
+}
+
+// A connector we could not read is not a connector we cleared. Printing "nothing runs ungated"
+// while a server sat unaudited is the reassuring falsehood this whole project argues against.
+if (unauditable > 0) {
+  console.log(
+    `\n${unauditable} connector(s) could not be audited. No claim is made about them - authenticate them and run this again.`,
   );
   process.exit(1);
 }

@@ -191,3 +191,64 @@ describe('progress', () => {
     }
   });
 });
+
+describe('approval gate hardening', () => {
+  const approval = {
+    approvalId: 'ap_1',
+    toolName: 'create_pull_request',
+    argsText: '{"title":"Fix split_evenly"}',
+  };
+
+  test('a second click cannot send a second response', async () => {
+    // Found in review: no in-flight guard meant a double click sent two approval responses for the
+    // same call, and the second one races whatever the first already set in motion.
+    const user = userEvent.setup();
+    state.pendingApprovals = [approval];
+    render(<StatusRail />);
+
+    const allow = screen.getByRole('button', { name: 'Allow' });
+    await user.click(allow);
+    await user.click(screen.getByRole('button', { name: 'Allowed' }));
+
+    expect(state.respondToApproval).toHaveBeenCalledTimes(1);
+  });
+
+  test('both buttons disable once a decision is sent, and say which was taken', async () => {
+    const user = userEvent.setup();
+    state.pendingApprovals = [approval];
+    render(<StatusRail />);
+
+    await user.click(screen.getByRole('button', { name: 'Deny' }));
+    expect(screen.getByRole('button', { name: 'Denied' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Allow' })).toBeDisabled();
+  });
+
+  test('the pause is announced to someone whose focus is elsewhere', () => {
+    state.pendingApprovals = [approval];
+    render(<StatusRail />);
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/Approval required before create_pull_request can run/i);
+  });
+
+  test('the prompt takes focus, because the agent is stopped until someone acts', () => {
+    state.pendingApprovals = [approval];
+    render(<StatusRail />);
+    expect(screen.getByRole('alertdialog')).toHaveFocus();
+  });
+});
+
+describe('progress settles', () => {
+  test('the final phase stops spinning once a run has passed', () => {
+    // It used to spin forever after the work finished, because the UI discarded progress().settled.
+    state.executions = [RED, GREEN];
+    const { container } = render(<StatusRail />);
+    expect(container.querySelector('.qm-spin')).toBeNull();
+  });
+
+  test('it does keep spinning while the last run is red', () => {
+    busy = true;
+    state.executions = [RED];
+    const { container } = render(<StatusRail />);
+    expect(container.querySelector('.qm-spin')).not.toBeNull();
+  });
+});
