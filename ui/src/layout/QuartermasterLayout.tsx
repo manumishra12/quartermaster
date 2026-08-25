@@ -73,8 +73,14 @@ export function QuartermasterLayout({ className }: { className?: string }) {
             onClick={() => setSheetOpen(false)}
             className="absolute inset-0 cursor-default bg-[var(--qm-overlay,rgba(0,0,0,0.5))]"
           />
+          {/* Any selection inside the sheet closes it. Choosing a conversation and then being
+              left staring at the drawer that covers it is the sheet failing at the one thing it
+              was opened to do. */}
           <nav
             aria-label="Conversations and agent reach"
+            onClick={(e) => {
+              if ((e.target as HTMLElement).closest('button, a')) setSheetOpen(false);
+            }}
             className="relative w-72 max-w-[85vw] border-r border-line-soft bg-bg shadow-[var(--qm-shadow)]"
           >
             <Sidebar mode={mode} resolved={resolved} onThemeChange={onThemeChange} />

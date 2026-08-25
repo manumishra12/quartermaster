@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { ErrorBoundary } from './layout/ErrorBoundary';
 import './index.css';
 
 /**
@@ -14,4 +15,8 @@ import './index.css';
  * Giving up StrictMode is a real cost and worth stating rather than deleting quietly. The
  * alternative was an interface that does not render at all.
  */
-createRoot(document.getElementById('root')!).render(<App />);
+createRoot(document.getElementById('root')!).render(
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>,
+);

@@ -405,6 +405,18 @@ function ApprovalPrompt({
  * at exactly the moment it mattered most.
  */
 function OutputDialog({ run, green, onClose }: { run: Run; green: boolean; onClose: () => void }) {
+  /**
+   * Focus once, on open. This was an inline `ref={(node) => node?.focus()}` - the identical mistake
+   * fixed in ApprovalPrompt earlier the same day, and repeated here the moment a second dialog was
+   * written. React re-invokes an inline ref on every commit, and while an agent streams there is a
+   * commit every few hundred milliseconds, so focus was dragged back into the dialog continuously
+   * and its own controls could not be reached.
+   */
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    dialogRef.current?.focus();
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -425,7 +437,7 @@ function OutputDialog({ run, green, onClose }: { run: Run; green: boolean; onClo
         role="dialog"
         aria-modal="true"
         aria-label="Recorded output"
-        ref={(node) => node?.focus()}
+        ref={dialogRef}
         tabIndex={-1}
         className="relative flex max-h-[85vh] w-full max-w-3xl flex-col rounded-xl border border-line-soft bg-surface shadow-[var(--qm-shadow)] focus:outline-2 focus:outline-offset-2 focus:outline-accent"
       >

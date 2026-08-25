@@ -1,68 +1,64 @@
 import { act, cleanup, render, screen, within } from '@testing-library/react';
 import { expect, test, vi } from 'vitest';
-import { TrueForgeUI } from '@truefoundry/trueforge-ui';
-import { QuartermasterLayout } from './QuartermasterLayout';
-import { ThemeContext } from './ThemeContext';
+import App from '../App';
 
 /**
- * The test the interface did not have, and needed most.
+ * The test the interface needed most, rewritten after it failed to catch the thing it existed for.
  *
- * Every other UI test mocks the harness hooks, which is right for behaviour but means none of them
- * can catch a component calling a hook outside its provider. That shipped: the rail and the topbar
- * both read composer busy state, ComposerBusyProvider is only wired inside <Thread /> which this
- * layout does not use, and the entire surface rendered blank. A smoke check against the dev server
- * returned 200 the whole time, because the HTML shell serves fine and React fails in the browser.
+ * It used to render the layout with hand-written props and tolerate an unhandled
+ * "Maximum update depth exceeded" on the grounds that the loop was upstream. It was not upstream.
+ * Every prop App handed the SDK - server, agentConfig, theme, overrides - was an object literal in
+ * the JSX, so each render produced a new identity, and the SDK feeds those into a
+ * useSyncExternalStore whose snapshot then differs on every read. In a browser that killed the
+ * React tree and the page rendered blank, while the dev server answered 200.
  *
- * This renders the real tree with nothing mocked but the network.
+ * So this renders the real App, with the real props, and fails on that error rather than ignoring
+ * it. A blank page is the one failure this file is here to prevent.
  */
-test('the real component tree mounts inside TrueForgeUI', async () => {
-  // A fake harness that answers each route with the shape it really returns. A blanket
-  // `{data: []}` makes the SDK read `.enabled` off undefined, which fails the test for a reason
-  // that is about the stub rather than about the interface.
+test('the real App mounts, with no render loop', async () => {
+  const errors: string[] = [];
+  const spy = vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(String(args[0])));
+
+  // A fake harness answering each route with the shape it really returns. A blanket `{data: []}`
+  // makes the SDK read `.enabled` off undefined, failing for a reason about the stub.
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
       const body = url.includes('/capabilities')
         ? { data: { sandbox: { enabled: true }, skill: { enabled: true }, settings: { enabled: true } } }
-        : // The adapter reads page.response.pagination.nextPageToken. Omitting `pagination`
-          // made every session-list load throw, and the failing list retried hard enough to drive
-          // the shell into an update loop - which looked like an upstream bug and was my stub.
-          { data: [], pagination: { nextPageToken: null } };
+        : { data: [], pagination: { nextPageToken: null } };
       return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
     }),
   );
 
   await act(async () => {
-    render(
-      <ThemeContext.Provider
-        value={{ mode: 'dark', resolved: 'dark', onThemeChange: () => {}, agentName: 'quartermaster-local' }}
-      >
-      <TrueForgeUI
-        server={{ type: 'trueforge', baseUrl: '/' } as never}
-        layout={QuartermasterLayout}
-        agentConfig={{ mode: 'SingleAgent', name: 'quartermaster-local' }}
-      />
-      </ThemeContext.Provider>,
-    );
-    await new Promise((r) => setTimeout(r, 400));
+    render(<App />);
+    await new Promise((r) => setTimeout(r, 500));
   });
 
   // The three surfaces that must exist for the interface to do its job at all.
   const rail = screen.queryByLabelText('Agent status');
-  expect(rail).toBeInTheDocument();
+  expect(rail, 'the status rail did not render - the tree probably crashed').toBeInTheDocument();
   expect(within(rail!).getByText('Doing')).toBeInTheDocument();
   expect(within(rail!).getByText('Waiting on')).toBeInTheDocument();
   expect(within(rail!).getByText('Did')).toBeInTheDocument();
-
-  // The sidebar and the topbar both render, which is what proves the busy-state provider is above
-  // them rather than only around the composer.
-  // Two copies exist in the DOM - the desktop sidebar and the narrow-screen header - and CSS hides
-  // one of them. jsdom applies no CSS, so both are found here.
   expect(screen.getAllByRole('heading', { level: 1, name: 'Quartermaster' }).length).toBeGreaterThan(0);
-  expect(screen.getAllByText('quartermaster-local').length).toBeGreaterThan(0);
 
-  // Unmount inside act so the shell's effects settle here rather than escaping into teardown.
+  /**
+   * Two different things share wording here, and only one is fatal.
+   *
+   * "The result of getSnapshot should be cached" on its own is a one-time development warning from
+   * the SDK's own store, guarded by a module-level flag. It is upstream and harmless.
+   *
+   * "Maximum update depth exceeded" is thrown after fifty commits in which a snapshot never
+   * settles. That one kills the React tree, and it is what made this page render blank in a
+   * browser while the dev server answered 200.
+   */
+  const fatal = errors.filter((e) => /Maximum update depth exceeded/i.test(e));
+  expect(fatal, `render loop killed the tree: ${fatal[0] ?? ''}`).toHaveLength(0);
+
+  spy.mockRestore();
   await act(async () => {
     cleanup();
   });
