@@ -101,7 +101,7 @@ describe('what it did', () => {
     state.executions = [exec(`${'line of output\n'.repeat(60)}Ran 60 tests in 0.4s\n\nOK`, 0)];
     render(<StatusRail />);
 
-    const toggle = screen.getByRole('button', { name: /show full output/i });
+    const toggle = screen.getByRole('button', { name: /show more/i });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     await user.click(toggle);
     expect(screen.getByRole('button', { name: /show less/i })).toHaveAttribute('aria-expanded', 'true');
@@ -341,5 +341,44 @@ describe('the spinner is honest', () => {
     state.executions = [RED];
     const { container } = render(<StatusRail />);
     expect(container.querySelector('.qm-spin')).toBeNull();
+  });
+});
+
+
+describe('the recorded output can be read at full size', () => {
+  test('enlarging shows the command and the whole output', async () => {
+    // The evidence this product rests on was being read through a forty-line window in a 22rem
+    // column. Anything with a stack trace was unreadable at the moment it mattered most.
+    const user = userEvent.setup();
+    state.executions = [exec('Ran 5 tests\n\nFAILED (failures=1)\nAssertionError: 999 != 1000', 1)];
+    render(<StatusRail />);
+
+    await user.click(screen.getByRole('button', { name: /enlarge/i }));
+
+    const dialog = screen.getByRole('dialog', { name: /recorded output/i });
+    expect(within(dialog).getByText(/python3 -m unittest/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/AssertionError: 999 != 1000/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/exit 1/)).toBeInTheDocument();
+  });
+
+  test('it takes focus and closes on Escape', async () => {
+    const user = userEvent.setup();
+    state.executions = [exec('Ran 5 tests\n\nOK', 0)];
+    render(<StatusRail />);
+
+    await user.click(screen.getByRole('button', { name: /enlarge/i }));
+    expect(screen.getByRole('dialog')).toHaveFocus();
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  test('short output can still be enlarged - there is no Show more to reach for', async () => {
+    const user = userEvent.setup();
+    state.executions = [exec('Ran 1 test\n\nOK', 0)];
+    render(<StatusRail />);
+    expect(screen.queryByRole('button', { name: /show more/i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /enlarge/i }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 });

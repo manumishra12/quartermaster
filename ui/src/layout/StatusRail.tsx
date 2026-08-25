@@ -3,7 +3,7 @@ import { useComposerBusyState } from '@truefoundry/trueforge-ui';
 // @ts-expect-error - shared JS module, aliased in vite.config.ts
 import { PHASES, isGreen, progress, testRuns } from '@evidence';
 import { useAgentState } from './useAgentState';
-import { CheckIcon, ClockIcon, CrossIcon, DotIcon, SpinnerIcon } from './icons';
+import { CheckIcon, ClockIcon, CloseIcon, CrossIcon, DotIcon, ExpandIcon, SpinnerIcon } from './icons';
 
 /**
  * The three questions a person actually has while an agent is running: what is it doing, what is
@@ -15,7 +15,7 @@ import { CheckIcon, ClockIcon, CrossIcon, DotIcon, SpinnerIcon } from './icons';
  * about what counts as a passing test.
  */
 
-type Run = { exitCode: number | null; output: string };
+type Run = { exitCode: number | null; output: string; command?: string | null };
 
 function Section({
   label,
@@ -188,6 +188,7 @@ export function StatusRail() {
 
 function Verdict({ last }: { last: Run }) {
   const [expanded, setExpanded] = useState(false);
+  const [enlarged, setEnlarged] = useState(false);
   // The shared rule, not a copy of it. The copy had already drifted: it treated any "N failed" as
   // a failure including "0 failed", and it did not know that a non-zero exit code decides. Two
   // implementations of "did this pass" is one more than a product about verdicts can afford.
@@ -238,16 +239,28 @@ function Verdict({ last }: { last: Run }) {
         {shown}
       </pre>
 
-      {long && (
+      <div className="mt-2.5 flex gap-2">
+        {long && (
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            className="min-h-9 flex-1 cursor-pointer rounded-lg border border-line text-2xs text-muted transition-colors duration-200 hover:border-accent hover:bg-raised hover:text-ink"
+          >
+            {expanded ? 'Show less' : 'Show more'}
+          </button>
+        )}
         <button
           type="button"
-          onClick={() => setExpanded((v) => !v)}
-          aria-expanded={expanded}
-          className="mt-2.5 min-h-11 w-full cursor-pointer rounded-lg border border-line bg-transparent text-sm text-muted transition-colors duration-200 hover:border-accent hover:bg-raised hover:text-ink"
+          onClick={() => setEnlarged(true)}
+          className="inline-flex min-h-9 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-line text-2xs text-muted transition-colors duration-200 hover:border-accent hover:bg-raised hover:text-ink"
         >
-          {expanded ? 'Show less' : 'Show full output'}
+          <ExpandIcon />
+          Enlarge
         </button>
-      )}
+      </div>
+
+      {enlarged && <OutputDialog run={last} green={green} onClose={() => setEnlarged(false)} />}
     </div>
   );
 }
@@ -378,6 +391,69 @@ function ApprovalPrompt({
         >
           {sent === 'allow' ? 'Sending…' : 'Allow'}
         </button>
+      </div>
+    </div>
+  );
+}
+
+
+/**
+ * The recorded output, full size.
+ *
+ * This output is the evidence the whole product rests on, and it was being read through a
+ * forty-line window in a 22rem column. Anything with a stack trace in it was effectively unreadable
+ * at exactly the moment it mattered most.
+ */
+function OutputDialog({ run, green, onClose }: { run: Run; green: boolean; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 cursor-default bg-[var(--qm-overlay,rgba(0,0,0,0.6))]"
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Recorded output"
+        ref={(node) => node?.focus()}
+        tabIndex={-1}
+        className="relative flex max-h-[85vh] w-full max-w-3xl flex-col rounded-xl border border-line-soft bg-surface shadow-[var(--qm-shadow)] focus:outline-2 focus:outline-offset-2 focus:outline-accent"
+      >
+        <header className="flex items-center gap-2.5 border-b border-line-soft px-4 py-3">
+          <span className={green ? 'text-verified' : 'text-failed'}>{green ? <CheckIcon /> : <CrossIcon />}</span>
+          <h2 className={['text-sm font-semibold', green ? 'text-verified' : 'text-failed'].join(' ')}>
+            {green ? 'Last run passed' : 'Last run did not pass'}
+          </h2>
+          {run.exitCode !== null && (
+            <span className="qm-nums text-2xs text-muted">exit {run.exitCode}</span>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="ml-auto inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-muted transition-colors duration-200 hover:bg-raised hover:text-ink"
+          >
+            <CloseIcon />
+          </button>
+        </header>
+
+        {run.command && (
+          <p className="border-b border-line-soft px-4 py-2 font-mono text-2xs text-muted">{run.command}</p>
+        )}
+
+        <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-xs leading-relaxed text-ink">
+          {run.output.trim() || '(no output)'}
+        </pre>
       </div>
     </div>
   );

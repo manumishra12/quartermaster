@@ -2,6 +2,7 @@ import { TrueForgeUI } from '@truefoundry/trueforge-ui';
 import { QuartermasterLayout } from './layout/QuartermasterLayout';
 import { ThemeContext } from './layout/ThemeContext';
 import { Welcome } from './layout/Welcome';
+import { ThreadList, ThreadRow } from './layout/ThreadRow';
 import { useTheme } from './layout/useTheme';
 import { tokensFor } from './theme';
 
@@ -28,8 +29,10 @@ export default function App() {
         agentConfig={{ mode: 'SingleAgent', name: AGENT_NAME }}
         theme={{ preset: 'trueforge', mode: resolved, brand: { name: 'Quartermaster', logo: { src: '/mark.svg' } }, tokens: tokensFor(resolved) } as never}
         // The empty state is the first thing a stranger sees, so it says what this agent is for
-        // rather than showing a generic greeting.
-        overrides={{ WelcomeScreen: Welcome } as never}
+        // rather than showing a generic greeting. The conversation rows carry three competing
+        // pieces of information and the default gives them equal weight, which is what made the
+        // sidebar read as clutter.
+        overrides={{ WelcomeScreen: Welcome, ThreadListRow: ThreadRow, ThreadListShell: ThreadList } as never}
       />
     </div>
     </ThemeContext.Provider>

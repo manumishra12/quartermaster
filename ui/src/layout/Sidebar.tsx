@@ -17,14 +17,8 @@ export function Sidebar({ mode, resolved, onThemeChange }: { mode: ThemeMode; re
     <div className="flex h-full min-h-0 flex-col">
       <SidebarHeader mode={mode} resolved={resolved} onThemeChange={onThemeChange} />
 
-      <div className="flex min-h-0 flex-1 flex-col">
-        <h2 className="px-5 pb-2 pt-4 text-2xs font-semibold uppercase tracking-[0.09em] text-muted">
-          Conversations
-        </h2>
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <ThreadListContainer />
-        </div>
-      </div>
+      {/* ThreadListShell is overridden, so the heading and the count live with the list. */}
+      <ThreadListContainer />
 
       <Reach />
     </div>

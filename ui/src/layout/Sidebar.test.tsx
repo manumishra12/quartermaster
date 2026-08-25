@@ -39,9 +39,10 @@ describe('Sidebar', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Quartermaster' })).toBeInTheDocument();
   });
 
-  test('groups the conversation list under its own heading', () => {
+  test('renders the conversation list', () => {
+    // The heading and the count moved into the ThreadListShell override, so they belong to the
+    // list rather than to the sidebar - one owner for one thing.
     renderSidebar();
-    expect(screen.getByRole('heading', { level: 2, name: 'Conversations' })).toBeInTheDocument();
     expect(screen.getByTestId('thread-list')).toBeInTheDocument();
   });
 

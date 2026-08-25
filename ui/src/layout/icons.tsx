@@ -88,3 +88,21 @@ export const MoonIcon = () => (
     <path d="M13.5 9.4A5.8 5.8 0 0 1 6.6 2.5a5.8 5.8 0 1 0 6.9 6.9Z" />
   </svg>
 );
+
+export const ChatIcon = () => (
+  <svg {...base} width={13} height={13}>
+    <path d="M13.5 8a5.5 5.5 0 0 1-5.5 5.5c-.93 0-1.8-.23-2.57-.63L2.5 13.5l.63-2.93A5.47 5.47 0 0 1 2.5 8a5.5 5.5 0 1 1 11 0Z" />
+  </svg>
+);
+
+export const ExpandIcon = () => (
+  <svg {...base} width={13} height={13}>
+    <path d="M6 2.5H2.5V6M10 13.5h3.5V10M13.5 6V2.5H10M2.5 10v3.5H6" />
+  </svg>
+);
+
+export const CloseIcon = () => (
+  <svg {...base} width={14} height={14}>
+    <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" />
+  </svg>
+);

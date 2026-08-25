@@ -1,6 +1,7 @@
 import { ComposerBusyProvider, ComposerContainer, ThreadContainer } from '@truefoundry/trueforge-ui';
 import { StatusRail } from './StatusRail';
 import { FooterLinks, Sidebar, SidebarHeader } from './Sidebar';
+import { QuickActions } from './QuickActions';
 import { Topbar } from './Topbar';
 import { useState } from 'react';
 import { useThemeControl } from './ThemeContext';
@@ -51,7 +52,14 @@ export function QuartermasterLayout({ className }: { className?: string }) {
           />
         </div>
         <Topbar agentName={agentName} />
-        <ThreadContainer composer={<ComposerContainer placeholder="Point it at a failing test…" />} />
+        <ThreadContainer
+          composer={
+            <>
+              <QuickActions />
+              <ComposerContainer placeholder="Point it at a failing test…" />
+            </>
+          }
+        />
         <FooterLinks />
       </main>
 

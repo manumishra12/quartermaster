@@ -4,6 +4,11 @@
 /*
  * Semantic tokens, defined once per theme.
  *
+ * The accent is violet. It was brass, which sat badly beside the green and red that carry the
+ * verdict - three warm-ish hues competing, and the eye had to work out which one meant something.
+ * Violet is far enough from both that green reads as the only colour with a meaning, which is the
+ * rule this palette is built around.
+ *
  * Components reference these names, never a raw colour. A colour with a name can be reasoned about
  * and changed in one place; a hex literal scattered through components cannot.
  *
@@ -47,9 +52,10 @@
   --qm-text: #1c1917;
   --qm-text-muted: #5c5651;
 
-  --qm-accent: #8a6a22;
-  --qm-accent-hover: #6f5419;
+  --qm-accent: #5b48cc;
+  --qm-accent-hover: #4f3fb8;
   --qm-on-accent: #ffffff;
+  --qm-accent-wash: #eeecfb;
 
   --qm-verified: #15803d;
   --qm-failed: #b91c1c;
@@ -68,9 +74,10 @@
   --qm-text: #f8fafc;
   --qm-text-muted: #94a3b8;
 
-  --qm-accent: #c8a35a;
-  --qm-accent-hover: #d8b672;
+  --qm-accent: #a78bfa;
+  --qm-accent-hover: #b9a5fc;
   --qm-on-accent: #0f172a;
+  --qm-accent-wash: #221f3d;
 
   --qm-verified: #22c55e;
   --qm-failed: #f87171;
@@ -89,6 +96,7 @@
   --color-muted: var(--qm-text-muted);
   --color-accent: var(--qm-accent);
   --color-accent-hover: var(--qm-accent-hover);
+  --color-accent-wash: var(--qm-accent-wash);
   --color-on-accent: var(--qm-on-accent);
   --color-verified: var(--qm-verified);
   --color-failed: var(--qm-failed);
