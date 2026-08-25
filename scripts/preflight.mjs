@@ -28,6 +28,7 @@ const record = (ok, label, detail, fix) => results.push({ ok, label, detail, fix
  */
 function policyFor(serverName) {
   const selectors = new Set();
+  const enabled = new Set();
   for (const file of readdirSync(AGENTS_DIR).filter((f) => f.endsWith('.json'))) {
     let spec;
     try {
@@ -40,9 +41,13 @@ function policyFor(serverName) {
       for (const selector of server.require_approval_for_tools ?? ['@write', '@destructive']) {
         selectors.add(selector);
       }
+      for (const selector of server.enable_tools ?? ['@all']) enabled.add(selector);
     }
   }
-  return selectors.size ? [...selectors] : undefined;
+  return {
+    approval: selectors.size ? [...selectors] : undefined,
+    enabled: enabled.size ? [...enabled] : undefined,
+  };
 }
 
 async function get(path) {
@@ -124,15 +129,19 @@ try {
         const tools = asList(await get(`/api/v1/mcp-servers/${encodeURIComponent(name)}/tools`));
         // Audit the policy the specs actually declare for this server, not the library default.
         // A spec that narrowed or emptied its policy used to pass this check while gating nothing.
-        const risks = ungatedRisks(tools, policyFor(name));
+        const policy = policyFor(name);
+        const risks = ungatedRisks(tools, policy.approval, policy.enabled);
         const summary = tools.map((t) => classify(t.annotations));
+        const unannotated = summary.filter((k) => k === 'unannotated').length;
         record(
           risks.length === 0,
           `Connector: ${name}`,
           risks.length
             ? `${risks.length} of ${tools.length} tools would run UNGATED: ${risks.map((r) => r.name).join(', ')}`
-            : `${tools.length} tools, all annotated (${new Set(summary).size} kinds)`,
-          'make the spec fail closed: enable_tools ["@read-only", ...literal writes], and name those writes in require_approval_for_tools',
+            : unannotated > 0
+              ? `${tools.length} tools, ${unannotated} unannotated but reached by name`
+              : `${tools.length} tools, all annotated`,
+          'make the spec fail closed: name the tools you want in enable_tools rather than reaching them with a tag',
         );
       } catch (err) {
         record(false, `Connector: ${name}`, `cannot list tools - ${err.message}`, 'authenticate the connector, then re-run');

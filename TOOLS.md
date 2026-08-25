@@ -48,12 +48,32 @@ So the default policy `["@write", "@destructive"]` is **fail-open**: point the a
 does not annotate its tools and the writes execute with no gate, silently, while the spec still
 reads as though it is protected.
 
-Verified so far on a live server:
+Verified on a live server:
 
 | Server | Tools | Annotated | Verdict |
 | --- | --- | --- | --- |
 | `exa` | 2 | yes, all read-only | default policy is honest here |
+| `parallel-web` | 2 | yes, all read-only | honest |
+| **`deepwiki`** | 3 | **none of them** | **the hole, in the shipped catalog** |
 | `github` | ? | **unverified** | needs a PAT to audit - do this before the demo |
+
+`deepwiki` ships in TrueForge's own catalog and publishes no annotations on any of its three
+tools. Under the default policy `["@write", "@destructive"]` all three would execute with no
+approval gate. They happen to be read-only in practice, so nothing dangerous follows from it here -
+but it is proof the hole is real in the catalog people will actually connect from, not a
+hypothetical about some hand-written server.
+
+The fix used here is stronger than gating: the spec names the three tools in `enable_tools`
+instead of reaching them with a tag. A tool the server adds later is then not enabled at all, so
+there is nothing to gate. Fail closed at the enable layer, not the approval layer.
+
+```json
+{
+  "name": "deepwiki",
+  "enable_tools": ["ask_question", "read_wiki_contents", "read_wiki_structure"],
+  "require_approval_for_tools": ["@write", "@destructive"]
+}
+```
 
 GitHub is where every dangerous write lives, so it is the one that has to be checked rather than
 assumed. `npm run tools:audit` does the checking and exits non-zero if anything would run ungated.

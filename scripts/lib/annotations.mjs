@@ -48,10 +48,20 @@ export function wouldBeGated(toolName, annotations, selectors = ['@write', '@des
  * Tools that can act on the outside world but would run with no human gate.
  * Read-only tools are excluded: ungated is the correct outcome for them.
  */
-export function ungatedRisks(tools, selectors) {
+export function ungatedRisks(tools, selectors, enableSelectors) {
   return tools.filter((tool) => {
     const kind = classify(tool.annotations);
     if (kind === READ_ONLY) return false;
-    return !wouldBeGated(tool.name, tool.annotations, selectors);
+    if (wouldBeGated(tool.name, tool.annotations, selectors)) return false;
+
+    // An explicit allowlist contains the risk without needing annotations: a tool the server adds
+    // later is not enabled, so it cannot run at all. Only treat a tool as a risk if the spec
+    // reaches it through a tag rather than by name.
+    if (Array.isArray(enableSelectors) && enableSelectors.length > 0) {
+      const namedExplicitly = enableSelectors.includes(tool.name);
+      const reachedByTag = enableSelectors.some((s) => s.startsWith('@'));
+      if (namedExplicitly && !reachedByTag) return false;
+    }
+    return true;
   });
 }

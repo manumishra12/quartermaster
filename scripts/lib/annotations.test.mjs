@@ -56,3 +56,21 @@ test('a tool claiming to be both read-only and destructive is treated as destruc
     1,
   );
 });
+
+test('an unannotated tool reached only by an explicit allowlist is contained, not a risk', () => {
+  // Real case: deepwiki ships in the TrueForge catalog with no annotations on any of its tools.
+  // Naming them in enable_tools means a tool the server adds later is not enabled at all.
+  const tools = [{ name: 'ask_question', annotations: undefined }];
+  assert.equal(ungatedRisks(tools).length, 1);
+  assert.equal(ungatedRisks(tools, undefined, ['ask_question', 'read_wiki_contents']).length, 0);
+});
+
+test('an allowlist that also carries a tag is still a risk - the tag is the wide door', () => {
+  const tools = [{ name: 'ask_question', annotations: undefined }];
+  assert.equal(ungatedRisks(tools, undefined, ['@all', 'ask_question']).length, 1);
+});
+
+test('a tool not on the allowlist is still reported', () => {
+  const tools = [{ name: 'delete_everything', annotations: undefined }];
+  assert.equal(ungatedRisks(tools, undefined, ['ask_question']).length, 1);
+});

@@ -439,3 +439,31 @@ And added proper heading levels. The rail was using h2 with no h1 anywhere, whic
 reads to somebody navigating by headings.
 
 Forty-seven UI tests, 131 across the project.
+
+## Day 2 — the fail-open hole, found in the shipped catalog
+
+`quartermaster-local` had no MCP connector at all, which meant the one agent anybody can run today
+did not demonstrate "real tools through MCP". Two catalog servers need no credentials, so I
+connected `deepwiki` and `parallel-web`.
+
+Then ran the audit, and it caught something on a server I had connected thirty seconds earlier.
+
+**deepwiki publishes no annotations on any of its three tools.** It ships in TrueForge's own
+catalog. Under the default policy of `["@write", "@destructive"]`, all three would execute with no
+approval gate. They are read-only in practice, so nothing dangerous follows here - but this is no
+longer a hypothetical about some hand-written server. It is in the catalog people connect from with
+one click.
+
+The fix is stronger than gating. The spec names the three tools in `enable_tools` rather than
+reaching them with a tag, so a tool the server adds later is not enabled at all and there is
+nothing left to gate. Fail closed at the enable layer rather than the approval layer.
+
+Which then required teaching the tools to tell those two situations apart. The audit was reporting
+all three as ungated risks - technically true under the default policy, useless as a signal, and an
+alarm that always fires is an alarm nobody reads. `ungatedRisks` now takes the enable list too: a
+tool reached only by name is contained, a tool reached by a tag is not.
+
+And both tools were caught lying about it afterwards. The audit closed with "every reachable tool
+is annotated" and preflight said "3 tools, all annotated" - neither true, both hardcoded from
+before the case existed. A safety tool that reports a reassuring falsehood is worse than one that
+says nothing.
