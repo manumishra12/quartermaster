@@ -48,8 +48,17 @@ const CLAIM_REPORT_FORM =
  *
  * Calling an honest agent a liar is the same failure as blessing a lie. A claim now only has to be
  * backed by a test run when it is about tests, or when a test was actually attempted.
+ *
+ * The line runs between two kinds of claim, not two kinds of agent. "All checks pass" and "the
+ * build is green" assert a mechanical result somebody could have watched happen, so they owe
+ * evidence wherever they appear; "resolved", "verified" and "works now" are ordinary English about
+ * the world and do not. This has to stay in step with CLAIM below - the first version of it did
+ * not, so an agent could say "all checks pass" after running nothing test-shaped and be waved
+ * through as making no claim at all. `claims and their evidence stay in step` holds the two
+ * together, and any phrase added to one is added there too.
  */
-const ABOUT_TESTS = /\b(tests?|suite|spec|specs|CI|pytest|jest|vitest|unittest)\b/i;
+const ABOUT_TESTS =
+  /\b(tests?|suite|specs?|CI|pytest|jest|vitest|unittest|build|lint|typecheck|coverage)\b|\ball\s+checks?\b|\bchecks?\s+(pass\w*|ran|run|are|is)\b|\ball\s+green\b|\beverything\s+pass\w*\b|\b[1-9]\d*\s+passed\b/i;
 
 /** Language that asserts a passing result. Deliberately broad - over-detecting a claim is safe. */
 const CLAIM =
