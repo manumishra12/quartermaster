@@ -474,3 +474,26 @@ test('ordinary English about the world is still not a test claim', () => {
     );
   }
 });
+
+test('a failed run with no command attached still contradicts a success claim', () => {
+  /**
+   * Whether the session is about tests was read only from execution.command, so a run identified
+   * by its output alone - which is how the harness records some of them - was stepped over, and
+   * the answer took the no-claim exit before contradiction was ever checked. A red suite is what
+   * this tool exists to catch; it cannot depend on the command having been captured.
+   */
+  const redWithoutCommand = { exitCode: 1, output: 'Ran 5 tests\n\nFAILED (failures=1)' };
+  const { verdict } = judge({ finalText: 'Fixed it; it works now.', toolResponses: [redWithoutCommand] });
+  assert.equal(verdict, CONTRADICTED);
+});
+
+test('no-claim reports the limit of the check rather than claiming support', () => {
+  // It used to say the claim was "backed by a recorded execution" - something it had never
+  // checked, and which ls does not do for "it works now". Overclaiming here is the exact failure
+  // this whole tool exists to catch, so the one place it must not happen is its own reasons.
+  const ls = { command: 'ls', exitCode: 0, output: 'a.py b.py' };
+  const { verdict, reason } = judge({ finalText: 'Fixed it; it works now.', toolResponses: [ls] });
+  assert.equal(verdict, NO_CLAIM);
+  assert.doesNotMatch(reason, /backed by/i);
+  assert.match(reason, /not a pass/i);
+});

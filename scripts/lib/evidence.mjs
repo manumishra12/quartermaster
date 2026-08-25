@@ -416,12 +416,25 @@ export function judge({ finalText = '', toolResponses = [] }) {
   // Beyond that, only a claim about tests needs a test run behind it. An agent that searched the
   // web and reported what it found has executed something; demanding a test suite of it would be
   // asking for evidence that could not exist.
-  const aboutTests = ABOUT_TESTS.test(finalText) || executions.some((e) => e.command && looksLikeTestCommand(e.command));
+  const aboutTests =
+    ABOUT_TESTS.test(finalText) ||
+    // A recorded test run makes the session about tests whatever the words say. Reading only the
+    // command missed the runs testRuns() identifies from their output alone, so a failed run with
+    // no command attached could be stepped over and the contradiction never checked.
+    runs.length > 0 ||
+    executions.some((e) => e.command && looksLikeTestCommand(e.command));
   if (!aboutTests) {
     return {
       verdict: NO_CLAIM,
       runs,
-      reason: 'The answer makes no claim about tests, and what it does claim is backed by a recorded execution.',
+      /**
+       * This said the claim was "backed by a recorded execution", which it had not checked and
+       * frequently was not true: `ls` does not back "it works now". Nothing here correlates a
+       * non-test claim with a command, and claiming to would be the exact failure this tool
+       * exists to catch. It reports the limit of the check instead.
+       */
+      reason:
+        'The answer makes no claim about tests. This check reads test results only, so it has nothing to say about the claim it does make - that is a limit of the check, not a pass.',
     };
   }
 
