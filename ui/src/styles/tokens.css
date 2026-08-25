@@ -1,0 +1,121 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/*
+ * Semantic tokens. Components reference these names, never raw hex - a colour with a name can be
+ * reasoned about and changed in one place; a hex literal in a component cannot.
+ *
+ * Palette and typography come from the ui-ux-pro-max design system for a dark developer tool
+ * (Dark Mode OLED / JetBrains Mono + IBM Plex Sans), with one deliberate deviation: that system
+ * uses green as the CTA accent, and here green is reserved exclusively for "a real run passed".
+ * If the Send button is the same colour as a verified result, the colour stops carrying meaning.
+ * Brass takes every action instead.
+ */
+:root {
+  /* Surfaces */
+  --qm-bg: #0f172a;
+  --qm-surface: #1b2336;
+  --qm-surface-raised: #272f42;
+  --qm-border: #64748b;  /* 3.75:1 on bg - WCAG 1.4.11 needs 3:1 for control boundaries */
+  --qm-border-soft: #2a3348;
+
+  /* Type */
+  --qm-text: #f8fafc;
+  --qm-text-muted: #94a3b8;
+  --qm-font-sans: 'IBM Plex Sans', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --qm-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Action - brass, never green */
+  --qm-accent: #c8a35a;
+  --qm-accent-hover: #d8b672;
+  --qm-on-accent: #0f172a;
+
+  /* Status. Green means one thing: a real run passed. */
+  --qm-verified: #22c55e;
+  --qm-failed: #f87171;  /* 5.66:1 on surface; #ef4444 was 4.16:1 and failed */
+  --qm-waiting: #fbbf24;
+
+  /* Dashboard density scale */
+  --qm-space-xs: 2px;
+  --qm-space-sm: 4px;
+  --qm-space-md: 8px;
+  --qm-space-lg: 12px;
+  --qm-space-xl: 16px;
+  --qm-space-2xl: 24px;
+
+  --qm-radius: 8px;
+  --qm-radius-lg: 12px;
+
+  /* One stacking scale, so nothing ever needs z-index: 9999 */
+  --qm-z-base: 10;
+  --qm-z-rail: 20;
+  --qm-z-overlay: 30;
+  --qm-z-modal: 50;
+
+  --qm-duration: 200ms;
+  --qm-ease: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Motion carries meaning here (something is working), so it is never the only signal - every
+   animated state also has a label. That makes it safe to switch off entirely. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Never remove the focus ring. Replace it with a better one. */
+:where(a, button, [tabindex]):focus-visible {
+  outline: 2px solid var(--qm-accent);
+  outline-offset: 2px;
+  border-radius: var(--qm-radius);
+}
+
+.qm-mono {
+  font-family: var(--qm-font-mono);
+  font-variant-ligatures: none;
+}
+
+/* Hover needs a real stylesheet rule - inline styles cannot express :hover, so a button styled
+   only inline is a button with no feedback. */
+.qm-button {
+  min-height: 44px;
+  width: 100%;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--qm-border);
+  border-radius: var(--qm-radius);
+  color: var(--qm-text-muted);
+  font: inherit;
+  transition:
+    color var(--qm-duration) var(--qm-ease),
+    border-color var(--qm-duration) var(--qm-ease),
+    background-color var(--qm-duration) var(--qm-ease);
+}
+
+.qm-button:hover {
+  color: var(--qm-text);
+  border-color: var(--qm-accent);
+  background: var(--qm-surface-raised);
+}
+
+.qm-button:active {
+  background: var(--qm-surface);
+}
+
+/* Allow and Deny are the same size and weight. The accent marks which one continues, not which one
+   is recommended - a dialog where the safe option is smaller is a dialog designed to be clicked
+   through. */
+.qm-button-accent {
+  border-color: var(--qm-accent);
+  color: var(--qm-accent);
+}
+
+.qm-button-accent:hover {
+  background: var(--qm-accent);
+  color: var(--qm-on-accent);
+  border-color: var(--qm-accent);
+}

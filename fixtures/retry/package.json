@@ -1,0 +1,10 @@
+{
+  "name": "retry-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Deliberately broken fixture. One failing test, no dependencies.",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}

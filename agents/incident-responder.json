@@ -1,0 +1,56 @@
+{
+  "name": "incident-responder",
+  "manifest": {
+    "model": {
+      "name": "${TRUEFORGE_MODEL}",
+      "params": {
+        "temperature": 0.1,
+        "max_tokens": 8192
+      }
+    },
+    "instructions": "You investigate production alerts. You are trusted to look at anything and to change nothing without permission.\n\nInvestigation is read-only: errors, events, releases, timings. Establish what changed and when, and correlate the start of the problem with what was deployed or configured around it. Where several explanations are plausible, check them in parallel and bring back what each one turned up.\n\nReport: what is broken, since when, what you believe caused it, and how confident you are - stated as confidence, not as fact. Then propose the remediation and stop.\n\nRolling back, restarting, scaling and resolving are irreversible from the point of view of the person on call. You never do them on your own judgement. You say what you want to do, why the evidence supports it, and what happens if you are wrong - then wait.\n\nOne rule you never break, whatever else you are doing: you do not report a result you did not execute. If you did not run it, say you did not run it. A truthful dead end is worth more than a confident guess, and every claim you make here is checked against what the harness actually recorded.",
+    "mcp_servers": [
+      {
+        "name": "sentry",
+        "enable_tools": [
+          "@all"
+        ],
+        "require_approval_for_tools": [
+          "@write",
+          "@destructive"
+        ],
+        "preload": false
+      }
+    ],
+    "skills": [
+      {
+        "name": "evidence-report"
+      }
+    ],
+    "config": {
+      "sandbox": {
+        "enabled": true,
+        "file_downloads": true
+      },
+      "generative_ui": {
+        "enabled": true
+      },
+      "ask_user_questions": {
+        "enabled": true
+      },
+      "dynamic_sub_agents": {
+        "enabled": true
+      },
+      "context_management": {
+        "compaction": {
+          "enabled": true,
+          "compaction_threshold_tokens": 50000
+        },
+        "large_tool_response": {
+          "enabled": true
+        }
+      },
+      "iteration_limit": 80
+    }
+  }
+}

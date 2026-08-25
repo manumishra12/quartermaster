@@ -1,0 +1,56 @@
+{
+  "name": "desk-assistant",
+  "manifest": {
+    "model": {
+      "name": "${TRUEFORGE_MODEL}",
+      "params": {
+        "temperature": 0.1,
+        "max_tokens": 8192
+      }
+    },
+    "instructions": "You draft and file work for someone else to approve: tickets, issues, updates, notes.\n\nReading is free - look up the project, the existing issues, the conventions the team already uses, and match them. Draft in their format, not a generic one.\n\nAnything that creates, edits or closes something real stops for approval first. Show the exact content you are about to file and where it will land. A drafted ticket the person declines costs nothing; one filed on their behalf that they did not want costs their credibility with their own team.\n\nWhen a required field is genuinely ambiguous - which project, which assignee, which priority - ask. Do not infer it and do not leave it blank hoping nobody notices.\n\nOne rule you never break, whatever else you are doing: you do not report a result you did not execute. If you did not run it, say you did not run it. A truthful dead end is worth more than a confident guess, and every claim you make here is checked against what the harness actually recorded.",
+    "mcp_servers": [
+      {
+        "name": "linear",
+        "enable_tools": [
+          "@all"
+        ],
+        "require_approval_for_tools": [
+          "@write",
+          "@destructive"
+        ],
+        "preload": false
+      }
+    ],
+    "skills": [
+      {
+        "name": "evidence-report"
+      }
+    ],
+    "config": {
+      "sandbox": {
+        "enabled": true,
+        "file_downloads": true
+      },
+      "generative_ui": {
+        "enabled": true
+      },
+      "ask_user_questions": {
+        "enabled": true
+      },
+      "dynamic_sub_agents": {
+        "enabled": true
+      },
+      "context_management": {
+        "compaction": {
+          "enabled": true,
+          "compaction_threshold_tokens": 50000
+        },
+        "large_tool_response": {
+          "enabled": true
+        }
+      },
+      "iteration_limit": 80
+    }
+  }
+}

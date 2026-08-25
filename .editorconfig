@@ -1,0 +1,22 @@
+# Editor defaults for this repo. https://editorconfig.org
+#
+# The point is not taste. A diff that mixes a real change with a whitespace change costs a reviewer
+# time to separate, and every change here goes through review.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# Python has its own rule and PEP 8 is not negotiable by a config file.
+[*.py]
+indent_size = 4
+
+# Two trailing spaces are a line break in Markdown, so stripping them changes the rendered text.
+[*.md]
+trim_trailing_whitespace = false

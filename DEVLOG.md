@@ -1,0 +1,341 @@
+# Devlog
+
+Three lines a day. This becomes the blog post on the last day, so write it as you go, not after.
+
+## Day 0 — pre-hackathon (planning only, no project code committed)
+
+- Read the TrueForge docs end to end. Correction to the original plan: subagents are spawned
+  dynamically by the harness, not hand-wired as named specialists, so the design is one deep root
+  agent rather than a four-agent hierarchy.
+- Found the detail the whole repo layout hangs on: `require_approval_for_tools` is API-only today.
+  The safety policy therefore lives in version-controlled JSON and is applied through the SDK,
+  which means it is reviewable in a pull request instead of invisible in someone's UI state.
+- Built the fixture first: `fixtures/ledger` fails one test, standard library only, no install step.
+  A judge can reproduce the demo in two minutes.
+- Cloned the harness source and read the approval implementation rather than trusting the docs.
+  `require_approval_for_tools` resolves against MCP tool annotations, and unannotated tools match
+  none of the selectors - so the default `["@write", "@destructive"]` policy is fail-open. A server
+  that omits annotations gets its writes executed with no gate while the spec still looks safe.
+  Wrote `scripts/audit-tools.mjs` to detect this. Exa passes. GitHub is unverified until there is a
+  PAT to audit with, and GitHub is the one that matters.
+
+## Day 0 (continued) — the UI, and a second upstream find
+
+- Built the front-end on the React UI SDK, pinned to a single agent (`SingleAgent` mode). The agent
+  library and composer are TrueForge's surfaces for *building* agents; this is the surface for
+  *using* one, so an agent picker would only be a way to leave the product.
+- Palette has one rule: green means verified and nothing else is ever green. Brass carries the brand
+  and every primary action. If the colour that means "proven" is also the colour of a Send button,
+  it stops meaning anything.
+- Second upstream find: a clean install of TrueForge's own documented UI quickstart does not build.
+  `@assistant-ui/core@0.2.23` requires `zustand@^5.0.11` and imports `useShallow` from
+  `zustand/shallow`, but `@openuidev/react-headless` and `@openuidev/react-ui` pull `zustand@4.5.7`,
+  which npm hoists to the root - where `useShallow` does not exist. Rollup fails with
+  `"useShallow" is not exported by zustand/esm/shallow.mjs`. Pinning `zustand@^5` as a direct
+  dependency fixes it. That is a reproducible bug report for `truefoundry/trueforge`, and their
+  CONTRIBUTING asks for exactly this kind of report over a drive-by PR.
+- Confirmed the model gate is real, not a guess: the server rejects an agent whose model has no
+  configured provider with `422 Unknown model - provider not configured`. Taught the apply script to
+  say that in one line instead of throwing a stack trace.
+
+## Day 0 (continued) — de-risking the demo before building more of it
+
+- Verified the fixture is actually solvable before betting a demo on it: `divmod` plus distributing
+  the remainder takes it from 1 failing test to 5 green. Two lines. Checked in a throwaway copy so
+  no solution is ever committed anywhere the agent could read it.
+- Which exposed a real flaw in the setup. If the agent clones the submission repo to fix the
+  fixture, it can also read ARCHITECTURE.md and DEVLOG.md - it would be solving the problem from our
+  notes instead of from the code, and the demo would prove nothing. The fixture now ships as its own
+  public repo (`scripts/publish-fixture.sh`), containing the broken code and nothing else.
+- Added `npm run preflight`: one command that reports which of server, model, sandbox, skill,
+  connectors, and applied agents are missing, and what to do about each. Setup spans the TrueForge
+  UI, a Daytona account, a GitHub token and this repo, so the default failure mode is a
+  half-configured server and a confusing error three layers down.
+- Pulled the annotation classifier into `scripts/lib/annotations.mjs` with tests. Eight cases,
+  including the one that matters: an unannotated tool is not gated by the default policy.
+- Wrote the `evidence-report` skill against the real OpenUI grammar rather than guessing at it -
+  read `core/capabilities/builtins/OpenUI.ts` for the component signatures. Two rules in there
+  fail silently rather than erroring, which is the kind of thing a model gets wrong repeatedly:
+  arguments are positional (colon syntax breaks quietly), and any variable not referenced by
+  another variable is dropped without rendering. Both are now stated in the skill.
+- The verdict banner picks its variant from what happened, not what was intended. A green banner
+  over a run that was never performed is the precise failure this agent exists to prevent, so that
+  rule lives in the skill that draws the banner.
+
+## Day 0 (continued) — the agent lied, and that turned out to be the feature
+
+- Unblocked the model dependency without any API key: Ollama was already installed, so TrueForge is
+  pointed at `http://localhost:11434/v1` as a custom OpenAI-compatible provider. `qwen3:4b` is far
+  too small for a real fix loop, but it proves the pipeline - session, streaming turn, sandbox
+  provisioned on demand, real command executed, `42` returned.
+- Then it lied. Asked to fix a failing test, it produced a correct analysis and a block of passing
+  test output it had never run - no sandbox, no recorded tool call, pure invention. Its instructions
+  forbade precisely that.
+- So the guard rail moved out of the prompt. `scripts/lib/evidence.mjs` judges the final answer
+  against the harness event stream, which the model cannot write to: a claim with no recorded test
+  run is UNSUBSTANTIATED, a claim the last run disagrees with is CONTRADICTED. The runner prints the
+  verdict and exits non-zero, so it works in CI. Sixteen tests, including the real hallucinated text
+  as a fixture.
+- Writing those tests caught a bug in the checker itself: the claim pattern ended in `\b` after
+  `pass`, so it matched "the test pass" but not "the test passes" - it would have missed the exact
+  sentence that motivated it.
+- Learned the local sandbox is a directory under Application Support (`v1:local:...`), not a VM.
+  Directory isolation, not real isolation. Fine for development, another reason the demo runs on
+  Daytona.
+- The headless runner defaults to **deny** when stdin is not a terminal. A gate that quietly allows
+  when nobody is watching is not a gate.
+
+## Day 1 — session resilience
+
+- The Double-O criteria name "a session that holds together across reconnects", which was the one
+  thing on that list not built. Now it is: the client keeps a checkpoint of session id, turn id and
+  last sequence number, and `--resume` reattaches - `subscribeToTurn` with `afterSequenceNumber`
+  while the turn is still running, `listTurnEvents` to rebuild if it finished without us.
+- Tested the way it will actually fail: `kill -9` on the client mid-turn. The agent carried on
+  server-side, and the resumed client picked up a sandbox execution that completed while nothing was
+  connected. The client is disposable by design; the server holds the run.
+
+## Day 1 — the interface answers the three questions
+
+- The Best UI criteria ask for an interface that shows "what the agent is doing, what it is waiting
+  on, and what it did". The stock chat layout answers the first two in paragraphs, in the past
+  tense, mixed in with everything else. So the layout is now three columns, with a status rail that
+  answers all three at a glance.
+- "Did" is the interesting one. It reads the recorded tool responses and shows the last real test
+  run - exit code and output - rather than whatever the agent said about it. Same rule as the CLI:
+  the transcript is the agent's account, the event stream is what happened.
+- The evidence rules are shared, not duplicated: `scripts/lib/evidence.mjs` is aliased into the UI
+  build as `@evidence`. The CLI and the interface must never disagree about whether a claim is
+  substantiated.
+- Dropped `AgentStepsContainer` from the rail after reading its types - it requires transcript
+  counts (`toolCount`, `thinkingCount`, `hasFinal`), so it is a transcript component, not a live
+  panel. Forcing it in would have meant faking numbers to satisfy a type.
+
+## Day 1 — a second fixture, CI, and the writing
+
+- Added a JavaScript fixture, deliberately a different *class* of bug from the Python one: an
+  off-by-one in a retry budget, where `attempts` is documented as the total number of calls and the
+  loop makes one fewer. Same shape as the other though - the test is right, the code is wrong, and
+  the tempting fix is to edit the expected number.
+- Two fixtures in two languages is not just coverage. It gives the harness two independent problems,
+  which is what makes it fan out to subagents - a Double-O criterion that was enabled but never
+  actually demonstrated.
+- CI runs the unit tests, builds the UI, and checks something most repos would not think to check:
+  that both fixtures are **still broken**. A fixture that quietly starts passing is worse than a red
+  build, because the demo still runs, the agent finds nothing to do, and you discover it on camera.
+- Wrote the demo script as a shot list with a criterion-to-timestamp table, and the write-up. The
+  post leads with the agent lying, because that is the one thing in this project that is not a
+  claim about software - it is a screenshot.
+
+## Day 1 — the interface, done properly
+
+Installed the `ui-ux-pro-max` skill and ran its workflow rather than designing by taste.
+
+- The generated system for a dark developer tool: Dark Mode (OLED), JetBrains Mono over IBM Plex
+  Sans, a slate palette. Persisted to `design-system/quartermaster/MASTER.md`.
+- One deliberate deviation, documented in the tokens: the generated palette uses green as the CTA
+  accent. Here green means exactly one thing - a real run passed. If Send is the same green as a
+  verified result, the colour stops carrying meaning. Brass takes every action instead.
+- Ignored its pattern recommendation (FAQ/Documentation Landing) - that is a landing-page pattern
+  and this is a dashboard. The skill's own rule is to verify a result fits before applying it.
+- Moved every colour out of components and into semantic tokens. Raw hex in a component is on its
+  priority-6 anti-pattern list, and it was exactly what the first version did.
+- Its UX guidance on multi-step processes is to show which step you are on rather than a spinner.
+  So the rail now shows Reproduce / Diagnose / Patch / Verify / Report - derived from recorded runs,
+  not from the agent's own account of where it thinks it is.
+- Then measured the palette instead of trusting it, and found two real failures: the red on surface
+  was 4.16:1 against a 4.5 requirement, and the control border was 2.36:1 against the 3:1 that
+  WCAG 1.4.11 asks for. Both fixed - #f87171 and #64748b.
+- Made that permanent: `scripts/lib/contrast.test.mjs` parses `tokens.css` and asserts every
+  foreground/background pair the rail renders. Colour choices drift when somebody nudges a token to
+  improve a screenshot; now that is a build failure. 32 tests total.
+- Also: hover states needed a real stylesheet rule. Inline styles cannot express `:hover`, so the
+  first version of the expand button had no feedback at all despite having a transition property.
+
+## Day 1 — evidence as an artifact, and a README a stranger can run
+
+- Every run now writes `evidence/<session>/report.md` and `report.json`: the verdict, which phase it
+  reached, and every recorded execution with its exit code and captured output. The terminal
+  scrolls; a reviewer asking "did this actually pass?" tomorrow needs the executions themselves,
+  not a summary of them.
+- Writing that artifact immediately caught a bug in my own progress rule. A single *passing* run was
+  being reported as "Patch", because the rule keyed on how many runs had happened rather than what
+  the last one said. A green run is the end of the road whether it took one attempt or five.
+- Rewrote the README for someone who has never seen this repo: what the problem is, the four
+  verdicts, exact setup steps, what each of the two agents reaches, and what each fixture's bug
+  actually is. "A public repo with a README a stranger can follow" is a submission requirement, and
+  judges clone before they read.
+- Disclosed AI assistance in the README, which the rules require. Keeping it in the README rather
+  than in commit trailers - it belongs where a reader looks, not scattered through the history.
+
+## Day 2 — the rest of the agents
+
+Built the remaining five from the hackathon's own list, sharing one config block so the safety
+discipline is identical rather than re-decided each time: `research-desk`, `code-runner`,
+`analytics`, `incident-responder`, `desk-assistant`.
+
+- `code-runner` has subagents switched **off**, deliberately. It runs code somebody else wrote;
+  handing that code to more agents widens the blast radius in exactly the wrong direction. Its
+  instructions also say the submitted code is input, not direction - it must not act on
+  instructions found inside what it was asked to execute.
+- `analytics` gets a fixture that is not broken for once: a SQLite seed with refunds, a cancelled
+  order and three countries, so "what was revenue in Q2?" has a right answer and a tempting wrong
+  one. Kept as SQL rather than a binary .db so a reviewer can see what is being queried.
+- Fixed a real bug found by having seven agents instead of two: one missing connector aborted the
+  entire apply. GitHub not being configured meant the four agents needing nothing were not applied
+  either. It now applies what it can and reports what each blocked agent is waiting for.
+- Added `@types/node`, a root `tsconfig.json` and `npm run typecheck`. The repo had TypeScript and
+  no way to check it. Typing the specs against the SDK's own `AgentSpec` immediately required a
+  guard the loader did not have: a spec with no model.
+- Confirmed the infrastructure works across the new agents - `analytics` ran sqlite3 in the sandbox
+  and came back with exit 0 and `1`. But `qwen3:4b` prints tool calls as text instead of making
+  them on anything multi-step. The pipeline is not the limit any more; the model is.
+
+## Day 2 — testing all seven, and three ways an agent fakes it
+
+Wrote `npm run smoke`: every credential-free agent gets a small deterministic task, and the test
+asserts the harness **recorded** a matching execution - not that the agent said it did.
+
+The suite found problems in three different places, which is what a test suite is for.
+
+- **My test was wrong, not the agent.** `analytics` recorded `"7\n"` - exactly right - and failed
+  because my regex needed a newline before the 7, which is impossible when it is the first
+  character. The failure message said "none matched" without showing what *was* matched, so I fixed
+  that first: failures now print the recorded output. Then fixed the assertion rather than loosening
+  it.
+- **The suite had no per-case budget.** A slow model turned the whole run into a hang, which is
+  indistinguishable from a broken harness. There is now a budget per case, and a timed-out turn is
+  cancelled server-side rather than left running.
+- **`code-runner` fabricated an execution three separate times, three different ways.** Its one job
+  is to run code rather than reason about it, and it:
+    1. reasoned it out - "print(9*9) evaluates to 81, so the output is 81", boxed answer, nothing run
+    2. filled in the report template from imagination - `stdout: 81 / stderr: / exit code: 0`
+    3. printed the tool call it was supposed to make as its answer
+
+  All three with zero recorded executions. All three plausible. The second is the worst, because a
+  filled-in stdout/exit-code block looks like transcribed output rather than prose.
+
+The verifier only caught test-passing language, so it called all three "no claim". Six of the seven
+agents never run tests, so that was a real hole. It now also catches:
+
+- execution-result claims - "the output is", "it printed", "when I ran"
+- the labelled report form - `stdout:`, `exit code:`
+- a tool call written out as text instead of made
+
+Each has a test using the verbatim text the agent actually produced. Real fixtures beat invented
+ones, and these cost nothing to collect - the agent generates them on its own.
+
+One deliberate limit: "this function returns 81" stays NO CLAIM. That is analysis of what code
+would do, not an assertion that it ran. Over-detection would make the verdict meaningless.
+
+45 tests.
+
+## Day 2 — the rail was reading the wrong thing
+
+Went to build a proper approval surface and found a bug in my own UI first.
+
+`useTrueFoundryToolResponses()` sounds like "the tool responses so far". It is actually "ask-user
+tool calls waiting on an answer" - `{ pending, respond }`. The Did panel was wired to it, which
+means it could never have shown a single execution. It looked plausible in code review and would
+have looked plausible on camera, right up until someone asked why the count stayed at zero.
+
+Real executions live on the assistant messages as tool-call parts carrying a result. There is now
+one hook, `useAgentState`, that reads them, so the rail cannot quietly read the wrong thing again.
+It re-wraps them into the harness envelope and passes them through the same shared evidence
+functions the CLI uses - the interface must not invent its own idea of what counts as a test run.
+
+The approval surface itself, now that it has real data:
+
+- `useTrueFoundryApprovals()` gives the pending approvals with their arguments and a respond action.
+- It renders as `role="alertdialog"` with `aria-live="assertive"`, because the agent is stopped and
+  nothing proceeds until a person acts. Polite would be wrong here.
+- It shows the actual arguments. Approving `create_pull_request` without seeing what is in it is
+  not consent.
+- Deny and Allow are the same size and weight, and Deny is listed first because it is the
+  reversible one. A dialog where the safe option is smaller, greyer or further away is a dialog
+  designed to be clicked through.
+
+Also added a sandbox indicator from `useTrueFoundrySandboxId()`, so "sandbox live" is visible rather
+than inferred.
+
+## Day 2 — the README was lying
+
+Writing the contributing docs surfaced a gap nobody would have found until a judge hit it: the
+README says `cp .env.example .env` and set `TRUEFORGE_MODEL`, and **nothing in the repo ever read
+that file**. Follow the setup instructions exactly and the next command fails with "no model".
+
+That is the specific way "a stranger can clone and run it" breaks. Not a missing step - a step that
+is documented, followed, and silently does nothing.
+
+Node can load it with `--env-file`, but that flag is rejected inside `NODE_OPTIONS` and does not
+survive `tsx`, so each script would need its own invocation. Forty lines of parser is cheaper than a
+dependency and cheaper than a README that lies. Eight tests, including the cases that actually bite:
+a value containing `=`, a `#` inside quotes that is not a comment, and mismatched quotes.
+
+One deliberate rule: a variable already set in the real environment always wins. Overriding an
+explicit `TRUEFORGE_MODEL=... npm run x` with a stale value from a file would be a genuinely nasty
+surprise.
+
+Verified by deleting every inline env var and running `npx tsx scripts/apply-agents.ts` on nothing
+but `.env`. Seven agents, applied.
+
+## Day 2 — an adversarial review found the verifier blessing lies
+
+Ran a dedicated review over the core logic, hunting specifically for inputs where `judge()` returns
+SUBSTANTIATED when it should not. A false SUBSTANTIATED is the worst bug this project can have: the
+tool that exists to catch fabrication would be certifying it.
+
+It found several, and reproduced each one. All confirmed here before fixing.
+
+**The verdict rested on regexes over free text, while the two facts that cannot be faked - the exit
+code and the command that ran - were optional or unused.**
+
+- `looksGreen` had the exit code as one side of an **OR**, so a non-zero exit could never
+  disqualify a run. Real `go test` output exiting 1 was read as green, because the word "ok" appears
+  for the packages that passed.
+- The pass marker was `\bOK\b`, case-insensitive. That matches the "ok" inside TAP's `not ok 3` -
+  the *failure* line of `node --test`, which is what this repo's own JS fixture emits. It also
+  matched `HTTP/1.1 200 OK` from a curl.
+- The failure pattern did not know `not ok`, `# fail 1`, bare `FAIL`, or `N failing`. Our own
+  fixture was caught only by accident, because its diagnostic happens to contain `AssertionError`.
+  A `TypeError` - exactly what a bad patch produces - slipped through.
+- `testRuns()` classified by output text alone. So `echo ok` counted as a passing test suite, and so
+  did a file the agent wrote itself and read back. That last one defeats the entire harness:
+  fabricate output into a file, cat it, cite it.
+- The fabricated-report guard only fired when there were **zero** executions. Listing a directory
+  once disabled it completely, and the claimed output was never compared to anything recorded.
+
+Fixed by inverting what the verdict rests on. The exit code decides when we have one. A test run
+must have been produced by a command that looks like a test invocation, which meant correlating
+each `tool.response` back through its `toolCallId` to the command on the model message. And a
+claimed output must now actually appear in something that ran.
+
+Also fixed, all found by the same review:
+
+- **Typing "abort" at the approval prompt approved the call.** The check was
+  `answer.startsWith('a')`. "abort" is the word an operator reaches for when they have just realised
+  they do not want this. Exact words only now.
+- `--deny-all` gated approvals but answered `ask_user_question` with "use your best judgement and
+  continue" - the most permissive possible answer, in the mode whose entire purpose is to prove the
+  gate holds.
+- An answer that was never captured returned NO CLAIM, which the runner treats as success. Empty is
+  now its own verdict.
+- `resultOf` threw on a null element and silently returned empty output for MCP content arrays,
+  string exit codes, snake_case exit codes, and object results. Each of those quietly deletes a red
+  run from the evidence.
+- Recorded output containing three backticks closed the report's code fence early and could forge a
+  whole second "Executions" section in the artifact a human reads.
+- A tool publishing both `readOnlyHint: true` and `destructiveHint: true` classified as read-only
+  and dropped out of the risk list. Destructive is checked first now.
+- `preflight` reported an empty sandbox list as configured, accepted non-2xx bodies as data, and
+  audited the library's default approval policy rather than the one the specs declare.
+- `agents:apply` exited 0 when every single agent failed to apply.
+- A missing `python3` made `check-fixtures` report the fixture as no longer broken.
+- `progress()` advertised a `Patch` phase whose index was unreachable. Nothing in the event stream
+  reveals that a patch was written, so the phase list is now only what can actually be observed.
+
+Twenty regression tests, every one built from the exact input that exploited it. 73 total.
+
+The lesson is the same one the project is about, turned on itself: I had tests, and they passed, and
+the thing was still wrong - because the tests were written from the same assumptions as the code.
+It took someone adversarial, looking specifically for a blessed lie, to find them.

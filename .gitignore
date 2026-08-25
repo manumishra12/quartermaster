@@ -1,0 +1,9 @@
+node_modules/
+.env
+evidence/
+__pycache__/
+*.pyc
+ui/dist/
+*.tsbuildinfo
+.quartermaster/
+fixtures/warehouse/*.db

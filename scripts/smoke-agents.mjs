@@ -1,0 +1,172 @@
+/**
+ * Runs every credential-free agent against the real harness and checks what was recorded.
+ *
+ * The point is not that the agent said the right thing. It is that the harness recorded an
+ * execution matching what was asked. Same rule as the evidence check: the transcript is the
+ * agent's account, the event stream is what happened.
+ *
+ *   npm run smoke
+ *   npm run smoke -- --agent analytics
+ */
+import { TrueForge, isEventDelta } from '@truefoundry/trueforge-sdk';
+import { resultOf } from './lib/evidence.mjs';
+import { loadEnv } from './lib/env.mjs';
+
+loadEnv();
+
+const BASE = process.env.TRUEFORGE_BASE_URL ?? 'http://localhost:8790';
+const argv = process.argv.slice(2);
+/** A flag given as the final argument has no value; that must be an error, not a silent NaN. */
+function flagValue(name) {
+  const i = argv.indexOf(`--${name}`);
+  if (i === -1) return null;
+  const value = argv[i + 1];
+  if (value === undefined || value.startsWith('--')) {
+    console.error(`--${name} needs a value`);
+    process.exit(2);
+  }
+  return value;
+}
+
+const only = flagValue('agent');
+/**
+ * A per-case budget. Without one, a slow or stuck model turns the whole suite into a hang, which
+ * is indistinguishable from a broken harness and useless in CI.
+ */
+const budgetArg = flagValue('budget');
+const BUDGET_SECONDS = budgetArg === null ? 180 : Number(budgetArg);
+if (!Number.isFinite(BUDGET_SECONDS) || BUDGET_SECONDS <= 0) {
+  console.error(`--budget must be a positive number of seconds, got ${JSON.stringify(budgetArg)}`);
+  process.exit(2);
+}
+const BUDGET_MS = BUDGET_SECONDS * 1000;
+
+/**
+ * Prompts are deliberately direct and single-step. This is a test of the harness wiring - can this
+ * agent reach its tools at all - not of how cleverly a model decomposes a task.
+ */
+const CASES = [
+  {
+    agent: 'quartermaster-local',
+    what: 'reaches the sandbox',
+    prompt: "Use the sandbox shell to run exactly: echo quartermaster-reached-the-sandbox",
+    expect: /quartermaster-reached-the-sandbox/,
+  },
+  {
+    agent: 'code-runner',
+    what: 'executes submitted code',
+    // Kept quote-free on purpose. This case tests whether the agent can reach the sandbox at all,
+    // so a prompt that also tests quote handling would confuse a wiring failure with a parsing one.
+    prompt: 'Use the sandbox shell to run exactly: python3 -c print(9*9)',
+    expect: /(?:^|\n)81(?:\n|$)/,
+  },
+  {
+    agent: 'analytics',
+    what: 'builds the warehouse and queries it',
+    prompt:
+      "Use the sandbox shell to run exactly: printf 'CREATE TABLE t(a);INSERT INTO t VALUES(7);SELECT a FROM t;' | sqlite3 :memory:",
+    expect: /(?:^|\n)7(?:\n|$)/,
+  },
+  {
+    agent: 'research-desk',
+    what: 'reaches the web through Exa',
+    prompt: 'Search the web for "TrueForge agent harness TrueFoundry" and quote one sentence from a result.',
+    expect: /\w{20,}/,
+    viaTool: true,
+  },
+];
+
+const client = new TrueForge({ baseUrl: BASE, timeoutInSeconds: 900 });
+
+async function runCase(testCase) {
+  const started = Date.now();
+  let session;
+  try {
+    ({ data: session } = await client.sessions.create({ agent: { name: testCase.agent } }));
+  } catch (err) {
+    return { ...testCase, ok: false, why: `agent not applied (${err?.body?.error?.message ?? err.message})` };
+  }
+
+  const recorded = [];
+  let status;
+  let timedOut = false;
+
+  const drain = async () => {
+    const stream = await client.sessions.createTurnStream(session.id, {
+      input: [{ type: 'user.message', content: testCase.prompt }],
+    });
+    for await (const { data: event } of stream.withMetadata()) {
+      if (isEventDelta(event)) continue;
+      if (event.type === 'tool.response') recorded.push(resultOf(event));
+      if (event.type === 'turn.done') status = event.state?.status;
+    }
+  };
+
+  let timer;
+  try {
+    await Promise.race([
+      drain(),
+      new Promise((resolve) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          resolve();
+        }, BUDGET_MS);
+      }),
+    ]);
+  } catch (err) {
+    return { ...testCase, ok: false, why: `turn failed: ${err.message}` };
+  } finally {
+    clearTimeout(timer);
+    // The turn keeps running on the server after we stop reading, so tell it to stop.
+    if (timedOut) await client.sessions.cancel(session.id).catch(() => {});
+  }
+
+  const seconds = ((Date.now() - started) / 1000).toFixed(0);
+
+  if (timedOut && recorded.length === 0) {
+    return { ...testCase, ok: false, seconds, why: `no tool call within ${BUDGET_MS / 1000}s - turn cancelled` };
+  }
+  if (recorded.length === 0) {
+    return { ...testCase, ok: false, seconds, why: 'nothing was recorded - the agent never called a tool' };
+  }
+  const matched = recorded.some((r) => testCase.expect.test(r.output));
+  return {
+    ...testCase,
+    ok: matched,
+    seconds,
+    why: matched
+      ? `${recorded.length} execution(s) recorded, one matched`
+      : `${recorded.length} execution(s) recorded, none matched ${testCase.expect}\n` +
+        recorded
+          .map((r, i) => `                       [${i}] exit ${r.exitCode} ${JSON.stringify(r.output.slice(0, 160))}`)
+          .join('\n'),
+    status,
+  };
+}
+
+const selected = only ? CASES.filter((c) => c.agent === only) : CASES;
+if (!selected.length) {
+  console.error(`No smoke case for "${only}". Known: ${CASES.map((c) => c.agent).join(', ')}`);
+  process.exit(2);
+}
+
+console.log(`\nSmoke testing ${selected.length} agent(s) against ${BASE}\n`);
+const results = [];
+for (const testCase of selected) {
+  process.stdout.write(`  ${testCase.agent.padEnd(20)} ${testCase.what} ... `);
+  const result = await runCase(testCase);
+  results.push(result);
+  console.log(result.ok ? `ok (${result.seconds}s)` : 'FAILED');
+  if (!result.ok) console.log(`  ${' '.repeat(20)} ${result.why}`);
+}
+
+const failed = results.filter((r) => !r.ok);
+console.log(`\n  ${results.length - failed.length}/${results.length} agents reached their tools\n`);
+
+if (failed.length) {
+  console.log('  A failure here is one of three things:');
+  console.log('    - the agent is not applied      -> npm run agents:apply');
+  console.log('    - its connector is unconfigured -> npm run preflight');
+  console.log('    - the model cannot call tools   -> a small local model will print tool calls as text\n');
+  process.exit(1);
+}

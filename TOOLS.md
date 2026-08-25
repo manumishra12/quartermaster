@@ -1,0 +1,114 @@
+# Tool list
+
+Everything Quartermaster is allowed to touch, and what is gated. Kept in sync with `agents/*.json`.
+
+## 1. Harness built-ins (no setup, come with TrueForge)
+
+| Tool | Provided by | Used for | Gated |
+| --- | --- | --- | --- |
+| Sandbox exec / shell | `config.sandbox.enabled` | clone repo, install deps, run the test suite, apply patch | no — isolated by definition |
+| Sandbox files | `config.sandbox.enabled` | read source, write patch, save evidence logs | no |
+| File downloads | `config.sandbox.file_downloads` | let the user pull the diff and the test log out | no |
+| `create_sub_agent` | `config.dynamic_sub_agents` | fan out across candidate root causes in parallel | no |
+| `ask_user_question` | `config.ask_user_questions` | ask when the test itself looks wrong, or the fix has two valid strategies | n/a — it *is* the pause |
+| Generative UI (OpenUI) | `config.generative_ui` | render the diff, the before/after test output, the evidence card | no |
+| Code Mode (PTC) | sandbox | aggregate long test output in code instead of flooding context | no |
+| Compaction + large-response offload | `config.context_management` | keep long fix loops cheap | no |
+
+## 2. MCP connectors
+
+| Server | Auth | Phase | Tools enabled | Approval |
+| --- | --- | --- | --- | --- |
+| **GitHub** (shipped catalog) | header (PAT) | v1 | `@all` | `["@write", "@destructive"]` — every write pauses |
+| **Exa** (shipped catalog) | none | `research-desk` | `@read-only` | not needed - nothing it can do is irreversible |
+| **Sentry** (shipped catalog) | OAuth (DCR) | `incident-responder` | `@all` | `["@write", "@destructive"]` - every remediation |
+| **Linear** (shipped catalog) | OAuth (DCR) | `desk-assistant` | `@all` | `["@write", "@destructive"]` - every create, edit, close |
+
+Notes:
+- Verified against the live catalog: GitHub authenticates by **static header (a personal access
+  token)**, not OAuth. Scope the token to the demo repo only - it is the blast radius if the
+  approval gate is ever bypassed.
+- Credentials live in the connector, never in the agent spec. Nothing secret is committed.
+- `preload: false` on both — tool schemas load on demand (deferred loading) to keep context lean.
+## 2a. The approval gate is only as good as the annotations behind it
+
+Read this before trusting the default policy.
+
+TrueForge resolves `@write` and `@destructive` from the annotations each MCP server publishes
+(`core/mcp/toolSelectors.ts`):
+
+    @read-only    readOnlyHint === true
+    @write        readOnlyHint === false and destructiveHint !== true
+    @destructive  destructiveHint === true
+
+A tool that publishes **no annotations matches none of these**. The harness source says so outright:
+*"Unannotated tools are exempt unless named in `require_approval_for_tools` or covered by `@all`."*
+
+So the default policy `["@write", "@destructive"]` is **fail-open**: point the agent at a server that
+does not annotate its tools and the writes execute with no gate, silently, while the spec still
+reads as though it is protected.
+
+Verified so far on a live server:
+
+| Server | Tools | Annotated | Verdict |
+| --- | --- | --- | --- |
+| `exa` | 2 | yes, all read-only | default policy is honest here |
+| `github` | ? | **unverified** | needs a PAT to audit - do this before the demo |
+
+GitHub is where every dangerous write lives, so it is the one that has to be checked rather than
+assumed. `npm run tools:audit` does the checking and exits non-zero if anything would run ungated.
+
+If the GitHub tools turn out to be unannotated, the spec goes fail-closed instead:
+`enable_tools: ["@read-only", ...the literal write tools we actually want]`, with those same literal
+names in `require_approval_for_tools`, so the gate no longer depends on the server getting its
+annotations right.
+
+## 3. Skills (git-backed SKILL.md packs, ours)
+
+| Skill | What it teaches | Requires sandbox |
+| --- | --- | --- |
+| `verified-fix` | the reproduce → isolate → minimal patch → re-run → evidence procedure, and the rules the agent must not break | yes |
+| `evidence-report` | how to render the verdict as a Generative UI card - verdict banner, root cause, diff, before/after runs - against the real OpenUI component signatures | yes |
+
+Skills load progressively — only the `description` is in context until the agent decides the skill
+is relevant, then the whole pack is materialized in the sandbox at `/opt/tfy/skills/{name}`.
+
+## 4. Approval policy — the safety story in one table
+
+| Action | Where it runs | Gate |
+| --- | --- | --- |
+| Run tests, install deps, execute anything | sandbox | isolation only, no human gate needed |
+| Write files | sandbox | none — the sandbox is throwaway |
+| Create branch / commit / push | GitHub, real | **approval required** |
+| Open or update a pull request | GitHub, real | **approval required** |
+| Comment on an issue or PR | GitHub, real | **approval required** |
+| Read repo, issues, CI status | GitHub, real | no gate — read-only |
+
+Tool approval is API-only in TrueForge today (`require_approval_for_tools` in the agent spec), which
+is exactly why the specs live in this repo as JSON and are applied through the SDK rather than
+clicked into the UI.
+
+## 5. Accounts and keys needed
+
+- [ ] Model provider API key — one cheap model, one strong model (any OpenAI-compatible endpoint works)
+- [ ] Daytona API key — sandbox provider, needs permission to write/delete snapshots and write sandboxes.
+      A **local sandbox fallback** exists (the server logs it at startup) and unblocks development
+      without an account, but it executes on your own machine. Use Daytona for the demo: the safety
+      criterion is about real isolation, and claiming isolation you do not have would be the one
+      dishonesty this whole project is arguing against.
+- [ ] GitHub — a fine-grained PAT pasted into the connector, scoped to one repo (v1)
+- [ ] Qodo — GitHub App installed on the submission repo from the first commit
+
+## 6. Catalog as shipped (verified against a running server, 2026-08-23)
+
+14 MCP servers ship in the catalog: `github` and `tavily` and `bright-data` (header auth);
+`deepwiki`, `exa`, `parallel-web` (no auth); `linear`, `notion`, `sentry`, `supabase`, `stripe`,
+`confluence`, `jira`, `posthog` (OAuth via dynamic client registration).
+
+Model providers: `openai`, `anthropic`, `google-gemini`, `fireworks`, `zai`, `moonshot`, `alibaba`,
+`together`, plus `custom` for any OpenAI-compatible endpoint. Model FQNs use dashes, not dots -
+`openai/gpt-5-5`, `anthropic/claude-sonnet-4-6`, `zai/glm-5-2`.
+
+The cheap/strong split this project uses: a `zai/glm-5-*` or `fireworks/*` model for mechanical
+work, a frontier model for root-cause reasoning. TrueForge swapping models per task is the
+sponsor's own cost argument, so demonstrating it is worth the small extra config.

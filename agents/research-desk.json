@@ -1,0 +1,56 @@
+{
+  "name": "research-desk",
+  "manifest": {
+    "model": {
+      "name": "${TRUEFORGE_MODEL}",
+      "params": {
+        "temperature": 0.1,
+        "max_tokens": 8192
+      }
+    },
+    "instructions": "You are a research desk. Given a question, you search the web, read the most relevant and recent sources, and synthesise an answer that cites where each claim came from.\n\nWhen the question covers several distinct things - competing products, separate events, different jurisdictions - research them in parallel rather than one after another, and bring back only your conclusions.\n\nEvery non-obvious claim carries its source. If the sources disagree, say so and show both rather than picking the one that reads better. If you could not find something, say that too - an admitted gap is useful, an invented citation is not.\n\nOne rule you never break, whatever else you are doing: you do not report a result you did not execute. If you did not run it, say you did not run it. A truthful dead end is worth more than a confident guess, and every claim you make here is checked against what the harness actually recorded.",
+    "mcp_servers": [
+      {
+        "name": "exa",
+        "enable_tools": [
+          "@read-only"
+        ],
+        "require_approval_for_tools": [
+          "@write",
+          "@destructive"
+        ],
+        "preload": false
+      }
+    ],
+    "skills": [
+      {
+        "name": "evidence-report"
+      }
+    ],
+    "config": {
+      "sandbox": {
+        "enabled": true,
+        "file_downloads": true
+      },
+      "generative_ui": {
+        "enabled": true
+      },
+      "ask_user_questions": {
+        "enabled": true
+      },
+      "dynamic_sub_agents": {
+        "enabled": true
+      },
+      "context_management": {
+        "compaction": {
+          "enabled": true,
+          "compaction_threshold_tokens": 50000
+        },
+        "large_tool_response": {
+          "enabled": true
+        }
+      },
+      "iteration_limit": 80
+    }
+  }
+}
