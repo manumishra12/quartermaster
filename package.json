@@ -17,7 +17,8 @@
     "check": "npm run lint && npm run typecheck && npm test && npm run fixtures:check",
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke-agents.mjs",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "verify": "bash scripts/verify-setup.sh"
   },
   "dependencies": {
     "@truefoundry/trueforge-sdk": "^0.1.3"

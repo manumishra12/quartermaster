@@ -55,9 +55,11 @@ Verified on a live server:
 | `exa` | 2 | yes, all read-only | default policy is honest here |
 | `parallel-web` | 2 | yes, all read-only | honest |
 | **`deepwiki`** | 3 | **none of them** | **the hole, in the shipped catalog** |
-| `github` | ? | **unverified** | needs a PAT to audit - do this before the demo |
+| **`github`** | 44 | **yes, all of them** | 27 read-only, 16 write, 1 destructive - the default policy gates every write |
 
-`deepwiki` ships in TrueForge's own catalog and publishes no annotations on any of its three
+GitHub, where every dangerous action lives, annotates all 44 of its tools correctly - so the
+default policy really does gate all 17 writes there. `deepwiki` was the outlier, not the rule. But
+it ships in TrueForge's own catalog and publishes no annotations on any of its three
 tools. Under the default policy `["@write", "@destructive"]` all three would execute with no
 approval gate. They happen to be read-only in practice, so nothing dangerous follows from it here -
 but it is proof the hole is real in the catalog people will actually connect from, not a
@@ -132,3 +134,24 @@ Model providers: `openai`, `anthropic`, `google-gemini`, `fireworks`, `zai`, `mo
 The cheap/strong split this project uses: a `zai/glm-5-*` or `fireworks/*` model for mechanical
 work, a frontier model for root-cause reasoning. TrueForge swapping models per task is the
 sponsor's own cost argument, so demonstrating it is worth the small extra config.
+
+## 7. What `quartermaster` can actually reach on GitHub
+
+Reading is unrestricted. Writing is limited to the five tools the job needs:
+
+```json
+{
+  "name": "github",
+  "enable_tools": ["@read-only", "create_branch", "create_or_update_file", "push_files", "create_pull_request", "add_issue_comment"],
+  "require_approval_for_tools": ["@write", "@destructive", "create_branch", "create_or_update_file", "push_files", "create_pull_request", "add_issue_comment"]
+}
+```
+
+Of the 17 write tools the server exposes, five are enabled. The agent **cannot merge a pull
+request, delete a file, fork a repository, or create one** - not because it is instructed not to,
+but because those tools are not enabled for it and it has no way to call them. Instructions can be
+argued with; an absent tool cannot.
+
+The five it does have are named in `require_approval_for_tools` as well as covered by `@write` and
+`@destructive`. That is redundant today, because GitHub annotates correctly. It is not redundant
+against the day it stops, and the spec outlives the annotation.
