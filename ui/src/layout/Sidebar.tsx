@@ -12,10 +12,10 @@ import { DotIcon } from './icons';
  * important thing in the column - what matters is the standing reach of the agent you are about to
  * let act, visible without opening a settings page.
  */
-export function Sidebar({ mode, onThemeChange }: { mode: ThemeMode; onThemeChange: (m: ThemeMode) => void }) {
+export function Sidebar({ mode, resolved, onThemeChange }: { mode: ThemeMode; resolved: 'light' | 'dark'; onThemeChange: (m: ThemeMode) => void }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <SidebarHeader mode={mode} onThemeChange={onThemeChange} />
+      <SidebarHeader mode={mode} resolved={resolved} onThemeChange={onThemeChange} />
 
       <div className="flex min-h-0 flex-1 flex-col">
         <h2 className="px-5 pb-2 pt-4 text-2xs font-semibold uppercase tracking-[0.09em] text-muted">
@@ -31,7 +31,7 @@ export function Sidebar({ mode, onThemeChange }: { mode: ThemeMode; onThemeChang
   );
 }
 
-export function SidebarHeader({ mode, onThemeChange }: { mode: ThemeMode; onThemeChange: (m: ThemeMode) => void }) {
+export function SidebarHeader({ mode, resolved, onThemeChange }: { mode: ThemeMode; resolved: 'light' | 'dark'; onThemeChange: (m: ThemeMode) => void }) {
   return (
     <header className="flex items-center gap-2.5 border-b border-line-soft px-5 py-4">
       <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-line-soft bg-surface">
@@ -41,7 +41,7 @@ export function SidebarHeader({ mode, onThemeChange }: { mode: ThemeMode; onThem
         <h1 className="text-base font-semibold leading-tight tracking-[-0.01em]">Quartermaster</h1>
         <p className="text-2xs text-muted">proves it, then asks</p>
       </div>
-      <ThemeToggle mode={mode} onChange={onThemeChange} />
+      <ThemeToggle mode={mode} resolved={resolved} onChange={onThemeChange} />
     </header>
   );
 }
@@ -121,5 +121,38 @@ function Row({ label, note, warn = false }: { label: string; note: string; warn?
       </span>
       <span className={['shrink-0 text-2xs', warn ? 'text-failed' : 'text-muted'].join(' ')}>{note}</span>
     </li>
+  );
+}
+
+/**
+ * The footer row from the reference: the places a stranger goes when the interface has not
+ * answered their question. Real destinations only - a link to a page that does not exist is worse
+ * than no link, because it costs a click to discover.
+ */
+export function FooterLinks() {
+  const links = [
+    { label: 'Repository', href: 'https://github.com/manumishra12/quartermaster' },
+    { label: 'TrueForge', href: 'https://trueforge.dev' },
+    { label: 'Demo script', href: 'https://github.com/manumishra12/quartermaster/blob/main/DEMO.md' },
+  ];
+
+  return (
+    <footer className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line-soft px-5 py-2.5 text-2xs text-muted">
+      {links.map(({ label, href }) => (
+        <a
+          key={label}
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          className="rounded transition-colors duration-200 hover:text-ink"
+        >
+          {label}
+        </a>
+      ))}
+      <span className="ml-auto inline-flex items-center gap-1.5">
+        <span className="inline-block size-1.5 rounded-full bg-verified" />
+        harness connected
+      </span>
+    </footer>
   );
 }

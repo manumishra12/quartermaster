@@ -20,7 +20,7 @@ vi.mock('@truefoundry/assistant-ui-runtime', () => ({
 
 const { Sidebar } = await import('./Sidebar');
 
-const renderSidebar = () => render(<Sidebar mode="system" onThemeChange={vi.fn()} />);
+const renderSidebar = () => render(<Sidebar mode="system" resolved="dark" onThemeChange={vi.fn()} />);
 
 beforeEach(() => {
   spec = {};

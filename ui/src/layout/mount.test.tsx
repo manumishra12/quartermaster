@@ -37,7 +37,7 @@ test('the real component tree mounts inside TrueForgeUI', async () => {
       <TrueForgeUI
         server={{ type: 'trueforge', baseUrl: '/' } as never}
         layout={(p: { className?: string }) => (
-          <QuartermasterLayout {...p} mode="dark" onThemeChange={() => {}} agentName="quartermaster-local" />
+          <QuartermasterLayout {...p} mode="dark" resolved="dark" onThemeChange={() => {}} agentName="quartermaster-local" />
         )}
         agentConfig={{ mode: 'SingleAgent', name: 'quartermaster-local' }}
       />,

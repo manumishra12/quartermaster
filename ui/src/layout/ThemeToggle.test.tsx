@@ -4,43 +4,50 @@ import { describe, expect, test, vi } from 'vitest';
 import { ThemeToggle } from './ThemeToggle';
 
 /**
- * Real radios in a fieldset, so the control is keyboard navigable and announced as a group without
- * any ARIA of our own. A div-based toggle would look identical and be unusable without a mouse.
+ * One button cycling three states needs its state said out loud. An icon alone leaves a
+ * screen-reader user pressing a control that reports only "theme" and changes something they
+ * cannot perceive.
  */
 describe('ThemeToggle', () => {
-  test('offers all three states, including following the system', () => {
-    render(<ThemeToggle mode="system" onChange={vi.fn()} />);
-    expect(screen.getByRole('radio', { name: 'Light' })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'Auto' })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'Dark' })).toBeInTheDocument();
+  test('says which theme is active and what pressing it will do', () => {
+    render(<ThemeToggle mode="light" resolved="light" onChange={vi.fn()} />);
+    expect(screen.getByRole('button', { name: /light theme.*switch to dark/i })).toBeInTheDocument();
   });
 
-  test('the current mode is the checked radio, not just a styled one', () => {
-    render(<ThemeToggle mode="dark" onChange={vi.fn()} />);
-    expect(screen.getByRole('radio', { name: 'Dark' })).toBeChecked();
-    expect(screen.getByRole('radio', { name: 'Light' })).not.toBeChecked();
+  test('dark announces that the next press follows the system', () => {
+    render(<ThemeToggle mode="dark" resolved="dark" onChange={vi.fn()} />);
+    expect(screen.getByRole('button', { name: /switch to following your system/i })).toBeInTheDocument();
   });
 
-  test('the group is labelled for screen readers', () => {
-    render(<ThemeToggle mode="system" onChange={vi.fn()} />);
-    expect(screen.getByRole('group', { name: /colour theme/i })).toBeInTheDocument();
+  test('following the system is announced as such, not as the theme it resolved to', () => {
+    render(<ThemeToggle mode="system" resolved="dark" onChange={vi.fn()} />);
+    expect(screen.getByRole('button', { name: /following your system/i })).toBeInTheDocument();
   });
 
-  test('choosing a mode reports it', async () => {
+  test('cycles light to dark to system and back', async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
-    render(<ThemeToggle mode="system" onChange={onChange} />);
-    await user.click(screen.getByRole('radio', { name: 'Light' }));
-    expect(onChange).toHaveBeenCalledWith('light');
+
+    const { rerender } = render(<ThemeToggle mode="light" resolved="light" onChange={onChange} />);
+    await user.click(screen.getByRole('button'));
+    expect(onChange).toHaveBeenLastCalledWith('dark');
+
+    rerender(<ThemeToggle mode="dark" resolved="dark" onChange={onChange} />);
+    await user.click(screen.getByRole('button'));
+    expect(onChange).toHaveBeenLastCalledWith('system');
+
+    rerender(<ThemeToggle mode="system" resolved="dark" onChange={onChange} />);
+    await user.click(screen.getByRole('button'));
+    expect(onChange).toHaveBeenLastCalledWith('light');
   });
 
-  test('it is reachable and operable by keyboard alone', async () => {
+  test('it is operable by keyboard alone', async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
-    render(<ThemeToggle mode="light" onChange={onChange} />);
+    render(<ThemeToggle mode="light" resolved="light" onChange={onChange} />);
     await user.tab();
-    expect(screen.getByRole('radio', { name: 'Light' })).toHaveFocus();
-    await user.keyboard('{ArrowRight}');
-    expect(onChange).toHaveBeenCalled();
+    expect(screen.getByRole('button')).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(onChange).toHaveBeenCalledWith('dark');
   });
 });

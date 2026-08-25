@@ -1,6 +1,6 @@
 import { ComposerBusyProvider, ComposerContainer, ThreadContainer } from '@truefoundry/trueforge-ui';
 import { StatusRail } from './StatusRail';
-import { Sidebar, SidebarHeader } from './Sidebar';
+import { FooterLinks, Sidebar, SidebarHeader } from './Sidebar';
 import { Topbar } from './Topbar';
 import type { ThemeMode } from './useTheme';
 
@@ -17,11 +17,13 @@ import type { ThemeMode } from './useTheme';
 export function QuartermasterLayout({
   className,
   mode,
+  resolved,
   onThemeChange,
   agentName,
 }: {
   className?: string;
   mode: ThemeMode;
+  resolved: 'light' | 'dark';
   onThemeChange: (m: ThemeMode) => void;
   agentName: string;
 }) {
@@ -41,17 +43,18 @@ export function QuartermasterLayout({
         aria-label="Conversations and agent reach"
         className="hidden w-64 shrink-0 border-r border-line-soft lg:block"
       >
-        <Sidebar mode={mode} onThemeChange={onThemeChange} />
+        <Sidebar mode={mode} resolved={resolved} onThemeChange={onThemeChange} />
       </nav>
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* On a narrow screen only the header comes across. The conversation list and the reach
             panel belong behind a control there, not stacked on top of the conversation. */}
         <div className="lg:hidden">
-          <SidebarHeader mode={mode} onThemeChange={onThemeChange} />
+          <SidebarHeader mode={mode} resolved={resolved} onThemeChange={onThemeChange} />
         </div>
         <Topbar agentName={agentName} />
         <ThreadContainer composer={<ComposerContainer placeholder="Point it at a failing test…" />} />
+        <FooterLinks />
       </main>
 
       <StatusRail />

@@ -1,42 +1,43 @@
 import type { ThemeMode } from './useTheme';
-
-const OPTIONS: Array<{ value: ThemeMode; label: string }> = [
-  { value: 'light', label: 'Light' },
-  { value: 'system', label: 'Auto' },
-  { value: 'dark', label: 'Dark' },
-];
+import { MoonIcon, SunIcon } from './icons';
 
 /**
- * A segmented control rather than a single toggle, because a toggle cannot express "follow the
- * system" - and that is the state most people should be in. Real radios, so it is keyboard
- * navigable and announced as a group without any ARIA of our own.
+ * A single control that cycles light, dark, and following the system.
+ *
+ * Three states in one button needs the current state said out loud rather than implied by an icon,
+ * so the accessible name always names where you are and where the next press takes you. An icon
+ * alone would leave a screen-reader user pressing a button that reports only "theme".
  */
-export function ThemeToggle({ mode, onChange }: { mode: ThemeMode; onChange: (m: ThemeMode) => void }) {
+const NEXT: Record<ThemeMode, ThemeMode> = { light: 'dark', dark: 'system', system: 'light' };
+const SAYS: Record<ThemeMode, string> = {
+  light: 'Light theme. Switch to dark.',
+  dark: 'Dark theme. Switch to following your system.',
+  system: 'Following your system. Switch to light.',
+};
+
+export function ThemeToggle({
+  mode,
+  resolved,
+  onChange,
+}: {
+  mode: ThemeMode;
+  resolved: 'light' | 'dark';
+  onChange: (m: ThemeMode) => void;
+}) {
   return (
-    <fieldset className="flex rounded-lg border border-line-soft p-0.5">
-      <legend className="sr-only">Colour theme</legend>
-      {OPTIONS.map((option) => {
-        const active = mode === option.value;
-        return (
-          <label
-            key={option.value}
-            className={[
-              'cursor-pointer rounded-md px-2 py-1 text-2xs font-medium transition-colors duration-200',
-              active ? 'bg-raised text-ink' : 'text-muted hover:text-ink',
-            ].join(' ')}
-          >
-            <input
-              type="radio"
-              name="qm-theme"
-              value={option.value}
-              checked={active}
-              onChange={() => onChange(option.value)}
-              className="sr-only"
-            />
-            {option.label}
-          </label>
-        );
-      })}
-    </fieldset>
+    <button
+      type="button"
+      onClick={() => onChange(NEXT[mode])}
+      aria-label={SAYS[mode]}
+      title={SAYS[mode]}
+      className="relative inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted transition-colors duration-200 hover:bg-raised hover:text-ink"
+    >
+      {resolved === 'dark' ? <MoonIcon /> : <SunIcon />}
+      {/* A dot marks "following the system", so the two automatic states are distinguishable
+          without opening a menu. */}
+      {mode === 'system' && (
+        <span aria-hidden className="absolute bottom-1 right-1 size-1.5 rounded-full bg-accent" />
+      )}
+    </button>
   );
 }
