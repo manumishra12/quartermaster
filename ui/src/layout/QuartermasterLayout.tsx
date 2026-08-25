@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
 import { ComposerContainer, ThreadContainer, ThreadListContainer } from '@truefoundry/trueforge-ui';
 import { StatusRail } from './StatusRail';
+import { ThemeToggle } from './ThemeToggle';
+import type { ThemeMode } from './useTheme';
 
 /**
  * Three columns: where you have been, what is happening, and where the agent has got to.
@@ -8,57 +9,36 @@ import { StatusRail } from './StatusRail';
  * The stock chat layout is two columns and answers the first two. The third is the one that
  * matters when an agent is about to do something you cannot undo.
  *
- * Below 1024px the rail moves under the conversation rather than disappearing - on a narrow screen
- * the agent's state is more important than the scrollback, and hiding it would mean the safety
- * information is the first thing to go.
+ * Below the large breakpoint the rail moves under the conversation rather than disappearing. On a
+ * narrow screen the agent's state is more important than the scrollback, and collapsing it would
+ * make the safety information the first casualty.
  */
-function useIsNarrow(query = '(max-width: 1023px)') {
-  const [narrow, setNarrow] = useState(() => window.matchMedia(query).matches);
-  useEffect(() => {
-    const mql = window.matchMedia(query);
-    const onChange = (e: MediaQueryListEvent) => setNarrow(e.matches);
-    mql.addEventListener('change', onChange);
-    return () => mql.removeEventListener('change', onChange);
-  }, [query]);
-  return narrow;
-}
-
-export function QuartermasterLayout({ className }: { className?: string }) {
-  const narrow = useIsNarrow();
-
+export function QuartermasterLayout({
+  className,
+  mode,
+  onThemeChange,
+}: {
+  className?: string;
+  mode: ThemeMode;
+  onThemeChange: (m: ThemeMode) => void;
+}) {
   return (
-    <div
-      className={className}
-      style={{
-        display: 'flex',
-        flexDirection: narrow ? 'column' : 'row',
-        height: '100%',
-        background: 'var(--qm-bg)',
-        color: 'var(--qm-text)',
-      }}
-    >
-      {!narrow && (
-        <nav
-          aria-label="Conversations"
-          style={{
-            width: 260,
-            flex: 'none',
-            borderRight: '1px solid var(--qm-border-soft)',
-            display: 'flex',
-            flexDirection: 'column',
-            minHeight: 0,
-          }}
-        >
-          <Brand />
-          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-            <ThreadListContainer />
-          </div>
-        </nav>
-      )}
+    <div className={['flex h-full flex-col bg-bg text-ink lg:flex-row', className].filter(Boolean).join(' ')}>
+      <nav
+        aria-label="Conversations"
+        className="hidden min-h-0 w-64 shrink-0 flex-col border-r border-line-soft lg:flex"
+      >
+        <Brand mode={mode} onThemeChange={onThemeChange} />
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <ThreadListContainer />
+        </div>
+      </nav>
 
-      <main style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        {narrow && <Brand />}
-        <ThreadContainer composer={<ComposerContainer placeholder="Point it at a failing test..." />} />
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="lg:hidden">
+          <Brand mode={mode} onThemeChange={onThemeChange} />
+        </div>
+        <ThreadContainer composer={<ComposerContainer placeholder="Point it at a failing test…" />} />
       </main>
 
       <StatusRail />
@@ -66,24 +46,15 @@ export function QuartermasterLayout({ className }: { className?: string }) {
   );
 }
 
-function Brand() {
+function Brand({ mode, onThemeChange }: { mode: ThemeMode; onThemeChange: (m: ThemeMode) => void }) {
   return (
-    <header
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 'var(--qm-space-lg)',
-        padding: 'var(--qm-space-xl)',
-        borderBottom: '1px solid var(--qm-border-soft)',
-      }}
-    >
-      <img src="/mark.svg" alt="" width={22} height={22} />
-      <div>
-        <div style={{ font: '600 14px/1.2 var(--qm-font-sans)' }}>Quartermaster</div>
-        <div style={{ font: '11px/1.3 var(--qm-font-sans)', color: 'var(--qm-text-muted)' }}>
-          proves it, then asks
-        </div>
+    <header className="flex items-center gap-3 border-b border-line-soft px-5 py-4">
+      <img src="/mark.svg" alt="" width={22} height={22} className="shrink-0" />
+      <div className="min-w-0 flex-1">
+        <div className="text-base font-semibold leading-tight">Quartermaster</div>
+        <div className="text-2xs text-muted">proves it, then asks</div>
       </div>
+      <ThemeToggle mode={mode} onChange={onThemeChange} />
     </header>
   );
 }

@@ -1,9 +1,5 @@
 @import './styles/tokens.css';
 
-* {
-  box-sizing: border-box;
-}
-
 html,
 body,
 #root {
@@ -11,8 +7,6 @@ body,
   margin: 0;
   background: var(--qm-bg);
   color: var(--qm-text);
-  font-family: var(--qm-font-sans);
-  font-size: 16px;
-  line-height: 1.5;
-  color-scheme: dark;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }

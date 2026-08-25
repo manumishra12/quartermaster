@@ -1,62 +1,102 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@import 'tailwindcss';
 
 /*
- * Semantic tokens. Components reference these names, never raw hex - a colour with a name can be
- * reasoned about and changed in one place; a hex literal in a component cannot.
+ * Semantic tokens, defined once per theme.
  *
- * Palette and typography come from the ui-ux-pro-max design system for a dark developer tool
- * (Dark Mode OLED / JetBrains Mono + IBM Plex Sans), with one deliberate deviation: that system
- * uses green as the CTA accent, and here green is reserved exclusively for "a real run passed".
- * If the Send button is the same colour as a verified result, the colour stops carrying meaning.
- * Brass takes every action instead.
+ * Components reference these names, never a raw colour. A colour with a name can be reasoned about
+ * and changed in one place; a hex literal scattered through components cannot.
+ *
+ * Palette and type come from the ui-ux-pro-max design system for a dark developer tool
+ * (JetBrains Mono + IBM Plex Sans), with one deliberate deviation carried through both themes:
+ * that system uses green as the CTA accent. Here green means exactly one thing - a real run
+ * passed. Brass takes every action instead. A Send button the same colour as a verified result
+ * would drain the colour of its meaning.
  */
+
+@theme {
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* A restrained type scale. Five sizes is enough for an interface this dense; more sizes read as
+     indecision rather than hierarchy. */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.125rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.375rem;
+  --text-base: 0.9375rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.0625rem;
+  --text-lg--line-height: 1.5rem;
+}
+
+/* Light. Warm off-white rather than pure white: a full-brightness field beside a code block is
+   fatiguing, and this interface is read for long stretches. */
 :root {
-  /* Surfaces */
+  --qm-bg: #faf9f7;
+  --qm-surface: #ffffff;
+  --qm-surface-raised: #f4f2ee;
+  /* Two border tokens, and the difference matters: --qm-border draws control boundaries and has to
+     clear 3:1 (WCAG 1.4.11), while --qm-border-soft only separates regions and does not. Using one
+     token for both would mean either illegible controls or heavy-handed dividers. */
+  --qm-border: #8a8279;
+  --qm-border-soft: #e7e3dc;
+
+  --qm-text: #1c1917;
+  --qm-text-muted: #5c5651;
+
+  --qm-accent: #8a6a22;
+  --qm-accent-hover: #6f5419;
+  --qm-on-accent: #ffffff;
+
+  --qm-verified: #15803d;
+  --qm-failed: #b91c1c;
+  --qm-waiting: #a16207;
+
+  --qm-shadow: 0 1px 2px rgb(28 25 23 / 0.06), 0 1px 3px rgb(28 25 23 / 0.04);
+}
+
+:root.dark {
   --qm-bg: #0f172a;
   --qm-surface: #1b2336;
   --qm-surface-raised: #272f42;
-  --qm-border: #64748b;  /* 3.75:1 on bg - WCAG 1.4.11 needs 3:1 for control boundaries */
+  --qm-border: #64748b;
   --qm-border-soft: #2a3348;
 
-  /* Type */
   --qm-text: #f8fafc;
   --qm-text-muted: #94a3b8;
-  --qm-font-sans: 'IBM Plex Sans', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --qm-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* Action - brass, never green */
   --qm-accent: #c8a35a;
   --qm-accent-hover: #d8b672;
   --qm-on-accent: #0f172a;
 
-  /* Status. Green means one thing: a real run passed. */
   --qm-verified: #22c55e;
-  --qm-failed: #f87171;  /* 5.66:1 on surface; #ef4444 was 4.16:1 and failed */
+  --qm-failed: #f87171;
   --qm-waiting: #fbbf24;
 
-  /* Dashboard density scale */
-  --qm-space-xs: 2px;
-  --qm-space-sm: 4px;
-  --qm-space-md: 8px;
-  --qm-space-lg: 12px;
-  --qm-space-xl: 16px;
-  --qm-space-2xl: 24px;
-
-  --qm-radius: 8px;
-  --qm-radius-lg: 12px;
-
-  /* One stacking scale, so nothing ever needs z-index: 9999 */
-  --qm-z-base: 10;
-  --qm-z-rail: 20;
-  --qm-z-overlay: 30;
-  --qm-z-modal: 50;
-
-  --qm-duration: 200ms;
-  --qm-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --qm-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 1px 3px rgb(0 0 0 / 0.3);
 }
 
-/* Motion carries meaning here (something is working), so it is never the only signal - every
-   animated state also has a label. That makes it safe to switch off entirely. */
+@theme inline {
+  --color-bg: var(--qm-bg);
+  --color-surface: var(--qm-surface);
+  --color-raised: var(--qm-surface-raised);
+  --color-line: var(--qm-border);
+  --color-line-soft: var(--qm-border-soft);
+  --color-ink: var(--qm-text);
+  --color-muted: var(--qm-text-muted);
+  --color-accent: var(--qm-accent);
+  --color-accent-hover: var(--qm-accent-hover);
+  --color-on-accent: var(--qm-on-accent);
+  --color-verified: var(--qm-verified);
+  --color-failed: var(--qm-failed);
+  --color-waiting: var(--qm-waiting);
+}
+
+/* Motion always carries meaning here (something is working), and never carries it alone - every
+   animated state also has a label. That is what makes it safe to switch off entirely. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -68,54 +108,19 @@
 }
 
 /* Never remove the focus ring. Replace it with a better one. */
-:where(a, button, [tabindex]):focus-visible {
+:where(a, button, [tabindex], input, textarea):focus-visible {
   outline: 2px solid var(--qm-accent);
   outline-offset: 2px;
-  border-radius: var(--qm-radius);
+  border-radius: 0.5rem;
 }
 
-.qm-mono {
-  font-family: var(--qm-font-mono);
-  font-variant-ligatures: none;
+@keyframes qm-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
-/* Hover needs a real stylesheet rule - inline styles cannot express :hover, so a button styled
-   only inline is a button with no feedback. */
-.qm-button {
-  min-height: 44px;
-  width: 100%;
-  cursor: pointer;
-  background: transparent;
-  border: 1px solid var(--qm-border);
-  border-radius: var(--qm-radius);
-  color: var(--qm-text-muted);
-  font: inherit;
-  transition:
-    color var(--qm-duration) var(--qm-ease),
-    border-color var(--qm-duration) var(--qm-ease),
-    background-color var(--qm-duration) var(--qm-ease);
-}
-
-.qm-button:hover {
-  color: var(--qm-text);
-  border-color: var(--qm-accent);
-  background: var(--qm-surface-raised);
-}
-
-.qm-button:active {
-  background: var(--qm-surface);
-}
-
-/* Allow and Deny are the same size and weight. The accent marks which one continues, not which one
-   is recommended - a dialog where the safe option is smaller is a dialog designed to be clicked
-   through. */
-.qm-button-accent {
-  border-color: var(--qm-accent);
-  color: var(--qm-accent);
-}
-
-.qm-button-accent:hover {
-  background: var(--qm-accent);
-  color: var(--qm-on-accent);
-  border-color: var(--qm-accent);
+.qm-spin {
+  animation: qm-spin 900ms linear infinite;
+  transform-origin: 50% 50%;
 }

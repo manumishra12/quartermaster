@@ -23,14 +23,34 @@ export function contrast(a, b) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-/** Read the declared tokens straight from the stylesheet, so the test cannot drift from the source. */
-export function readTokens(path) {
+/**
+ * Read the declared tokens per theme, straight from the stylesheet.
+ *
+ * A flat map would silently keep only the last declaration of each token, so a two-theme
+ * stylesheet would have exactly one theme tested and the other shipped unchecked. Every theme in
+ * the file gets its own map.
+ */
+export function readThemes(path) {
   const css = readFileSync(path, 'utf8');
-  const tokens = {};
-  for (const [, name, value] of css.matchAll(/(--qm-[\w-]+):\s*(#[0-9a-fA-F]{6})\s*;/g)) {
-    tokens[name] = value.toLowerCase();
+  const themes = {};
+
+  // Each `selector { ... }` block that declares --qm-* tokens is a theme.
+  for (const [, selector, body] of css.matchAll(/(:root[^{]*?)\{([^}]*)\}/g)) {
+    const tokens = {};
+    for (const [, name, value] of body.matchAll(/(--qm-[\w-]+):\s*(#[0-9a-fA-F]{3,8})\s*;/g)) {
+      tokens[name] = value.toLowerCase();
+    }
+    if (Object.keys(tokens).length === 0) continue;
+    const name = selector.includes('.dark') ? 'dark' : 'light';
+    themes[name] = { ...(themes[name] ?? {}), ...tokens };
   }
-  return tokens;
+  return themes;
+}
+
+/** Back-compat for a single flat read. */
+export function readTokens(path) {
+  const themes = readThemes(path);
+  return Object.assign({}, ...Object.values(themes));
 }
 
 /**

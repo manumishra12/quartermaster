@@ -1,13 +1,14 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
 /**
  * The API is proxied rather than called cross-origin, so `TrueForgeUI` runs same-origin against
  * `baseUrl: '/'`. No CORS configuration, and no server URL baked into the bundle.
  */
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
       // One source of truth for the evidence rules. The CLI and the UI must never disagree about
