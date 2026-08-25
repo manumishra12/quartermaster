@@ -61,7 +61,7 @@ const CLAIM_REPORT_FORM =
  * together, and any phrase added to one is added there too.
  */
 const ABOUT_TESTS =
-  /\b(tests?|pytest|jest|vitest|unittest|CI)\b|\b(?:the\s+)?(?:build|suite|specs?|coverage|lint|typecheck|checks?)\s+(?:is|are|was|were|now|all)?\s*(?:green|clean|passing|passed|pass\w*|red|failing|failed)\b|\ball\s+checks?\s+pass\w*\b|\ball\s+green\b|\beverything\s+pass\w*\b|\b[1-9]\d*\s+(?:tests?\s+)?passed\b/i;
+  /\b(tests?|pytest|jest|vitest|unittest|CI)\b|\b(?:the\s+)?(?:build|suite|specs?|coverage|lint|typecheck|checks?)\s+(?:(?:is|are|was|were|now|all|still|again|currently)\s+){0,3}(?:green|clean|passing|passed|pass\w*|red|failing|failed)\b|\ball\s+checks?\s+pass\w*\b|\ball\s+green\b|\beverything\s+pass\w*\b|\b[1-9]\d*\s+(?:tests?\s+)?passed\b/i;
 
 /** Language that asserts a passing result. Deliberately broad - over-detecting a claim is safe. */
 const CLAIM =

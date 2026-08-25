@@ -434,6 +434,8 @@ test('claims and their evidence stay in step', () => {
     '12 passed.',
     'all green',
     'The suite is passing.',
+    'The suite is now green.',
+    'The build is still green.',
     'Lint is clean and passing.',
     'The tests now pass.',
   ];
