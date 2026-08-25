@@ -2,8 +2,9 @@ import { ComposerBusyProvider, ComposerContainer, ThreadContainer } from '@truef
 import { StatusRail } from './StatusRail';
 import { FooterLinks, Sidebar, SidebarHeader } from './Sidebar';
 import { QuickActions } from './QuickActions';
+import { SheetContext } from './SheetContext';
 import { Topbar } from './Topbar';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useThemeControl } from './ThemeContext';
 
 /**
@@ -19,6 +20,7 @@ import { useThemeControl } from './ThemeContext';
 export function QuartermasterLayout({ className }: { className?: string }) {
   const { mode, resolved, onThemeChange, agentName } = useThemeControl();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const closeSheet = useCallback(() => setSheetOpen(false), []);
 
   /**
    * ComposerBusyProvider is wired by default inside <Thread />, which this layout does not use - it
@@ -73,17 +75,15 @@ export function QuartermasterLayout({ className }: { className?: string }) {
             onClick={() => setSheetOpen(false)}
             className="absolute inset-0 cursor-default bg-[var(--qm-overlay,rgba(0,0,0,0.5))]"
           />
-          {/* Any selection inside the sheet closes it. Choosing a conversation and then being
-              left staring at the drawer that covers it is the sheet failing at the one thing it
-              was opened to do. */}
+          {/* Choosing a conversation closes the sheet. Being left staring at the drawer covering
+              the conversation it just opened is the sheet failing at the one thing it exists for. */}
           <nav
             aria-label="Conversations and agent reach"
-            onClick={(e) => {
-              if ((e.target as HTMLElement).closest('button, a')) setSheetOpen(false);
-            }}
             className="relative w-72 max-w-[85vw] border-r border-line-soft bg-bg shadow-[var(--qm-shadow)]"
           >
-            <Sidebar mode={mode} resolved={resolved} onThemeChange={onThemeChange} />
+            <SheetContext.Provider value={closeSheet}>
+              <Sidebar mode={mode} resolved={resolved} onThemeChange={onThemeChange} />
+            </SheetContext.Provider>
           </nav>
         </div>
       )}

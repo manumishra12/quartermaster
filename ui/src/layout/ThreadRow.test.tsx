@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
+import { SheetContext } from './SheetContext';
 import { ThreadList, ThreadRow } from './ThreadRow';
 
 describe('ThreadRow', () => {
@@ -70,5 +71,45 @@ describe('ThreadList', () => {
   test('an empty list shows no count rather than a zero', () => {
     render(<ThreadList header={null}>{null}</ThreadList>);
     expect(screen.queryByText('0')).not.toBeInTheDocument();
+  });
+});
+
+describe('the narrow-screen sheet', () => {
+  test('choosing a conversation closes the sheet containing it', async () => {
+    // Qodo caught the sheet staying open over the conversation it had just opened. The first fix
+    // put a click handler on the <nav>, which the linter refused: a drawer dismissable only by
+    // mouse is worst on the screen size where a mouse is least likely.
+    const close = vi.fn();
+    const onSelect = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <SheetContext.Provider value={close}>
+        <ThreadRow title="Fix the ledger test" active={false} onSelect={onSelect} />
+      </SheetContext.Provider>,
+    );
+    await user.click(screen.getByRole('button', { name: /fix the ledger test/i }));
+    expect(onSelect).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  test('it is reachable by keyboard, not only by pointer', async () => {
+    const close = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <SheetContext.Provider value={close}>
+        <ThreadRow title="Fix the ledger test" active={false} onSelect={vi.fn()} />
+      </SheetContext.Provider>,
+    );
+    await user.tab();
+    await user.keyboard('{Enter}');
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  test('outside a sheet, closing is a no-op and nothing breaks', async () => {
+    const onSelect = vi.fn();
+    const user = userEvent.setup();
+    render(<ThreadRow title="Fix the ledger test" active={false} onSelect={onSelect} />);
+    await user.click(screen.getByRole('button', { name: /fix the ledger test/i }));
+    expect(onSelect).toHaveBeenCalledOnce();
   });
 });

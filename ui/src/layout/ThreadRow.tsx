@@ -1,5 +1,6 @@
 import { Children, isValidElement, type ReactNode } from 'react';
 import { ChatIcon } from './icons';
+import { useCloseSheet } from './SheetContext';
 
 /**
  * A conversation in the list.
@@ -24,6 +25,8 @@ export function ThreadRow({
   lastMessageAt?: Date;
   actions?: ReactNode;
 }) {
+  const closeSheet = useCloseSheet();
+
   return (
     <div
       className={[
@@ -41,7 +44,10 @@ export function ThreadRow({
 
       <button
         type="button"
-        onClick={onSelect}
+        onClick={() => {
+          onSelect();
+          closeSheet();
+        }}
         aria-current={active ? 'true' : undefined}
         className="min-w-0 flex-1 cursor-pointer text-left"
       >
