@@ -35,7 +35,7 @@ jobs:
       - run: node scripts/check-fixtures.mjs
 
   ui:
-    name: ui builds
+    name: ui tests and build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,6 +45,10 @@ jobs:
           cache: npm
           cache-dependency-path: ui/package-lock.json
       - run: npm ci
+        working-directory: ui
+      # The rail is the safety surface: it is what a person reads before approving something
+      # irreversible. It gets the same treatment as the rules behind it.
+      - run: npm test
         working-directory: ui
       - run: npm run build
         working-directory: ui

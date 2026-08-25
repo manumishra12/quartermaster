@@ -367,3 +367,44 @@ review because the stylesheet had no duplicates at the time. Writing the light t
 change that made it live. It reads per theme now, and both are asserted - 23 contrast checks.
 
 84 tests.
+
+## Day 2 — the interface had no tests, and its data shape was a guess
+
+Skills are registered now that the repo is public, so four agents run with their skill packs
+attached rather than stripped.
+
+Then the thing that had been bothering me. The rail reads tool-call parts off the assistant
+messages, and I had inferred that shape rather than verified it - which is exactly how the previous
+version came to read `useTrueFoundryToolResponses()` and show nothing.
+
+So I read the adapter instead of guessing. A tool-call part is
+`{ type, toolCallId, toolName, argsText, args, result? }`, and `result` is the raw
+`tool.response.content` - the same envelope the CLI receives. The reader was right this time.
+
+But the part also carries `args`, and that changes something. The CLI now requires a recorded
+*command* to look like a test invocation before it counts a run as proof; the interface was still
+falling back to matching output text. Same session, two different verdicts, depending on where you
+read it. The command now flows through the UI as well, into the same shared functions.
+
+Then wrote the tests the interface never had. Thirty-eight of them:
+
+- The rail against realistic harness data - and deliberately not against mocked evidence rules. The
+  hooks are mocked; `@evidence` is the real module. A rail that disagreed with the CLI fails here.
+- Including the exploit cases from the review, at the UI layer: a `go test` failure exiting 1 whose
+  output contains "ok" must render as "did not pass", and `echo ok` must count as an execution but
+  not as proof.
+- The approval gate: that it shows the actual arguments, that both buttons exist and are reachable,
+  and that Deny sends `approved: false`.
+- The theme system, including the failure modes that actually happen: storage that throws on read
+  in a private window, storage that throws on write when the quota is full. Neither may stop the
+  page rendering, and an explicit choice still applies for the session even when it cannot be saved.
+- The toggle by keyboard alone. Real radios in a fieldset, so it is announced as a group without any
+  ARIA of our own - a div-based toggle would look identical and be unusable without a mouse.
+
+CI runs them now. The rail is what a person reads before approving something irreversible; it gets
+the same treatment as the rules behind it.
+
+Also normalised the spacing rhythm to three gap values. Four had accumulated, which is not a design
+decision, and it shows up as lines that almost line up.
+
+122 tests across the two packages.

@@ -46,7 +46,7 @@ function Section({
  */
 function Empty({ children, hint }: { children: React.ReactNode; hint?: string }) {
   return (
-    <div className="rounded-lg border border-dashed border-line-soft px-3 py-4">
+    <div className="rounded-lg border border-dashed border-line-soft p-3">
       <p className="max-w-[46ch] text-sm text-muted">{children}</p>
       {hint && (
         <p className="mt-2 font-mono text-2xs text-muted/70">
@@ -113,9 +113,11 @@ export function StatusRail() {
 
   const isBusy = typeof busy === 'boolean' ? busy : Boolean(busy?.isBusy);
 
-  // Re-wrap into the harness envelope so the shared evidence rules apply unchanged.
+  // The shared evidence rules accept already-derived executions, so pass them straight through
+  // with their command attached. Re-serialising would drop it, and the command is what separates a
+  // real test run from output that merely looks like one.
   const asResponses = useMemo(
-    () => executions.map((e) => ({ content: JSON.stringify({ response: { exitCode: e.exitCode, result: e.output } }) })),
+    () => executions.map((e) => ({ exitCode: e.exitCode, output: e.output, command: e.command })),
     [executions],
   );
   const runs = useMemo(() => testRuns(asResponses) as Run[], [asResponses]);
@@ -205,7 +207,7 @@ function Verdict({ last }: { last: Run }) {
           same to someone who cannot distinguish the two. */}
       <p
         className={[
-          'flex items-center gap-2 text-sm font-semibold',
+          'flex items-center gap-2.5 text-sm font-semibold',
           green ? 'text-verified' : 'text-failed',
         ].join(' ')}
       >
@@ -237,7 +239,7 @@ function Verdict({ last }: { last: Run }) {
           type="button"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
-          className="mt-2 min-h-11 w-full cursor-pointer rounded-lg border border-line bg-transparent text-sm text-muted transition-colors duration-200 hover:border-accent hover:bg-raised hover:text-ink"
+          className="mt-2.5 min-h-11 w-full cursor-pointer rounded-lg border border-line bg-transparent text-sm text-muted transition-colors duration-200 hover:border-accent hover:bg-raised hover:text-ink"
         >
           {expanded ? 'Show less' : 'Show full output'}
         </button>
@@ -288,7 +290,7 @@ function ApprovalPrompt({
       )}
 
       {/* Equal size, equal weight. Deny is first because it is the reversible one. */}
-      <div className="mt-3 flex gap-2">
+      <div className="mt-3 flex gap-2.5">
         <button
           type="button"
           onClick={() => respond?.({ approvalId: pending.approvalId, approved: false, reason: 'Denied by the operator' })}
