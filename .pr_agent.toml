@@ -1,0 +1,45 @@
+# Qodo code review configuration.
+#
+# Committed to the default branch so it applies to every pull request opened after it lands.
+# The guidelines below are the ones that matter in this repository specifically; the defaults
+# already cover the general cases, and repeating them here would only dilute the signal.
+
+[github_app]
+pr_commands = [
+    "/agentic_describe",
+    "/agentic_review",
+]
+
+[review_agent]
+# Inline where the problem is, and a summary that can be read on its own.
+comments_location_policy = "both"
+
+# 3 = action_required only. This repository's own review found that an alarm which fires on
+# everything is one nobody reads, so inline comments are reserved for things that must change.
+inline_comments_severity_threshold = 3
+
+issues_user_guidelines = """
+This project is an agent that acts on real systems. Its central claim is that an agent's assertion
+is checked against the harness's recorded event stream, which the model cannot write to. Review with
+that in mind, and weight these above ordinary correctness:
+
+1. A false SUBSTANTIATED verdict is the worst defect possible here: it means the tool that exists to
+   catch fabrication has certified it. In scripts/lib/evidence.mjs, hunt for any input where judge()
+   returns SUBSTANTIATED or NO_CLAIM when it should flag a problem. Two real examples already found
+   and fixed: an unanchored runner match meant `cat pytest.log` counted as a passing test run, and a
+   case-insensitive FAIL pattern read the `# fail 0` of a passing run as a failure.
+
+2. Any path where a tool approval could be granted without an explicit human keystroke. Prefix
+   matching on the operator's answer once meant typing "abort" approved the call.
+
+3. Silent falsehoods in operator-facing tooling. A safety script that reports a reassuring but
+   untrue summary is worse than one that says nothing.
+
+4. Anywhere the interface and the CLI could reach different verdicts on the same session. They must
+   share scripts/lib/evidence.mjs rather than each holding a copy of the rule.
+
+5. Tests that agree with the bug. Several defects here survived because the test mocked the very
+   thing that was broken, or used a fixture that avoided the failing case by accident.
+
+Style opinions and formatting are not useful feedback on this repository.
+"""
