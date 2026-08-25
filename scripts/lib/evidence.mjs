@@ -155,6 +155,48 @@ const NOT_A_RUN = /(?:^|\s)--(?:collect-only|version|help|list-tests?|dry-run|co
  * a bare or fully quoted identifier missed the other two entirely, leaving their bodies to be read
  * as commands.
  */
+/** The ANSI-C escapes bash decodes inside `$'...'`. Returns the character and the index consumed to. */
+function decodeAnsiEscape(line, at) {
+  const c = line[at];
+  const simple = { n: '\n', t: '\t', r: '\r', e: '\u001b', a: '\u0007', b: '\b', f: '\f', v: '\v', '0': '\0' };
+  if (c === 'x') {
+    const hex = line.slice(at + 1).match(/^[0-9a-fA-F]{1,2}/);
+    if (hex) return [String.fromCharCode(parseInt(hex[0], 16)), at + hex[0].length];
+  }
+  const octal = line.slice(at).match(/^[0-7]{1,3}/);
+  if (octal && c !== '0') return [String.fromCharCode(parseInt(octal[0], 8)), at + octal[0].length - 1];
+  return [simple[c] ?? c, at];
+}
+
+/**
+ * Drop the branches a literal guard makes unreachable.
+ *
+ * `false && echo "$(pytest -q)"` never runs pytest, but every branch was unwrapped regardless, so
+ * the substitution was pulled out and counted while a separate `echo '1 passed'` supplied output
+ * to match it. Only a literal `false` before `&&` or a literal `true` before `||` is treated this
+ * way: deciding in general which branches a shell takes is not something a reader of the command
+ * can do, and guessing at `$X && pytest` would start discarding real runs. The wider limit is
+ * documented on looksLikeTestCommand.
+ */
+function reachableBranches(code) {
+  // A guard only reaches to the end of its and-or list: `;` and a newline start a new one, so
+  // `false && pytest; pytest -q` still runs the second.
+  return code
+    .split(/[;\n]/)
+    .map((statement) => {
+      const parts = statement.split(/(&&|\|\|)/);
+      const kept = [];
+      for (let i = 0; i < parts.length; i += 2) {
+        const guard = parts[i - 2]?.trim();
+        const operator = parts[i - 1];
+        const dead = (operator === '&&' && guard === 'false') || (operator === '||' && guard === 'true');
+        if (!dead) kept.push(parts[i]);
+      }
+      return kept.join(' && ');
+    })
+    .join('\n');
+}
+
 function heredocsOn(line) {
   const docs = [];
   let quote = null;
@@ -188,6 +230,10 @@ function heredocsOn(line) {
       let delim = '';
       let quoted = false;
       let inner = null;
+      // `$'...'` also decodes escapes, so `<<$'E\\x4fF'` is the delimiter EOF. Carrying the
+      // characters through undecoded produced Ex4fF, which the real terminator never matched -
+      // and everything after it, including genuine commands, was eaten as heredoc data.
+      let ansi = false;
       for (; j < line.length; j += 1) {
         const d = line[j];
         if (inner) {
@@ -198,6 +244,7 @@ function heredocsOn(line) {
         // `<<$'EOF'` is ANSI-C quoting: the delimiter is EOF, not $EOF. Keeping the dollar meant
         // the real terminator never matched and the commands after it were eaten as data.
         if (d === '$' && (line[j + 1] === "'" || line[j + 1] === '"')) {
+          ansi = line[j + 1] === "'";
           continue;
         }
         if (d === "'" || d === '"') {
@@ -208,7 +255,14 @@ function heredocsOn(line) {
         if (d === '\\') {
           quoted = true;
           j += 1;
-          if (j < line.length) delim += line[j];
+          if (j >= line.length) continue;
+          if (!ansi) {
+            delim += line[j];
+            continue;
+          }
+          const [decoded, next] = decodeAnsiEscape(line, j);
+          delim += decoded;
+          j = next;
           continue;
         }
         if (/[\s;|&<>()]/.test(d)) break;
@@ -305,20 +359,44 @@ function expandedSubstitutions(text) {
       // runs nothing. Counted as a substitution it produced the segment `pytest)`, which reads as
       // an invocation, and an echoed "1 passed" beside it completed the forgery.
       if (text[i + 2] === '(') {
+        // Arithmetic runs no command of its own, but it can contain one: the substitution in
+        // `echo $(( $(pytest -q; echo 0) + 1 ))` really executes. Skipping the whole region lost
+        // it, so only the arithmetic punctuation is skipped and the inside is scanned.
         const close = text.indexOf('))', i + 3);
+        const end = close === -1 ? text.length : close;
+        found.push(...expandedSubstitutions(text.slice(i + 3, end)));
         i = close === -1 ? text.length : close + 1;
         continue;
       }
       let depth = 1;
       let j = i + 2;
       // Parentheses inside quotes are data. Counting them truncated the body of
-      // `$(printf ')' && pytest -q)` at the printf argument and lost a genuine run.
+      // `$(printf ')' && pytest -q)` at the printf argument and lost a genuine run. The same is
+      // true of a parenthesis inside a heredoc body, so those are stepped over here too.
       let inner = null;
+      let heredoc = null;
       for (; j < text.length && depth > 0; j += 1) {
         const d = text[j];
         if (inner) {
           if (d === '\\' && inner === '"') j += 1;
           else if (d === inner) inner = null;
+          continue;
+        }
+        if (heredoc) {
+          // Inside a body nothing counts until the terminator line closes it.
+          if (d === '\n') {
+            const nl = text.indexOf('\n', j + 1);
+            const line = text.slice(j + 1, nl === -1 ? text.length : nl);
+            if (isTerminator(line, heredoc)) {
+              heredoc = null;
+              j = nl === -1 ? text.length : nl;
+            }
+          }
+          continue;
+        }
+        if (d === '<' && text[j + 1] === '<' && text[j + 2] !== '<') {
+          const rest = text.slice(j, text.indexOf('\n', j) === -1 ? text.length : text.indexOf('\n', j));
+          [heredoc = null] = heredocsOn(rest);
           continue;
         }
         if (d === "'" || d === '"') inner = d;
@@ -341,6 +419,19 @@ function expandedSubstitutions(text) {
   return found;
 }
 
+/**
+ * Whether a recorded command is a test invocation.
+ *
+ * The limit worth stating plainly: this reads a command, it does not execute one, and a shell
+ * decides at runtime what a reader cannot decide at all. `$GUARD && pytest` may or may not run
+ * pytest and nothing here can know which. Only literal guards are resolved, because guessing at
+ * the rest would start discarding honest runs - and calling honest work a lie is the same failure
+ * as blessing a lie.
+ *
+ * What makes that limit tolerable is that this is one of two signals, not the whole of the
+ * evidence: `testRuns()` requires the command to look like a test *and* the output to look like
+ * one, so neither a fabricated command nor fabricated output is sufficient alone.
+ */
 export function looksLikeTestCommand(command = '') {
   const text = String(command);
   if (!text.trim()) return false;
@@ -364,7 +455,8 @@ export function looksLikeTestCommand(command = '') {
     seen.add(part);
 
     // A heredoc body is data being written, not commands being run.
-    const { code, expandingBodies } = splitHeredocs(part);
+    const { code: written, expandingBodies } = splitHeredocs(part);
+    const code = reachableBranches(written);
 
     // An unquoted delimiter still expands `$(...)` inside the body; a quoted one expands nothing.
     for (const body of expandingBodies) queue.push(...expandedSubstitutions(body));

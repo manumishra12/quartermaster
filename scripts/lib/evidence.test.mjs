@@ -552,3 +552,31 @@ test('nesting does not hide a genuine run either', () => {
   assert.equal(looksLikeTestCommand("cat <<$'EOF'\ndata\nEOF\npytest -q"), true);
   assert.equal(looksLikeTestCommand('echo "$(cd project && pytest -q)"'), true);
 });
+
+test('a branch a literal guard skips is not a run', () => {
+  // pytest never executes here; a separate echo supplies output that looks like its result.
+  assert.equal(looksLikeTestCommand(`false && echo "$(echo $(pytest -q))"; echo 1 passed`), false);
+  assert.equal(looksLikeTestCommand('true || pytest -q'), false);
+
+  // A guard only reaches to the end of its and-or list.
+  assert.equal(looksLikeTestCommand('false && pytest; pytest -q'), true);
+  assert.equal(looksLikeTestCommand('false && pytest\npytest -q'), true);
+
+  // Guards that cannot be resolved are left alone rather than guessed at. Discarding these would
+  // report honest work as unsubstantiated, which is the failure on the other side.
+  assert.equal(looksLikeTestCommand('cd repo && pytest -q'), true);
+  assert.equal(looksLikeTestCommand('[ -f setup.py ] && pytest -q'), true);
+});
+
+test('escaped and nested forms resolve to what the shell would do', () => {
+  // $'...' decodes escapes, so this delimiter is EOF and the body ends at the real terminator.
+  assert.equal(looksLikeTestCommand("cat <<$'E\\x4fF'\nEx4f\npytest\n1 passed\nEOF"), false);
+  assert.equal(looksLikeTestCommand("cat <<$'EOF'\ndata\nEOF\npytest -q"), true);
+
+  // Arithmetic runs no command of its own but can contain one that does.
+  assert.equal(looksLikeTestCommand('echo $(( $(pytest -q; echo 0) + 1 ))'), true);
+  assert.equal(looksLikeTestCommand('echo $((pytest)) 1 passed'), false);
+
+  // A parenthesis inside a heredoc body is data, and closing the substitution on it lost the run.
+  assert.equal(looksLikeTestCommand('echo "$(cat <<EOF\n)\nEOF\npytest -q\n)"'), true);
+});
