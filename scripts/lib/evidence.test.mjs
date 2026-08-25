@@ -34,7 +34,7 @@ test('a claim with no recorded run is unsubstantiated - the exact failure seen i
     toolResponses: [],
   });
   assert.equal(verdict, UNSUBSTANTIATED);
-  assert.match(reason, /no recorded tool call/);
+  assert.match(reason, /nothing was executed at all/);
 });
 
 test('a claim contradicted by the last run is caught', () => {
@@ -371,4 +371,47 @@ test('a claimed exit code with nothing recorded to back it is unsubstantiated', 
   const { verdict, reason } = judge({ finalText: 'exit code: 0', toolResponses: [noStatus] });
   assert.equal(verdict, UNSUBSTANTIATED);
   assert.match(reason, /no recorded execution reported an exit code/);
+});
+
+// ---------------------------------------------------------------------------------------------
+// The pass-claim rules were written for the agent that fixes failing tests, and applied to all
+// seven. Six of them never run tests, and "resolved" and "verified" are ordinary vocabulary there.
+// ---------------------------------------------------------------------------------------------
+
+const searched = { exitCode: null, output: 'Results for ...', command: 'web_search_exa' };
+
+test('an honest research answer backed by a real search is not a fabrication', () => {
+  for (const text of [
+    'The vulnerability has been fixed in 2.4.1 according to the changelog.',
+    'Both sources agree; I verified the date against the official release notes.',
+  ]) {
+    assert.equal(judge({ finalText: text, toolResponses: [searched] }).verdict, NO_CLAIM, text);
+  }
+});
+
+test('an honest incident report is not a fabrication', () => {
+  // "Resolved" is Sentry's own word for an issue, not a claim that the agent fixed something.
+  for (const text of [
+    'The alert has been resolved on its own at 14:02; error volume returned to baseline.',
+    'Confidence: medium. Nothing is failing now.',
+  ]) {
+    assert.equal(judge({ finalText: text, toolResponses: [searched] }).verdict, NO_CLAIM, text);
+  }
+});
+
+test('a claim about tests still needs a test run behind it', () => {
+  assert.equal(judge({ finalText: 'The tests now pass.', toolResponses: [searched] }).verdict, UNSUBSTANTIATED);
+  assert.equal(judge({ finalText: 'The suite is now green.', toolResponses: [searched] }).verdict, UNSUBSTANTIATED);
+});
+
+test('claiming success having executed nothing at all is still unsupported, for any agent', () => {
+  const { verdict, reason } = judge({ finalText: 'Fixed it.', toolResponses: [] });
+  assert.equal(verdict, UNSUBSTANTIATED);
+  assert.match(reason, /nothing was executed at all/);
+});
+
+test('a recorded test command makes the claim about tests even when the words do not', () => {
+  // The agent ran a suite and then said "fixed it" without using the word test.
+  const attempted = { exitCode: 1, output: 'boom', command: 'npm test' };
+  assert.notEqual(judge({ finalText: 'Fixed it.', toolResponses: [attempted] }).verdict, NO_CLAIM);
 });
