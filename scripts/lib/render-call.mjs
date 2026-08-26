@@ -11,6 +11,8 @@
  * listening to.
  */
 
+import { visible } from './describe-call.mjs';
+
 /** Question-shaped calls are the common case and deserve to read as a question. */
 const ASKS = /^ask_user_question$|question/i;
 
@@ -33,7 +35,15 @@ function line(label, value) {
 
 function one(value) {
   const text = typeof value === 'string' ? value : JSON.stringify(value);
-  return String(text ?? '').replace(/\s+/g, ' ').trim();
+  /**
+   * Collapsed *and* escaped.
+   *
+   * Collapsing whitespace handles newlines and tabs; it does nothing about an escape character,
+   * which is not whitespace. A printed call carrying `\u001b[2J` in a value would clear the
+   * terminal of the person reading it - the same defect already fixed in the approval display, so
+   * the same function fixes it here rather than a second copy that can drift from it.
+   */
+  return visible(String(text ?? '')).replace(/\s+/g, ' ').trim();
 }
 
 /**

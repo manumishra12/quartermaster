@@ -31,7 +31,7 @@ const HEADLINE = ['owner', 'repo', 'repository', 'branch', 'base', 'head', 'ref'
  * so a path or a title can be made to read as something other than what will be sent, which is
  * the same attack as clearing the screen, done quietly.
  */
-function visible(value) {
+export function visible(value) {
   return String(value).replace(
     // Matching control characters is the whole point here: they are what has to be escaped.
     // eslint-disable-next-line no-control-regex

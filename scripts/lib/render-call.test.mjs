@@ -77,3 +77,20 @@ test('a tool name with layout in it is collapsed like everything else', () => {
   const lines = renderUnexecutedCalls(unexecutedToolCalls(call));
   assert.ok(lines.every((l) => !l.includes('\n')));
 });
+
+test('control characters in a printed call cannot reach the terminal', () => {
+  /**
+   * Collapsing whitespace handles newlines and tabs and does nothing about an escape character,
+   * which is not whitespace. A value carrying ESC[2J would clear the screen of the person reading
+   * it - the same defect already fixed in the approval display, so the same function fixes it
+   * here rather than a second copy that can drift from it.
+   */
+  const esc = String.fromCharCode(27);
+  const cr = String.fromCharCode(13);
+  const call = JSON.stringify({ name: 'x', arguments: { path: `ok${esc}[2J${cr}forged` } });
+  const lines = renderUnexecutedCalls(unexecutedToolCalls(call)).join('\n');
+
+  assert.doesNotMatch(lines, new RegExp(esc), 'no raw escape character may reach the terminal');
+  assert.doesNotMatch(lines, /\r/, 'no raw carriage return may reach the terminal');
+  assert.match(lines, /\\x1b/, 'it is escaped and still visible');
+});
