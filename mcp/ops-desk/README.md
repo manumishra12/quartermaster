@@ -120,6 +120,11 @@ sequenceDiagram
   lives at module scope, which is what makes a rollback in one request visible to the next.
 - **State is in memory, not written back to `incidents.json`.** Restarting resets the story, which
   is what you want when demonstrating it twice.
+- **A remediation must refuse what it cannot actually do.** `rollback_deploy` only accepts the
+  deploy a service is currently running, and `restart_service` only accepts a service the desk
+  knows. Both used to accept anything and report success — a false operator-facing record of
+  something that did not happen, which is the failure this whole project exists to refuse. Review
+  found both.
 - **If you add a tool, give it annotations.** An unannotated tool is invisible to every selector
   the approval policy uses, and it will run ungated without anything warning you. `npm run
   tools:audit` prints what each connector actually publishes.

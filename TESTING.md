@@ -1,6 +1,6 @@
 # Testing
 
-169 tests in the root suite, 120 in the UI, one mount test, and a fixture check. What follows is
+170 tests in the root suite, 120 in the UI, one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
 
@@ -36,8 +36,9 @@ flowchart TD
     AN["annotations.test.mjs<br/>15 - tool selectors"]
     RP["report.test.mjs<br/>9 - the written evidence"]
     EN["env.test.mjs<br/>8 - config loading"]
+    TS["turn-state.test.mjs<br/>7 - why a turn ended"]
     CO["contrast.test.mjs<br/>23 - palette contrast"]
-    OD["ops-desk/server.test.mjs<br/>6 - the MCP fixture server"]
+    OD["ops-desk/server.test.mjs<br/>9 - the MCP fixture server"]
   end
 
   subgraph ui["ui - vitest, two projects"]

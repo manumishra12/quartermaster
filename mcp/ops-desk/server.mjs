@@ -26,11 +26,22 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { z } from 'zod';
 
 const FIXTURE = fileURLToPath(new URL('./incidents.json', import.meta.url));
-const PORT = Number(process.env.OPS_DESK_PORT ?? 8791);
+/**
+ * The port every instruction in this repo names. A default that disagrees with the documentation
+ * sends anyone following it to a health check that fails and a connector registered at a dead URL.
+ */
+const PORT = Number(process.env.OPS_DESK_PORT ?? 8795);
 
 /** Loaded once and then mutated in memory: a rollback has to actually change what the next read sees. */
 const state = JSON.parse(readFileSync(FIXTURE, 'utf8'));
 const journal = [];
+
+/** What a service is running now: the newest deploy for it. */
+function currentDeploy(service) {
+  return state.deploys
+    .filter((d) => d.service === service)
+    .sort((a, b) => b.shipped_at.localeCompare(a.shipped_at))[0];
+}
 
 const text = (value) => ({
   content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value, null, 2) }],
@@ -128,6 +139,23 @@ function buildServer() {
         return text({ error: 'not_found', message: `No deploy with id ${deploy_id}.`, known: state.deploys.map((d) => d.id) });
       }
 
+      /**
+       * Only what is running can be reverted.
+       *
+       * Rolling back an older deploy used to remove it and report that the service had returned to
+       * whatever preceded *it*, while the deploy actually serving traffic carried on untouched.
+       * That is a reassuring operator-facing record of something that did not happen - the precise
+       * failure this project exists to refuse, sitting in the tool it demonstrates with.
+       */
+      const current = currentDeploy(deploy.service);
+      if (current.id !== deploy_id) {
+        return text({
+          error: 'not_current',
+          message: `${deploy_id} is not what ${deploy.service} is running; ${current.id} is. Rolling it back would change nothing and say otherwise.`,
+          current: current.id,
+        });
+      }
+
       // Actually mutate. A gate in front of an operation that does nothing proves nothing.
       state.deploys = state.deploys.filter((d) => d.id !== deploy_id);
       const entry = { action: 'rollback_deploy', deploy_id, service: deploy.service, to: deploy.previous, reason, at: state.now };
@@ -145,6 +173,21 @@ function buildServer() {
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
     async ({ service, reason }) => {
+      /**
+       * A typo is not a restart.
+       *
+       * Any name at all used to come back `ok: true` with "Instances cycled", and the empty health
+       * series it created then read back as a real service to everything downstream. An operator
+       * approving a restart of `checkout-ap` would have been told it worked.
+       */
+      if (!(service in state.health)) {
+        return text({
+          error: 'not_found',
+          message: `This desk does not know a service called ${service}. Nothing was restarted.`,
+          known: Object.keys(state.health),
+        });
+      }
+
       const entry = { action: 'restart_service', service, reason, at: state.now };
       journal.push(entry);
       // Health readings do not survive a restart, which is part of why it is not a free action.
