@@ -374,6 +374,251 @@ test('a claimed exit code with nothing recorded to back it is unsubstantiated', 
 });
 
 // ---------------------------------------------------------------------------------------------
+// Runner coverage. A verifier that refuses honest work is the same failure as one that blesses a
+// lie, pointed the other way - and Poetry alone manages most modern Python projects.
+// ---------------------------------------------------------------------------------------------
+
+test('environment wrappers are stripped, so the runner inside them is found', () => {
+  for (const c of [
+    'poetry run pytest -q',
+    'uv run pytest',
+    'pipenv run pytest',
+    'pdm run pytest',
+    'bundle exec rspec',
+    'bundle exec rake test',
+    'npx vitest run',
+    'pnpm dlx jest',
+  ]) {
+    assert.equal(looksLikeTestCommand(c), true, c);
+  }
+});
+
+test('a wrapper followed by a bare test script counts', () => {
+  // `hatch run test` invokes a script literally named test; there is no runner binary to match.
+  assert.equal(looksLikeTestCommand('hatch run test'), true);
+  assert.equal(looksLikeTestCommand('pdm run test:unit'), true);
+});
+
+test('a bare test word on its own is still not a test run', () => {
+  // Only accepted after a wrapper was stripped. Alone it could be a directory, a binary, or a typo.
+  assert.equal(looksLikeTestCommand('test -f file.txt'), false);
+  assert.equal(looksLikeTestCommand('ls testdata'), false);
+});
+
+test('the runners of other ecosystems are recognised', () => {
+  for (const c of [
+    'bazel test //...',
+    'swift test',
+    'sbt test',
+    'mix test',
+    'make check',
+    'composer test',
+    'rake test',
+    './mvnw test',
+  ]) {
+    assert.equal(looksLikeTestCommand(c), true, c);
+  }
+});
+
+test('a wrapper running something that is not a test is still not a test run', () => {
+  // The wrapper must not become a way to launder any command into evidence.
+  assert.equal(looksLikeTestCommand('poetry run python app.py'), false);
+  assert.equal(looksLikeTestCommand('uv run ruff check'), false);
+  assert.equal(looksLikeTestCommand('npx tsc --noEmit'), false);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Regressions introduced by the wrapper support above, found by Qodo on the pull request that
+// added it. All three let a command that ran no tests be read as a passing test run.
+// ---------------------------------------------------------------------------------------------
+
+test('a flag value is not mistaken for the runner', () => {
+  // Stripping `--?\S+` blindly ate the flag and left its value, so this normalised to
+  // `vitest node ...` while the command actually executed was only node.
+  assert.equal(looksLikeTestCommand('npx --package vitest node -e "console.log(1)"'), false);
+  assert.equal(looksLikeTestCommand('npx -p jest node script.js'), false);
+});
+
+test('valueless flags are still skipped, so real invocations survive', () => {
+  assert.equal(looksLikeTestCommand('npx --yes jest'), true);
+  assert.equal(looksLikeTestCommand('npx --quiet vitest run'), true);
+});
+
+test('a separator inside quotes does not create a second command', () => {
+  // Only echo ran here. Splitting without regard for quoting turned its argument into a segment
+  // that looked like a wrapped test script, and the echoed markers looked like passing output.
+  assert.equal(looksLikeTestCommand('echo "note | poetry run test Ran 1 tests; 1 passed"'), false);
+  assert.equal(looksLikeTestCommand("echo 'x; pytest'"), false);
+});
+
+test('stripping a quoted span does not split one shell word into two', () => {
+  // The shell concatenates adjacent words: ./fake'pytest' executes ./fakepytest, which is not a
+  // test runner. Replacing the quoted span with a space left "pytest" standing alone as the
+  // leader of its segment, so a hand-rolled script printing "1 passed" was read as a green suite.
+  assert.equal(looksLikeTestCommand("'./fake'pytest"), false);
+  assert.equal(looksLikeTestCommand("./fake'pytest'"), false);
+  assert.equal(looksLikeTestCommand('"my"pytest --version'), false);
+});
+
+test('a command substitution is executed, so it counts even inside quotes', () => {
+  // echo "$(cd project && pytest -q)" really runs pytest and captures its output. Dropping the
+  // quoted span dropped the run, and an honest passing claim came back unsubstantiated.
+  assert.equal(looksLikeTestCommand('echo "$(cd project && pytest -q)"'), true);
+  assert.equal(looksLikeTestCommand('result=$(pytest -q)'), true);
+  assert.equal(looksLikeTestCommand('echo `npx vitest run`'), true);
+  // The substitution has to hold a runner - quoting a mention of one is still just a mention.
+  assert.equal(looksLikeTestCommand('echo "$(cat pytest.log)"'), false);
+});
+
+test('a substitution the shell would not expand is not a run', () => {
+  /**
+   * Single quotes suppress expansion entirely and a backslash suppresses the next character, so
+   * both of these print their argument and execute nothing. Matching $(...) with a pattern found
+   * them anyway, and the "1 passed" they echo then supplied the passing output to match the
+   * invocation they appeared to be. Quoting is state, not a pattern.
+   */
+  assert.equal(looksLikeTestCommand("echo '$(pytest -q) 1 passed'"), false);
+  assert.equal(looksLikeTestCommand('echo "\\$(pytest -q) 1 passed"'), false);
+  assert.equal(looksLikeTestCommand("echo '`pytest -q`'"), false);
+  // Double quotes do expand, so the distinction has to survive in the other direction too.
+  assert.equal(looksLikeTestCommand('echo "$(pytest -q)"'), true);
+  assert.equal(looksLikeTestCommand('echo $(pytest -q)'), true);
+});
+
+test('a heredoc body is written, not run', () => {
+  // This is the whole fabrication in one command: the body mentions a runner so the command looks
+  // like a test run, and the same body supplies the passing output to match it. Nothing executed.
+  assert.equal(looksLikeTestCommand('cat <<EOF\npytest\n1 passed\nEOF'), false);
+  assert.equal(looksLikeTestCommand('cat > out.txt <<-EOF\n  npx vitest run\nEOF'), false);
+  assert.equal(looksLikeTestCommand("cat <<'EOF'\npoetry run pytest\nEOF"), false);
+  // A runner reading its stdin from a heredoc is still a runner.
+  assert.equal(looksLikeTestCommand('pytest -q <<EOF\ninput\nEOF'), true);
+  // An unquoted delimiter expands substitutions, so this one really does run pytest.
+  assert.equal(looksLikeTestCommand('cat <<EOF\n$(pytest -q)\nEOF'), true);
+});
+
+test('every valid heredoc form hides its body, not just the tidy one', () => {
+  /**
+   * The delimiter is a word, not an identifier, and quoting it is what turns expansion off. A
+   * pattern that insisted on a bare or fully quoted identifier let the other forms through, and
+   * their bodies were read as commands - supplying both the fake invocation and the passing
+   * output to match it.
+   */
+  assert.equal(looksLikeTestCommand("cat <<'EOF-1'\npytest\n1 passed\nEOF-1"), false);
+  assert.equal(looksLikeTestCommand('cat <<E"OF"\npytest\n1 passed\nEOF'), false);
+
+  // Leading tabs are stripped only for <<-; a space-indented word ends nothing.
+  assert.equal(looksLikeTestCommand('cat <<EOF\npytest\n EOF\n1 passed\nEOF'), false);
+  assert.equal(looksLikeTestCommand('cat <<-EOF\npytest\n1 passed\n\tEOF'), false);
+
+  // Bodies are consumed in the order the redirections appear, which one pattern cannot do.
+  assert.equal(looksLikeTestCommand('cat <<A <<B\npytest\nA\npytest\n1 passed\nB'), false);
+
+  // A here-string is one line of data with no terminator, so it hides nothing after it.
+  assert.equal(looksLikeTestCommand('echo hi <<< pytest'), false);
+
+  // And a command genuinely after the terminator still runs, which is why the body is skipped
+  // rather than everything from the first << onwards.
+  assert.equal(looksLikeTestCommand('cat <<EOF\ndata\nEOF\npytest -q'), true);
+});
+
+test('a wrapped script name must be the whole word, not a substring of one', () => {
+  // latest, contest and attest all contain "test".
+  for (const name of ['latest', 'contest', 'attest', 'testify']) {
+    assert.equal(looksLikeTestCommand(`poetry run ${name}`), false, name);
+  }
+  assert.equal(looksLikeTestCommand('hatch run test'), true);
+  assert.equal(looksLikeTestCommand('pdm run test:unit'), true);
+});
+
+test('constructions that only look like commands are not runs', () => {
+  /**
+   * Each of these was found by review after a previous loosening. They share a shape: the command
+   * carries text that reads like an invocation and text that reads like its passing output, so one
+   * recorded execution supplies both halves of a proof with no test behind either.
+   */
+  // $((...)) is arithmetic. Bash evaluates it as a variable and runs nothing.
+  assert.equal(looksLikeTestCommand('echo $((pytest)) 1 passed'), false);
+  // Only echo runs here; the quoted text is its argument, not a second command.
+  assert.equal(looksLikeTestCommand(`echo "$(echo 'x; pytest') 1 passed"`), false);
+  // A heredoc nested inside a substitution is still a heredoc.
+  assert.equal(looksLikeTestCommand('echo "$(cat <<EOF\npytest\n1 passed\nEOF)"'), false);
+});
+
+test('nesting does not hide a genuine run either', () => {
+  // The same constructions with something real inside them. Every guard above has to be a guard
+  // against fabrication, not against depth - calling honest work a lie is the same failure.
+  assert.equal(looksLikeTestCommand(`echo "$(printf ')' && pytest -q)"`), true);
+  assert.equal(looksLikeTestCommand("cat <<$'EOF'\ndata\nEOF\npytest -q"), true);
+  assert.equal(looksLikeTestCommand('echo "$(cd project && pytest -q)"'), true);
+});
+
+test('a branch a literal guard skips is not a run', () => {
+  // pytest never executes here; a separate echo supplies output that looks like its result.
+  assert.equal(looksLikeTestCommand(`false && echo "$(echo $(pytest -q))"; echo 1 passed`), false);
+  assert.equal(looksLikeTestCommand('true || pytest -q'), false);
+
+  // A guard only reaches to the end of its and-or list.
+  assert.equal(looksLikeTestCommand('false && pytest; pytest -q'), true);
+  assert.equal(looksLikeTestCommand('false && pytest\npytest -q'), true);
+
+  // Guards that cannot be resolved are left alone rather than guessed at. Discarding these would
+  // report honest work as unsubstantiated, which is the failure on the other side.
+  assert.equal(looksLikeTestCommand('cd repo && pytest -q'), true);
+  assert.equal(looksLikeTestCommand('[ -f setup.py ] && pytest -q'), true);
+});
+
+test('a dead chain stays dead, and a live one stays live', () => {
+  /**
+   * What decides this is the status of the list so far, not the operand immediately before.
+   * Checking only each operand's predecessor kept the pytest in the first of these, where the
+   * whole chain is skipped and the echoed marker supplies the output to match it.
+   */
+  assert.equal(looksLikeTestCommand(`false && echo skipped && pytest -q; echo '1 passed'`), false);
+
+  // The other direction, where a skipped operand does not make what follows unreachable.
+  assert.equal(looksLikeTestCommand('true || echo a && pytest -q'), true);
+  assert.equal(looksLikeTestCommand('false && echo a || pytest -q'), true);
+});
+
+test('a guard is still a guard when it is grouped or negated', () => {
+  /**
+   * Comparing the operand to the bare words missed how they are ordinarily written. Each of these
+   * kept a pytest in a branch that never runs, with an echoed marker supplying the output.
+   */
+  assert.equal(looksLikeTestCommand(`(false) && pytest -q; echo '1 passed'`), false);
+  assert.equal(looksLikeTestCommand('{ false; } && pytest -q'), false);
+  assert.equal(looksLikeTestCommand('! true && pytest -q'), false);
+  assert.equal(looksLikeTestCommand('(true) || pytest -q'), false);
+
+  // A group is a list in its own right, so what is unreachable inside it is unreachable.
+  assert.equal(looksLikeTestCommand('(false && pytest -q) || echo x'), false);
+
+  // And none of that may cost an honest run: an inverted false runs, and an unreadable guard runs.
+  assert.equal(looksLikeTestCommand('! false && pytest -q'), true);
+  assert.equal(looksLikeTestCommand('(cd repo) && pytest -q'), true);
+  assert.equal(looksLikeTestCommand('(cd repo && pytest -q)'), true);
+});
+
+test('control flow inside quotes is not control flow', () => {
+  // Splitting without regard for quoting read this as a chain and discarded the substitution the
+  // shell genuinely runs, turning a truthful passing claim into an unsupported one.
+  assert.equal(looksLikeTestCommand('echo "x;false && $(pytest -q)"'), true);
+});
+
+test('escaped and nested forms resolve to what the shell would do', () => {
+  // $'...' decodes escapes, so this delimiter is EOF and the body ends at the real terminator.
+  assert.equal(looksLikeTestCommand("cat <<$'E\\x4fF'\nEx4f\npytest\n1 passed\nEOF"), false);
+  assert.equal(looksLikeTestCommand("cat <<$'EOF'\ndata\nEOF\npytest -q"), true);
+
+  // Arithmetic runs no command of its own but can contain one that does.
+  assert.equal(looksLikeTestCommand('echo $(( $(pytest -q; echo 0) + 1 ))'), true);
+  assert.equal(looksLikeTestCommand('echo $((pytest)) 1 passed'), false);
+
+  // A parenthesis inside a heredoc body is data, and closing the substitution on it lost the run.
+  assert.equal(looksLikeTestCommand('echo "$(cat <<EOF\n)\nEOF\npytest -q\n)"'), true);
+});
+
 // The pass-claim rules were written for the agent that fixes failing tests, and applied to all
 // seven. Six of them never run tests, and "resolved" and "verified" are ordinary vocabulary there.
 // ---------------------------------------------------------------------------------------------

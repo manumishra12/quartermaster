@@ -111,6 +111,34 @@ const PASSED = /(^OK$|^#\s*fail\s+0$|\b0\s+failed\b|\ball\s+tests\s+passed\b|\b\
  * The runner now has to be in command position: the first word of a shell segment, after any
  * leading environment assignments or path prefix.
  */
+/**
+ * Wrappers that run a command inside a managed environment. The runner is the word after them, so
+ * they are stripped before the segment is matched.
+ *
+ * Only valueless flags are consumed. Stripping `--?\S+` blindly ate the flag but left its value,
+ * so `npx --package vitest node -e "..."` normalised to `vitest node ...` and was read as a test
+ * run when the command executed was only `node`.
+ *
+ * Without this, `poetry run pytest` was not a test run - and Poetry manages most modern Python
+ * projects, so an agent that fixed a real bug in one was told its passing suite was unsubstantiated.
+ * A verifier that refuses honest work is the same failure as one that blesses a lie, pointed the
+ * other way.
+ */
+const WRAPPERS =
+  /^(?:(?:poetry|uv|pipenv|pdm|rye|hatch|bundle|conda|micromamba)\s+(?:run|exec)|npm\s+exec|npx|pnpm\s+(?:exec|dlx)|yarn\s+dlx|bunx)\s+(?:(?:--\s+|--yes|-y|--silent|--quiet|-q|--no-install)\s+)*/;
+
+/**
+ * A wrapper followed by a bare script name: `hatch run test`, `pdm run test:unit`.
+ *
+ * Only accepted when a wrapper was actually stripped. On its own, a segment called `test` says
+ * nothing - it could be a directory, a binary, or a typo.
+ *
+ * Anchored to the whole word. A substring match treated `latest`, `contest` and `attest` as test
+ * scripts, and a wrapped command by any of those names exiting 0 with test-shaped output would
+ * have substantiated a passing claim.
+ */
+const WRAPPED_SCRIPT = /^tests?(?::[\w-]+)?(?:\s|$)/i;
+
 const RUNNERS = [
   /^(?:[\w./-]*\/)?pytest\b/,
   /^(?:[\w./-]*\/)?(?:jest|vitest|mocha|ava|rspec|phpunit|tox|ctest|nose2)\b/,
@@ -125,7 +153,17 @@ const RUNNERS = [
   /^dotnet\s+test\b/,
   /^mvn\s+(?:test|verify)\b/,
   /^gradle\s+\w*test/,
-  /^make\s+\w*test/,
+  /^make\s+(?:\w*test|check)\b/,
+  /^bazel\s+test\b/,
+  /^swift\s+test\b/,
+  /^sbt\s+.*\btest\b/,
+  /^mix\s+test\b/,
+  /^rake\s+.*\btest\b/,
+  /^composer\s+(?:run-script\s+)?test\b/,
+  /^(?:[\w./-]*\/)?mvnw\s+(?:test|verify)\b/,
+  /^(?:[\w./-]*\/)?(?:jest|vitest|mocha|ava|playwright)\b/,
+  /^(?:[\w./-]*\/)?tox\b/,
+  /^ctest\b/,
 ];
 
 /** Commands that only ever read or print. A runner named inside one of these is a filename. */
@@ -134,21 +172,479 @@ const READERS = /^(?:cat|echo|printf|grep|egrep|rg|ag|head|tail|less|more|awk|se
 /** Flags that make a runner list or describe tests without running them. */
 const NOT_A_RUN = /(?:^|\s)--(?:collect-only|version|help|list-tests?|dry-run|co)\b|(?:^|\s)-(?:h|V)(?:\s|$)/;
 
+/**
+ * Heredoc redirections on one line, in the order the shell will consume their bodies.
+ *
+ * The delimiter is a word, not an identifier, and quoting it is what turns expansion off: `<<EOF`,
+ * `<<-'EOF-1'` and `<<E"OF"` are all valid and only the first expands. A pattern that insisted on
+ * a bare or fully quoted identifier missed the other two entirely, leaving their bodies to be read
+ * as commands.
+ */
+/** The ANSI-C escapes bash decodes inside `$'...'`. Returns the character and the index consumed to. */
+function decodeAnsiEscape(line, at) {
+  const c = line[at];
+  const simple = { n: '\n', t: '\t', r: '\r', e: '\u001b', a: '\u0007', b: '\b', f: '\f', v: '\v', '0': '\0' };
+  if (c === 'x') {
+    const hex = line.slice(at + 1).match(/^[0-9a-fA-F]{1,2}/);
+    if (hex) return [String.fromCharCode(parseInt(hex[0], 16)), at + hex[0].length];
+  }
+  const octal = line.slice(at).match(/^[0-7]{1,3}/);
+  if (octal && c !== '0') return [String.fromCharCode(parseInt(octal[0], 8)), at + octal[0].length - 1];
+  return [simple[c] ?? c, at];
+}
+
+/**
+ * Quoted characters, blanked but not removed.
+ *
+ * Splitting on separators without regard for quoting read `echo "x;false && $(pytest -q)"` as
+ * control flow and discarded a substitution the shell really runs. Each quoted character becomes a
+ * placeholder of the same width, so positions still line up with the original and the text can be
+ * sliced back out of it intact.
+ */
+function maskQuoted(text) {
+  const out = [...text];
+  let quote = null;
+  for (let i = 0; i < out.length; i += 1) {
+    const c = out[i];
+    if (quote === "'") {
+      if (c === "'") quote = null;
+      else out[i] = 'Q';
+      continue;
+    }
+    if (c === '\\') {
+      if (i + 1 < out.length) out[i + 1] = 'Q';
+      i += 1;
+      continue;
+    }
+    if (c === '"') {
+      quote = quote === '"' ? null : '"';
+      continue;
+    }
+    if (c === "'") {
+      quote = "'";
+      continue;
+    }
+    if (quote === '"') out[i] = 'Q';
+  }
+  return out.join('');
+}
+
+/**
+ * The status of an operand, when the shell would know it without running anything.
+ *
+ * Comparing the operand to the bare words missed the ways they are ordinarily written: `(false)`
+ * groups it, `{ false; }` groups it differently, and `! true` inverts it. Each of those kept a
+ * pytest in a branch that never runs, where an echoed marker supplied the passing output. Anything
+ * that is not one of the two words after unwrapping is unknown, which runs.
+ */
+function literalStatus(operand) {
+  let text = operand.trim();
+  let negations = 0;
+
+  for (let guard = 0; guard < 8; guard += 1) {
+    if (text.startsWith('!')) {
+      negations += 1;
+      text = text.slice(1).trim();
+      continue;
+    }
+    const grouped = /^\((.*)\)$/s.exec(text) ?? /^\{(.*)\}$/s.exec(text);
+    // Only unwrap a group that closes at the end: `(a) && (b)` is not one group.
+    if (grouped && isBalanced(grouped[1])) {
+      text = grouped[1].replace(/;\s*$/, '').trim();
+      continue;
+    }
+    break;
+  }
+
+  if (text !== 'true' && text !== 'false') return 'unknown';
+  const value = negations % 2 === 0 ? text === 'true' : text !== 'true';
+  return value ? 'success' : 'failure';
+}
+
+function isBalanced(text) {
+  let depth = 0;
+  for (const c of text) {
+    if (c === '(' || c === '{') depth += 1;
+    else if (c === ')' || c === '}') depth -= 1;
+    if (depth < 0) return false;
+  }
+  return depth === 0;
+}
+
+/**
+ * The operands of one and-or list that the shell would actually reach.
+ *
+ * What decides this is the status of the list so far, not the operand immediately before: in
+ * `false && echo skipped && pytest -q` the whole chain is dead, and checking only each operand's
+ * predecessor kept the pytest. Statuses that cannot be read are left unknown, which runs
+ * everything - guessing at `$GUARD && pytest` would discard real work.
+ */
+function liveOperands(code, masked, from, to) {
+  const breaks = [];
+  let depth = 0;
+  for (let i = from; i < to - 1; i += 1) {
+    const c = masked[i];
+    if (c === '(' || c === '{') depth += 1;
+    else if (c === ')' || c === '}') depth -= 1;
+    if (depth > 0) continue;
+    const pair = masked.slice(i, i + 2);
+    if (pair === '&&' || pair === '||') {
+      breaks.push({ at: i, operator: pair });
+      i += 1;
+    }
+  }
+
+  const operands = [];
+  let start = from;
+  for (const brk of breaks) {
+    operands.push({ start, end: brk.at, operator: brk.operator });
+    start = brk.at + 2;
+  }
+  operands.push({ start, end: to, operator: null });
+
+  const kept = [];
+  let status = 'unknown';
+  let skipping = false;
+
+  for (const operand of operands) {
+    const text = code.slice(operand.start, operand.end);
+    if (!skipping) {
+      kept.push(text);
+      status = literalStatus(masked.slice(operand.start, operand.end));
+    }
+    // A skipped operand runs nothing, so it cannot change the status the next operator reads.
+    if (operand.operator === '&&') skipping = status === 'failure';
+    else if (operand.operator === '||') skipping = status === 'success';
+  }
+
+  return kept;
+}
+
+/** Drop the branches a literal guard makes unreachable. `;` and a newline start a new list. */
+function reachableBranches(code, depthLimit = 4) {
+  const masked = maskQuoted(code);
+  const kept = [];
+  let from = 0;
+  let depth = 0;
+
+  for (let i = 0; i <= masked.length; i += 1) {
+    const c = masked[i];
+    if (c === '(' || c === '{') depth += 1;
+    else if (c === ')' || c === '}') depth -= 1;
+    // A separator inside a group belongs to the group: `{ false; }` is one operand, not two.
+    if (depth > 0) continue;
+    if (i === masked.length || c === ';' || c === '\n') {
+      kept.push(...liveOperands(code, masked, from, i));
+      from = i + 1;
+    }
+  }
+
+  return kept
+    .map((operand) => {
+      // A group is a list in its own right, so what is unreachable inside it is unreachable.
+      const inner = /^\s*[({](.*)[)}]\s*$/s.exec(operand);
+      if (!inner || depthLimit <= 0 || !isBalanced(inner[1])) return operand;
+      return reachableBranches(inner[1], depthLimit - 1);
+    })
+    .join('\n');
+}
+
+function heredocsOn(line) {
+  const docs = [];
+  let quote = null;
+  for (let i = 0; i < line.length; i += 1) {
+    const c = line[i];
+    if (quote === "'") {
+      if (c === "'") quote = null;
+      continue;
+    }
+    if (c === '\\') {
+      i += 1;
+      continue;
+    }
+    if (c === '"') {
+      quote = quote === '"' ? null : '"';
+      continue;
+    }
+    if (c === "'" && quote === null) {
+      quote = "'";
+      continue;
+    }
+    if (quote !== null) continue;
+
+    // `<<<` is a here-string: one line of data, no terminator, so nothing to skip.
+    if (c === '<' && line[i + 1] === '<' && line[i + 2] !== '<') {
+      let j = i + 2;
+      const stripTabs = line[j] === '-';
+      if (stripTabs) j += 1;
+      while (line[j] === ' ' || line[j] === '\t') j += 1;
+
+      let delim = '';
+      let quoted = false;
+      let inner = null;
+      // `$'...'` also decodes escapes, so `<<$'E\\x4fF'` is the delimiter EOF. Carrying the
+      // characters through undecoded produced Ex4fF, which the real terminator never matched -
+      // and everything after it, including genuine commands, was eaten as heredoc data.
+      let ansi = false;
+      for (; j < line.length; j += 1) {
+        const d = line[j];
+        if (inner) {
+          if (d === inner) inner = null;
+          else delim += d;
+          continue;
+        }
+        // `<<$'EOF'` is ANSI-C quoting: the delimiter is EOF, not $EOF. Keeping the dollar meant
+        // the real terminator never matched and the commands after it were eaten as data.
+        if (d === '$' && (line[j + 1] === "'" || line[j + 1] === '"')) {
+          ansi = line[j + 1] === "'";
+          continue;
+        }
+        if (d === "'" || d === '"') {
+          inner = d;
+          quoted = true;
+          continue;
+        }
+        if (d === '\\') {
+          quoted = true;
+          j += 1;
+          if (j >= line.length) continue;
+          if (!ansi) {
+            delim += line[j];
+            continue;
+          }
+          const [decoded, next] = decodeAnsiEscape(line, j);
+          delim += decoded;
+          j = next;
+          continue;
+        }
+        if (/[\s;|&<>()]/.test(d)) break;
+        delim += d;
+      }
+      if (delim) docs.push({ delim, stripTabs, expands: !quoted });
+      i = j - 1;
+    }
+  }
+  return docs;
+}
+
+/**
+ * A terminator is the delimiter alone on its line. Leading tabs are stripped only for `<<-`, and
+ * leading spaces never are - accepting them let a space-indented word end the body early and
+ * expose the rest of the data as commands.
+ */
+function isTerminator(line, doc) {
+  return (doc.stripTabs ? line.replace(/^\t+/, '') : line) === doc.delim;
+}
+
+/**
+ * Split a command into the lines the shell executes and the heredoc bodies it only reads.
+ *
+ * A heredoc body is data being written, not commands being run. `cat <<EOF ... pytest ... EOF`
+ * writes a file mentioning pytest and executes nothing, but read as code the body supplies both
+ * halves of a fabricated proof: a line that looks like an invocation and a line that looks like
+ * its passing output. Bodies are consumed in the order their redirections appear, which a single
+ * pattern cannot do - `cat <<A <<B` has two of them, and matching the first swallowed only as far
+ * as A and handed B's body back as code.
+ */
+function splitHeredocs(text) {
+  const lines = String(text).split('\n');
+  const code = [];
+  const expandingBodies = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    code.push(line);
+    i += 1;
+    for (const doc of heredocsOn(line)) {
+      const body = [];
+      while (i < lines.length && !isTerminator(lines[i], doc)) {
+        body.push(lines[i]);
+        i += 1;
+      }
+      // Past the terminator, or past the end when the body is never closed.
+      i += 1;
+      // An unquoted delimiter still expands `$(...)` inside the body; a quoted one expands nothing.
+      if (doc.expands) expandingBodies.push(body.join('\n'));
+    }
+  }
+
+  return { code: code.join('\n'), expandingBodies };
+}
+
+/**
+ * The command substitutions the shell would actually run.
+ *
+ * Matching `$(...)` with a regex found the ones that never execute. Single quotes suppress
+ * expansion entirely and a backslash suppresses the next character, so `echo '$(pytest -q) 1
+ * passed'` and `echo "\\$(pytest -q) 1 passed"` print that text and run nothing - yet both were
+ * read as pytest invocations, and their echoed "1 passed" then supplied the passing output to
+ * match. Quoting is state, not a pattern, so this walks the string and tracks it.
+ */
+function expandedSubstitutions(text) {
+  const found = [];
+  let quote = null;
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i];
+
+    // Inside single quotes nothing expands and a backslash is an ordinary character.
+    if (quote === "'") {
+      if (c === "'") quote = null;
+      continue;
+    }
+    if (c === '\\') {
+      i += 1;
+      continue;
+    }
+    if (c === '"') {
+      quote = quote === '"' ? null : '"';
+      continue;
+    }
+    if (c === "'" && quote === null) {
+      quote = "'";
+      continue;
+    }
+
+    // Double quotes still expand, so this runs whether or not we are inside them.
+    if (c === '$' && text[i + 1] === '(') {
+      // `$((...))` is arithmetic, not a command: bash evaluates `$((pytest))` as a variable and
+      // runs nothing. Counted as a substitution it produced the segment `pytest)`, which reads as
+      // an invocation, and an echoed "1 passed" beside it completed the forgery.
+      if (text[i + 2] === '(') {
+        // Arithmetic runs no command of its own, but it can contain one: the substitution in
+        // `echo $(( $(pytest -q; echo 0) + 1 ))` really executes. Skipping the whole region lost
+        // it, so only the arithmetic punctuation is skipped and the inside is scanned.
+        const close = text.indexOf('))', i + 3);
+        const end = close === -1 ? text.length : close;
+        found.push(...expandedSubstitutions(text.slice(i + 3, end)));
+        i = close === -1 ? text.length : close + 1;
+        continue;
+      }
+      let depth = 1;
+      let j = i + 2;
+      // Parentheses inside quotes are data. Counting them truncated the body of
+      // `$(printf ')' && pytest -q)` at the printf argument and lost a genuine run. The same is
+      // true of a parenthesis inside a heredoc body, so those are stepped over here too.
+      let inner = null;
+      let heredoc = null;
+      for (; j < text.length && depth > 0; j += 1) {
+        const d = text[j];
+        if (inner) {
+          if (d === '\\' && inner === '"') j += 1;
+          else if (d === inner) inner = null;
+          continue;
+        }
+        if (heredoc) {
+          // Inside a body nothing counts until the terminator line closes it.
+          if (d === '\n') {
+            const nl = text.indexOf('\n', j + 1);
+            const line = text.slice(j + 1, nl === -1 ? text.length : nl);
+            if (isTerminator(line, heredoc)) {
+              heredoc = null;
+              j = nl === -1 ? text.length : nl;
+            }
+          }
+          continue;
+        }
+        if (d === '<' && text[j + 1] === '<' && text[j + 2] !== '<') {
+          const rest = text.slice(j, text.indexOf('\n', j) === -1 ? text.length : text.indexOf('\n', j));
+          [heredoc = null] = heredocsOn(rest);
+          continue;
+        }
+        if (d === "'" || d === '"') inner = d;
+        else if (d === '\\') j += 1;
+        else if (d === '(') depth += 1;
+        else if (d === ')') depth -= 1;
+        if (depth === 0) break;
+      }
+      found.push(text.slice(i + 2, j));
+      i = j;
+      continue;
+    }
+    if (c === '`') {
+      const end = text.indexOf('`', i + 1);
+      if (end === -1) continue;
+      found.push(text.slice(i + 1, end));
+      i = end;
+    }
+  }
+  return found;
+}
+
+/**
+ * Whether a recorded command is a test invocation.
+ *
+ * The limit worth stating plainly: this reads a command, it does not execute one, and a shell
+ * decides at runtime what a reader cannot decide at all. `$GUARD && pytest` may or may not run
+ * pytest and nothing here can know which. Only literal guards are resolved, because guessing at
+ * the rest would start discarding honest runs - and calling honest work a lie is the same failure
+ * as blessing a lie.
+ *
+ * What makes that limit tolerable is that this is one of two signals, not the whole of the
+ * evidence: `testRuns()` requires the command to look like a test *and* the output to look like
+ * one, so neither a fabricated command nor fabricated output is sufficient alone.
+ */
 export function looksLikeTestCommand(command = '') {
   const text = String(command);
   if (!text.trim()) return false;
 
-  // Any segment of a compound command can be the real invocation: `cd repo && pytest -q`.
-  return text.split(/&&|\|\||;|\||\n/).some((raw) => {
-    const segment = raw
+  /**
+   * Everything the shell would execute, unwrapped until nothing new appears.
+   *
+   * Substitutions run, and what is inside one is a command in its own right - which can be another
+   * substitution, or a heredoc, or both. Handling one level meant a construction nested one deeper
+   * slipped past: `echo "$(cat <<EOF ... pytest ... 1 passed ... EOF)"` hid a body from the
+   * outer pass and offered it back as commands. So each part is put through the same treatment
+   * until the worklist runs dry.
+   */
+  const segments = [];
+  const seen = new Set();
+  const queue = [text];
+
+  while (queue.length > 0 && seen.size < 64) {
+    const part = queue.shift();
+    if (part == null || seen.has(part)) continue;
+    seen.add(part);
+
+    // A heredoc body is data being written, not commands being run.
+    const { code: written, expandingBodies } = splitHeredocs(part);
+    const code = reachableBranches(written);
+
+    // An unquoted delimiter still expands `$(...)` inside the body; a quoted one expands nothing.
+    for (const body of expandingBodies) queue.push(...expandedSubstitutions(body));
+    queue.push(...expandedSubstitutions(code));
+
+    /**
+     * What remains of a quoted span is a placeholder, not a space.
+     *
+     * A space creates a word boundary the shell does not: `'./fake'pytest` executes
+     * `./fakepytest`, and replacing the quoted part with a space left the word `pytest` standing
+     * alone as the leader of its segment. The placeholder keeps the word joined, so a fabricated
+     * name stays fabricated. Substitution bodies go through this too - they used to be split raw,
+     * so `echo "$(echo 'x; pytest') 1 passed"` offered up the quoted text as a second command.
+     */
+    const collapsed = code
+      .replace(/\$\([^()]*\)|`[^`]*`/g, 'Q')
+      .replace(/'[^']*'|"[^"]*"/g, 'Q');
+
+    // Any segment of a compound command can be the real invocation: `cd repo && pytest -q`.
+    segments.push(...collapsed.split(/&&|\|\||;|\||\n/));
+  }
+
+  return segments.some((raw) => {
+    const bare = raw
       .trim()
       .replace(/^[({\s]+/, '')
       .replace(/^(?:\w+=\S*\s+)+/, '') // leading FOO=bar assignments
       .replace(/^(?:sudo|time|env|nice|xargs)\s+/, '');
 
+    const segment = bare.replace(WRAPPERS, '');
+    const wrapped = segment !== bare;
+
     if (!segment || READERS.test(segment)) return false;
     if (NOT_A_RUN.test(segment)) return false;
-    return RUNNERS.some((r) => r.test(segment));
+    if (RUNNERS.some((r) => r.test(segment))) return true;
+    return wrapped && WRAPPED_SCRIPT.test(segment);
   });
 }
 
