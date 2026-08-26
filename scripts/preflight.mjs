@@ -160,7 +160,7 @@ try {
          * credentials for a process they only needed to start. Being confidently unhelpful is the
          * failure this project is about; it does not get a pass in the tool that checks for it.
          */
-        const failure = describeConnectorFailure(name, err.message);
+        const failure = describeConnectorFailure(name, err.message, server.manifest?.url);
         record(false, `Connector: ${name}`, `cannot list tools - ${failure.reason}`, failure.advice);
       }
     }

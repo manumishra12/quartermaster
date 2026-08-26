@@ -18,9 +18,39 @@
 
 /** The servers this repo ships, so a connection failure can name the command that fixes it. */
 export const LOCAL_SERVERS = {
-  'ops-desk': 'npm run ops-desk',
-  'front-desk': 'npm run front-desk',
+  'ops-desk': { command: 'npm run ops-desk', port: 8795, portEnv: 'OPS_DESK_PORT' },
+  'front-desk': { command: 'npm run front-desk', port: 8796, portEnv: 'FRONT_DESK_PORT' },
 };
+
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+
+/**
+ * The command that would start *this* connector, or nothing.
+ *
+ * A name is not enough. A connector called ops-desk could be a deployment of this server on
+ * somebody else's host, or the same server on a different port - and in both cases `npm run
+ * ops-desk` starts an unrelated process on the default port while the configured one stays exactly
+ * as unreachable as it was. The URL has to agree before the command is offered, and when the port
+ * differs the command carries that port rather than quietly using another.
+ */
+function startCommand(name, url) {
+  const server = LOCAL_SERVERS[name];
+  if (!server || !url) return null;
+
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    // An address this cannot read is not one it may claim to know how to start.
+    return null;
+  }
+
+  if (!LOOPBACK.has(parsed.hostname)) return null;
+
+  const port = Number(parsed.port);
+  if (!port || port === server.port) return server.command;
+  return `${server.portEnv}=${port} ${server.command}`;
+}
 
 /**
  * Ordered, because several of these appear together in one nested transport error. A refused
@@ -73,9 +103,9 @@ const CAUSES = [
  * Classify a connector failure into something a person can act on.
  * Returns the reason to print and the advice to give, which are not the same thing.
  */
-export function describeConnectorFailure(name, message) {
+export function describeConnectorFailure(name, message, url) {
   const text = String(message ?? '').trim();
-  const local = LOCAL_SERVERS[name];
+  const local = startCommand(name, url);
 
   for (const cause of CAUSES) {
     if (cause.match.test(text)) {
