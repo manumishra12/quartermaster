@@ -15,7 +15,7 @@ const VERDICT_TEXT = {
   'no-claim': 'NO CLAIM',
 };
 
-export function buildReport({ agent, prompt, sessionId, finalText = '', toolResponses = [], at }) {
+export function buildReport({ agent, prompt, sessionId, finalText = '', toolResponses = [], failure = null, at }) {
   const { verdict, reason, runs } = judge({ finalText, toolResponses });
   // The runner hands us executions it has already derived and enriched with the command; older
   // callers pass raw events. Accept both rather than parsing an already-parsed thing.
@@ -34,6 +34,15 @@ export function buildReport({ agent, prompt, sessionId, finalText = '', toolResp
     counts: { executions: executions.length, testRuns: runs.length, refused: refusals.length },
     executions: executions.map((e, i) => ({ index: i, command: e.command ?? null, exitCode: e.exitCode, output: e.output })),
     refused: refusals.map((e, i) => ({ index: i, command: e.command ?? null })),
+    /**
+     * Why the turn ended badly, when it did.
+     *
+     * A run that dies on a provider quota produces no answer and no executions, which reads
+     * exactly like an agent that sat there doing nothing. The harness knew the difference the
+     * whole time and said so; the report has to keep the reason rather than leaving a reader to
+     * guess at whether the agent failed or the plumbing did.
+     */
+    failure: failure ?? null,
     answer: finalText.trim(),
   };
 
@@ -79,6 +88,7 @@ function render(r, runs) {
     ...(r.counts.refused
       ? [`- **Refused** — ${r.counts.refused} call(s) stopped at the approval gate and never ran`]
       : []),
+    ...(r.failure ? ['- **Ended** — the turn failed; the reason is below'] : []),
     '',
     `## Asked`,
     '',
@@ -124,6 +134,10 @@ function render(r, runs) {
     // what happened - a call the gate stopped, editing the record of having been stopped.
     for (const e of r.refused) lines.push(`- ${inlineCode(e.command ?? 'unnamed call')} - denied, did not run`);
     lines.push('');
+  }
+
+  if (r.failure) {
+    lines.push('## The turn did not finish', '', openFence(r.failure), r.failure.trimEnd(), fenceFor(r.failure), '');
   }
 
   lines.push('## Answer', '', r.answer || '(none)', '');

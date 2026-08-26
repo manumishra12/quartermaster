@@ -21,6 +21,7 @@ loadEnv();
 import { judge, performed, refused, resultOf, SUBSTANTIATED, NO_CLAIM } from './lib/evidence.mjs';
 import { buildReport } from './lib/report.mjs';
 import { describeCall } from './lib/describe-call.mjs';
+import { endedBecause } from './lib/turn-state.mjs';
 
 const argv = process.argv.slice(2);
 const flag = (name, fallback) => {
@@ -56,6 +57,14 @@ const save = () => {
 
 const events = new Map();
 const toolResponses = [];
+/**
+ * Why the last turn ended badly, if it did.
+ *
+ * A run that dies on a provider quota produces no answer and no executions, which reads exactly
+ * like an agent that sat there doing nothing. The harness knew the difference and said so; keeping
+ * only the status threw it away, and the report then blamed the agent for the plumbing.
+ */
+let turnFailure = null;
 /**
  * Tool call ids the operator refused, so the record can tell a refusal from a silent success.
  *
@@ -173,6 +182,7 @@ function absorb(event, sequenceId) {
 async function consume(stream) {
   const pending = { approvals: [], questions: [], auth: [] };
   let status;
+  let failure = null;
   let sinceSave = 0;
 
   for await (const { data: event, id } of stream.withMetadata()) {
@@ -185,10 +195,17 @@ async function consume(stream) {
     if (settled.type === 'tool.approval_required') pending.approvals.push(settled);
     else if (settled.type === 'tool.response_required') pending.questions.push(settled);
     else if (settled.type === 'mcp.auth_required') pending.auth.push(settled);
-    else if (settled.type === 'turn.done') status = settled.state?.status;
+    else if (settled.type === 'turn.done') {
+      status = settled.state?.status;
+      // The harness says why a turn ended badly. Keeping only the status threw that away, so a
+      // run that died on a provider quota printed "[error]" and nothing else - which is the exact
+      // kind of silent, unhelpful tooling this project exists to argue against. It cost me an
+      // afternoon of guessing at a message the server had been sending all along.
+      failure = endedBecause(settled.state);
+    }
   }
   save();
-  return { pending, status };
+  return { pending, status, failure };
 }
 
 /** Reattach to whatever this machine was last doing, without replaying what we already saw. */
@@ -220,7 +237,9 @@ async function reattach() {
     if (settled?.type === 'tool.approval_required') pending.approvals.push(settled);
     else if (settled?.type === 'tool.response_required') pending.questions.push(settled);
   }
-  return { pending, status: turn.state?.status };
+  // Resuming into a turn that already failed has to carry its reason too, or the reattach path
+  // prints the same bare status the live path used to.
+  return { pending, status: turn.state?.status, failure: endedBecause(turn.state) };
 }
 
 /**
@@ -268,7 +287,8 @@ if (resuming) {
 let carry = first;
 
 for (let hop = 0; hop < 24; hop++) {
-  const { pending, status } = carry;
+  const { pending, status, failure } = carry;
+  if (failure) turnFailure = failure;
   const resume = [];
 
   for (const event of pending.approvals) {
@@ -375,6 +395,7 @@ for (let hop = 0; hop < 24; hop++) {
 
   if (!resume.length) {
     console.log(`\n\n[${status ?? 'ended'}]`);
+    if (failure) console.log(`  ${failure}`);
     break;
   }
   finalText = ''; // only the answer that ends the run is judged
@@ -415,6 +436,7 @@ const report = buildReport({
   sessionId: checkpoint.sessionId,
   finalText,
   toolResponses,
+  failure: turnFailure,
   at: new Date().toISOString(),
 });
 const dir = `evidence/${checkpoint.sessionId}`;

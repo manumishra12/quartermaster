@@ -76,3 +76,25 @@ test('the answer is not swallowed by the last code block', () => {
   const afterLastFence = markdown.slice(markdown.lastIndexOf(fences[fences.length - 1]));
   assert.match(afterLastFence, /ANSWER_MARKER/);
 });
+
+test('a turn that failed says why, instead of blaming the agent for the plumbing', () => {
+  /**
+   * A run killed by a provider quota produces no answer and no executions, which is
+   * indistinguishable from an agent that sat there doing nothing. The harness reports the reason;
+   * throwing it away left a reader guessing at whether the agent failed or the plumbing did.
+   */
+  const quota = "Request failed (429): Quota exceeded for quota metric 'GenerateContent'.";
+  const { json, markdown } = buildReport({ ...base, finalText: '', toolResponses: [], failure: quota });
+  assert.equal(json.verdict, 'no-answer');
+  assert.equal(json.failure, quota);
+  assert.match(markdown, /The turn did not finish/);
+  assert.match(markdown, /429/);
+  assert.match(markdown, /the turn failed; the reason is below/);
+});
+
+test('a turn that finished carries no failure section', () => {
+  // The section must not appear for a healthy run, or every report starts looking like a problem.
+  const { json, markdown } = buildReport({ ...base, finalText: 'The tests now pass.', toolResponses: [GREEN] });
+  assert.equal(json.failure, null);
+  assert.doesNotMatch(markdown, /did not finish/);
+});
