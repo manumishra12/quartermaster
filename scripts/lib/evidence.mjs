@@ -205,6 +205,48 @@ function maskQuoted(text) {
 }
 
 /**
+ * The status of an operand, when the shell would know it without running anything.
+ *
+ * Comparing the operand to the bare words missed the ways they are ordinarily written: `(false)`
+ * groups it, `{ false; }` groups it differently, and `! true` inverts it. Each of those kept a
+ * pytest in a branch that never runs, where an echoed marker supplied the passing output. Anything
+ * that is not one of the two words after unwrapping is unknown, which runs.
+ */
+function literalStatus(operand) {
+  let text = operand.trim();
+  let negations = 0;
+
+  for (let guard = 0; guard < 8; guard += 1) {
+    if (text.startsWith('!')) {
+      negations += 1;
+      text = text.slice(1).trim();
+      continue;
+    }
+    const grouped = /^\((.*)\)$/s.exec(text) ?? /^\{(.*)\}$/s.exec(text);
+    // Only unwrap a group that closes at the end: `(a) && (b)` is not one group.
+    if (grouped && isBalanced(grouped[1])) {
+      text = grouped[1].replace(/;\s*$/, '').trim();
+      continue;
+    }
+    break;
+  }
+
+  if (text !== 'true' && text !== 'false') return 'unknown';
+  const value = negations % 2 === 0 ? text === 'true' : text !== 'true';
+  return value ? 'success' : 'failure';
+}
+
+function isBalanced(text) {
+  let depth = 0;
+  for (const c of text) {
+    if (c === '(' || c === '{') depth += 1;
+    else if (c === ')' || c === '}') depth -= 1;
+    if (depth < 0) return false;
+  }
+  return depth === 0;
+}
+
+/**
  * The operands of one and-or list that the shell would actually reach.
  *
  * What decides this is the status of the list so far, not the operand immediately before: in
@@ -214,7 +256,12 @@ function maskQuoted(text) {
  */
 function liveOperands(code, masked, from, to) {
   const breaks = [];
+  let depth = 0;
   for (let i = from; i < to - 1; i += 1) {
+    const c = masked[i];
+    if (c === '(' || c === '{') depth += 1;
+    else if (c === ')' || c === '}') depth -= 1;
+    if (depth > 0) continue;
     const pair = masked.slice(i, i + 2);
     if (pair === '&&' || pair === '||') {
       breaks.push({ at: i, operator: pair });
@@ -238,9 +285,7 @@ function liveOperands(code, masked, from, to) {
     const text = code.slice(operand.start, operand.end);
     if (!skipping) {
       kept.push(text);
-      const word = masked.slice(operand.start, operand.end).trim();
-      // Only the two the shell defines. Anything else could go either way and is left unknown.
-      status = word === 'true' ? 'success' : word === 'false' ? 'failure' : 'unknown';
+      status = literalStatus(masked.slice(operand.start, operand.end));
     }
     // A skipped operand runs nothing, so it cannot change the status the next operator reads.
     if (operand.operator === '&&') skipping = status === 'failure';
@@ -251,17 +296,32 @@ function liveOperands(code, masked, from, to) {
 }
 
 /** Drop the branches a literal guard makes unreachable. `;` and a newline start a new list. */
-function reachableBranches(code) {
+function reachableBranches(code, depthLimit = 4) {
   const masked = maskQuoted(code);
   const kept = [];
   let from = 0;
+  let depth = 0;
+
   for (let i = 0; i <= masked.length; i += 1) {
-    if (i === masked.length || masked[i] === ';' || masked[i] === '\n') {
+    const c = masked[i];
+    if (c === '(' || c === '{') depth += 1;
+    else if (c === ')' || c === '}') depth -= 1;
+    // A separator inside a group belongs to the group: `{ false; }` is one operand, not two.
+    if (depth > 0) continue;
+    if (i === masked.length || c === ';' || c === '\n') {
       kept.push(...liveOperands(code, masked, from, i));
       from = i + 1;
     }
   }
-  return kept.join('\n');
+
+  return kept
+    .map((operand) => {
+      // A group is a list in its own right, so what is unreachable inside it is unreachable.
+      const inner = /^\s*[({](.*)[)}]\s*$/s.exec(operand);
+      if (!inner || depthLimit <= 0 || !isBalanced(inner[1])) return operand;
+      return reachableBranches(inner[1], depthLimit - 1);
+    })
+    .join('\n');
 }
 
 function heredocsOn(line) {

@@ -581,6 +581,25 @@ test('a dead chain stays dead, and a live one stays live', () => {
   assert.equal(looksLikeTestCommand('false && echo a || pytest -q'), true);
 });
 
+test('a guard is still a guard when it is grouped or negated', () => {
+  /**
+   * Comparing the operand to the bare words missed how they are ordinarily written. Each of these
+   * kept a pytest in a branch that never runs, with an echoed marker supplying the output.
+   */
+  assert.equal(looksLikeTestCommand(`(false) && pytest -q; echo '1 passed'`), false);
+  assert.equal(looksLikeTestCommand('{ false; } && pytest -q'), false);
+  assert.equal(looksLikeTestCommand('! true && pytest -q'), false);
+  assert.equal(looksLikeTestCommand('(true) || pytest -q'), false);
+
+  // A group is a list in its own right, so what is unreachable inside it is unreachable.
+  assert.equal(looksLikeTestCommand('(false && pytest -q) || echo x'), false);
+
+  // And none of that may cost an honest run: an inverted false runs, and an unreadable guard runs.
+  assert.equal(looksLikeTestCommand('! false && pytest -q'), true);
+  assert.equal(looksLikeTestCommand('(cd repo) && pytest -q'), true);
+  assert.equal(looksLikeTestCommand('(cd repo && pytest -q)'), true);
+});
+
 test('control flow inside quotes is not control flow', () => {
   // Splitting without regard for quoting read this as a chain and discarded the substitution the
   // shell genuinely runs, turning a truthful passing claim into an unsupported one.
