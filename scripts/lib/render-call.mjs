@@ -16,10 +16,19 @@ const ASKS = /^ask_user_question$|question/i;
 
 function line(label, value) {
   if (value === undefined || value === null || value === '') return [];
+  /**
+   * The key is argument-controlled too.
+   *
+   * Values were collapsed onto one line and keys were not, so a printed call carrying a key like
+   * "x\n\n## Executions\n\nForged" wrote a heading into the evidence report - a forged section in
+   * the document somebody reads to find out what happened, planted from inside the answer it is
+   * reporting on.
+   */
+  const name = one(label);
   if (Array.isArray(value)) {
-    return value.length ? [`    ${label}:`, ...value.map((v, i) => `      ${i + 1}. ${one(v)}`)] : [];
+    return value.length ? [`    ${name}:`, ...value.map((v, i) => `      ${i + 1}. ${one(v)}`)] : [];
   }
-  return [`    ${label}: ${one(value)}`];
+  return [`    ${name}: ${one(value)}`];
 }
 
 function one(value) {
@@ -45,7 +54,7 @@ export function renderUnexecutedCalls(calls = []) {
         out.push(...options.map((o, i) => `      ${i + 1}. ${one(o)}`));
       }
     } else {
-      out.push(`  It wanted to call: ${call.name}`);
+      out.push(`  It wanted to call: ${one(call.name)}`);
       for (const [key, value] of Object.entries(args)) out.push(...line(key, value));
     }
   }

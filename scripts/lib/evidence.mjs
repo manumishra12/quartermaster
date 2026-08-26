@@ -897,7 +897,7 @@ const QUOTATION = /["“‘][^"”’]{25,}["”’]/g;
  * link may be sitting beside it for an unrelated reason. "with the URL", "source:", "from", "see"
  * are what make the two one claim.
  */
-const INTRODUCES_A_URL = /\b(with the (url|link|address)|source|from|at|see|available at|found at)\b\W{0,12}$/i;
+const INTRODUCES_A_URL = /(\b(with the (url|link|address)|source|from|at|see|available at|found at)\b\W{0,12}|[([]\s*)$/i;
 
 /** How close two spans have to be before they are talking about the same thing. */
 const SAME_CLAIM = 240;

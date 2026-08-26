@@ -841,6 +841,13 @@ test('quoting the person who asked is not citing a web page', () => {
   assert.equal(judge({ finalText: quotingTheUser, toolResponses: [] }).verdict, NO_CLAIM);
 });
 
+test('the conventional parenthetical citation is recognised', () => {
+  // "the sentence" (https://...) is how this is most often written, and requiring an introductory
+  // word before the address missed it entirely.
+  const parenthetical = '"The harness stops the turn server-side." (https://trueforge.dev/gate)';
+  assert.equal(judge({ finalText: parenthetical, toolResponses: [] }).verdict, UNSUBSTANTIATED);
+});
+
 test('a citation stops being unsupported as soon as anything actually ran', () => {
   /**
    * Deliberately weak: the guard only fires when literally nothing was executed. Checking whether

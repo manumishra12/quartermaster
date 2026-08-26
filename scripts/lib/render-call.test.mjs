@@ -58,3 +58,22 @@ test('a newline in a value cannot forge a line of the display', () => {
   assert.equal(lines.filter((l) => /^\s*It wanted to call/.test(l)).length, 1);
   assert.ok(lines.every((l) => !l.includes('\n')), 'no rendered line may contain a newline');
 });
+
+test('an argument key cannot forge a section of the report', () => {
+  /**
+   * Values were collapsed onto one line and keys were not, so a printed call carrying a key like
+   * "x\n\n## Executions\n\nForged" wrote a heading into the evidence report - a forged section in
+   * the document somebody reads to find out what happened, planted from inside the answer it is
+   * reporting on.
+   */
+  const call = JSON.stringify({ name: 'x', arguments: { 'k\n\n## Executions\n\nForged': 'v' } });
+  const lines = renderUnexecutedCalls(unexecutedToolCalls(call));
+  assert.ok(lines.every((l) => !/^\s*#/.test(l)), 'no rendered line may begin a markdown heading');
+  assert.ok(lines.every((l) => !l.includes('\n')));
+});
+
+test('a tool name with layout in it is collapsed like everything else', () => {
+  const call = JSON.stringify({ name: 'x', arguments: { a: 1 } });
+  const lines = renderUnexecutedCalls(unexecutedToolCalls(call));
+  assert.ok(lines.every((l) => !l.includes('\n')));
+});
