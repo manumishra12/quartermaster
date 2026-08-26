@@ -6,7 +6,7 @@
  * codes, the captured output - not a summary of them. So every run writes both a machine-readable
  * record and something a person can read.
  */
-import { PHASES, judge, progress, resultOf } from './evidence.mjs';
+import { PHASES, judge, performed, progress, refused } from './evidence.mjs';
 
 const VERDICT_TEXT = {
   substantiated: 'SUBSTANTIATED',
@@ -19,7 +19,8 @@ export function buildReport({ agent, prompt, sessionId, finalText = '', toolResp
   const { verdict, reason, runs } = judge({ finalText, toolResponses });
   // The runner hands us executions it has already derived and enriched with the command; older
   // callers pass raw events. Accept both rather than parsing an already-parsed thing.
-  const executions = toolResponses.map((r) => (r?.output !== undefined ? r : resultOf(r)));
+  const executions = performed(toolResponses);
+  const refusals = refused(toolResponses);
   const phase = progress(toolResponses);
 
   const json = {
@@ -30,8 +31,9 @@ export function buildReport({ agent, prompt, sessionId, finalText = '', toolResp
     verdict,
     reason,
     phase: { index: phase.index, label: phase.label, of: PHASES },
-    counts: { executions: executions.length, testRuns: runs.length },
+    counts: { executions: executions.length, testRuns: runs.length, refused: refusals.length },
     executions: executions.map((e, i) => ({ index: i, command: e.command ?? null, exitCode: e.exitCode, output: e.output })),
+    refused: refusals.map((e, i) => ({ index: i, command: e.command ?? null })),
     answer: finalText.trim(),
   };
 
@@ -41,7 +43,26 @@ export function buildReport({ agent, prompt, sessionId, finalText = '', toolResp
 /** A fence at least one backtick longer than the longest run inside the content. */
 function fenceFor(content = '') {
   const longest = Math.max(0, ...[...String(content).matchAll(/`+/g)].map((m) => m[0].length));
-  return '`'.repeat(Math.max(3, longest + 1)) + 'text';
+  return '`'.repeat(Math.max(3, longest + 1));
+}
+
+/**
+ * The closing fence is backticks only. It used to carry the `text` info string as well, which is
+ * not a close at all - so every report left its last code block open and swallowed the answer
+ * underneath it. The one section a reader goes to the report for was inside a code block.
+ */
+const openFence = (content) => `${fenceFor(content)}text`;
+
+/**
+ * Inline code that cannot be closed from inside. The delimiter is longer than any run of backticks
+ * in the content, and newlines become spaces because inline code is one line by definition.
+ */
+function inlineCode(value) {
+  const text = String(value).replace(/\r?\n/g, ' ');
+  const longest = Math.max(0, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
+  const ticks = '`'.repeat(longest + 1);
+  // A space keeps a leading or trailing backtick in the content from merging with the delimiter.
+  return `${ticks} ${text} ${ticks}`;
 }
 
 function render(r, runs) {
@@ -55,6 +76,9 @@ function render(r, runs) {
     r.recordedAt ? `- **Recorded** — ${r.recordedAt}` : null,
     `- **Reached** — ${r.phase.label}`,
     `- **Executions** — ${r.counts.executions} recorded, ${r.counts.testRuns} of them test runs`,
+    ...(r.counts.refused
+      ? [`- **Refused** — ${r.counts.refused} call(s) stopped at the approval gate and never ran`]
+      : []),
     '',
     `## Asked`,
     '',
@@ -83,12 +107,23 @@ function render(r, runs) {
         // Fence longer than any run of backticks in the content. Output containing ``` used to
         // close the block early, letting recorded output render as markdown and forge an entire
         // second "Executions" section in the artifact a reviewer reads.
-        fenceFor(e.output),
+        openFence(e.output),
         (e.output || '(no output)').trimEnd(),
         fenceFor(e.output),
         '',
       );
     }
+  }
+
+  if (r.refused?.length) {
+    // Named, so the report says what the agent wanted to do and was not allowed to - which is the
+    // interesting part of a gated run - without filing any of it under what happened.
+    lines.push('## Refused at the gate', '');
+    // The command is model-controlled. Interpolated raw into inline code it could close its own
+    // span and write headings or a reassuring verdict into the report a person reads to find out
+    // what happened - a call the gate stopped, editing the record of having been stopped.
+    for (const e of r.refused) lines.push(`- ${inlineCode(e.command ?? 'unnamed call')} - denied, did not run`);
+    lines.push('');
   }
 
   lines.push('## Answer', '', r.answer || '(none)', '');

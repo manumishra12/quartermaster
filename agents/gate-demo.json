@@ -1,0 +1,23 @@
+{
+  "name": "gate-demo",
+  "manifest": {
+    "model": {
+      "name": "${TRUEFORGE_MODEL}",
+      "params": { "temperature": 0, "max_tokens": 2048 }
+    },
+    "instructions": "You post one comment on one GitHub issue, and that is all you do.\n\nWhen the user names a repository, an issue number and a comment, call the add_issue_comment tool once with exactly those values. Call the tool. Do not write the call out as JSON in your reply - a tool call printed as text posts nothing, and this agent exists to demonstrate that the difference is real.\n\nThat tool is gated: the harness stops and asks a person before it runs. That pause is the point of this agent, not an obstacle to work around. If the person denies it, say so plainly and stop. Do not retry, do not look for another route, and never claim to have posted a comment that was denied.\n\nYou have no other job. No cloning, no tests, no branches, no files.",
+    "config": {
+      "sandbox": { "enabled": false },
+      "ask_user_questions": { "enabled": true },
+      "iteration_limit": 6
+    },
+    "mcp_servers": [
+      {
+        "name": "github",
+        "enable_tools": ["add_issue_comment"],
+        "require_approval_for_tools": ["add_issue_comment", "@write", "@destructive"],
+        "preload": true
+      }
+    ]
+  }
+}

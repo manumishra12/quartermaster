@@ -63,6 +63,8 @@ test('the same promise is fine when the spec says plainly that nothing enforces 
     manifest: {
       model: { name: 'p/m' },
       instructions: 'Anything that writes stops and asks first. Nothing outside you enforces this.',
+      // Stated because every spec has to state it, not because this test is about the sandbox.
+      config: { sandbox: { enabled: true } },
     },
   };
   assert.deepEqual(validateSpec(spec), []);
@@ -106,4 +108,29 @@ test('code-runner must keep subagents disabled', () => {
     manifest: { model: { name: 'p/m' }, instructions: 'run it', config: { dynamic_sub_agents: { enabled: true } } },
   };
   assert.match(validateSpec(spec).join(), /dynamic_sub_agents disabled/);
+});
+
+test('a spec cannot get its sandbox policy by omission', () => {
+  /**
+   * There is no shared safety block to derive from - specs are plain JSON with no include
+   * mechanism, and inventing one would put a build step between a reviewer and the policy they
+   * are reading. The alternative to a shared block is not silent divergence: it is that
+   * divergence fails a check.
+   */
+  const problems = validateSpec({ name: 'x', manifest: { config: {} } });
+  assert.ok(problems.some((p) => /sandbox\.enabled must be stated explicitly/.test(p.message ?? p)));
+});
+
+test('an agent with no sandbox may not carry things that need one', () => {
+  const withDownloads = validateSpec({
+    name: 'x',
+    manifest: { config: { sandbox: { enabled: false, file_downloads: true } } },
+  });
+  assert.ok(withDownloads.some((p) => /one of the two is wrong/.test(p.message ?? p)));
+
+  const withSubagents = validateSpec({
+    name: 'x',
+    manifest: { config: { sandbox: { enabled: false }, dynamic_sub_agents: { enabled: true } } },
+  });
+  assert.ok(withSubagents.some((p) => /nowhere safe to run/.test(p.message ?? p)));
 });
