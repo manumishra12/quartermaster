@@ -8,6 +8,7 @@
  *   npm run preflight
  */
 import { readdirSync, readFileSync } from 'node:fs';
+import { connectorAdvice, connectorReason } from './lib/connector-advice.mjs';
 import { join } from 'node:path';
 import { classify, ungatedRisks } from './lib/annotations.mjs';
 import { loadEnv } from './lib/env.mjs';
@@ -150,7 +151,21 @@ try {
           'make the spec fail closed: name the tools you want in enable_tools rather than reaching them with a tag',
         );
       } catch (err) {
-        record(false, `Connector: ${name}`, `cannot list tools - ${err.message}`, 'authenticate the connector, then re-run');
+        /**
+         * Say which of the two problems this is.
+         *
+         * Every failure here used to advise authenticating the connector. For a local server that
+         * simply is not running - the usual case, since two of them ship in this repo and have to
+         * be started - that is advice which cannot possibly work, sending someone to look for
+         * credentials for a process they only needed to start. Being confidently unhelpful is the
+         * failure this project is about; it does not get a pass in the tool that checks for it.
+         */
+        record(
+          false,
+          `Connector: ${name}`,
+          `cannot list tools - ${connectorReason(err.message)}`,
+          connectorAdvice(name, err.message),
+        );
       }
     }
   }
