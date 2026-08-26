@@ -1,4 +1,4 @@
-import { useCallback, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
 
 /**
  * Conversation titles you have renamed yourself.
@@ -30,11 +30,18 @@ function read(): Titles {
   }
 }
 
+/**
+ * Best effort, and only that.
+ *
+ * A write that fails must not take the rename with it. Memory is the source of truth here and
+ * storage is where it is kept for next time, so a private window that refuses to store still shows
+ * you the name you just typed - it simply will not have it tomorrow.
+ */
 function write(titles: Titles) {
   try {
     window.localStorage.setItem(KEY, JSON.stringify(titles));
   } catch {
-    // A rename that cannot be stored still applies to this render; it just will not outlive it.
+    // Nothing to do about it, and nothing that should be undone because of it.
   }
 }
 
@@ -48,8 +55,7 @@ function write(titles: Titles) {
 let snapshot: Titles = read();
 const listeners = new Set<() => void>();
 
-function emit() {
-  snapshot = read();
+function notify() {
   for (const listener of listeners) listener();
 }
 
@@ -63,7 +69,10 @@ function emit() {
  */
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event: StorageEvent) => {
-    if (event.key === null || event.key === KEY) emit();
+    if (event.key === null || event.key === KEY) {
+      snapshot = read();
+      notify();
+    }
   });
 }
 
@@ -74,23 +83,49 @@ function subscribe(listener: () => void) {
   };
 }
 
-export function useThreadTitle(id: string | null | undefined, fallback: string) {
+function set(id: string, name: string | null) {
+  const updated = { ...snapshot };
+  // An empty name is not a name: it hands the conversation back to the title TrueForge gave it.
+  if (name) updated[id] = name;
+  else delete updated[id];
+  snapshot = updated;
+  write(updated);
+  notify();
+}
+
+/**
+ * @param ids Every id this conversation is known by, most durable first.
+ *
+ * A conversation has a local id before the harness has persisted it and a remote id afterwards.
+ * Keying only on the current one lost a name given early: the row came back under a different id
+ * and the rename was still in storage, orphaned, under the old one.
+ */
+export function useThreadTitle(ids: (string | null | undefined)[], fallback: string) {
   const titles = useSyncExternalStore(subscribe, () => snapshot, () => snapshot);
+  const known = ids.filter((id): id is string => typeof id === 'string' && id.length > 0);
+  const primary = known[0];
+  const holder = known.find((id) => titles[id] != null);
+
+  // Move a name given before the session was persisted onto the id it will keep.
+  useEffect(() => {
+    if (!primary || !holder || holder === primary) return;
+    const name = snapshot[holder];
+    if (!name) return;
+    const updated = { ...snapshot, [primary]: name };
+    delete updated[holder];
+    snapshot = updated;
+    write(updated);
+    notify();
+  }, [primary, holder]);
 
   const rename = useCallback(
     (next: string) => {
-      if (!id) return;
-      const trimmed = next.trim();
-      const updated = { ...read() };
-      // An empty name is not a name: it hands the conversation back to the title TrueForge gave it.
-      if (trimmed) updated[id] = trimmed;
-      else delete updated[id];
-      write(updated);
-      emit();
+      if (!primary) return;
+      set(primary, next.trim() || null);
     },
-    [id],
+    [primary],
   );
 
-  const custom = id ? titles[id] : undefined;
-  return { title: custom ?? fallback, renamed: custom != null, rename };
+  const custom = holder ? titles[holder] : undefined;
+  return { title: custom ?? fallback, renamed: custom != null, canRename: primary != null, rename };
 }

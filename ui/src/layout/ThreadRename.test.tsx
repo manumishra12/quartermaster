@@ -10,7 +10,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
  * about what a person sees and what survives a reload.
  */
 vi.mock('@truefoundry/trueforge-ui/assistant-ui', () => ({
-  useAuiState: (selector: (s: unknown) => unknown) => selector({ threadListItem: { remoteId: 'sess_1' } }),
+  useAuiState: (selector: (s: unknown) => unknown) =>
+    selector({ threadListItem: { remoteId: 'sess_1', id: 'local_1' } }),
 }));
 
 const { ThreadRow } = await import('./ThreadRow');
@@ -87,16 +88,52 @@ describe('renaming a conversation', () => {
   });
 
   test('storage that refuses to store does not take the rename down with it', async () => {
-    // Private windows and blocked site data throw on write. The name still applies to this render.
+    /**
+     * Private windows and blocked site data throw on write. The name still has to apply here and
+     * now - it simply will not be there tomorrow. This test used to assert the opposite, which is
+     * how the defect survived: the code caught the failure and then re-read from the storage that
+     * had just refused it, so the rename vanished from the screen as well.
+     */
     const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new Error('denied');
     });
+    try {
+      render(<ThreadRow {...base} />);
+      await userEvent.click(screen.getByRole('button', { name: /^Rename/ }));
+      await userEvent.clear(screen.getByRole('textbox'));
+      await userEvent.type(screen.getByRole('textbox'), 'Ledger rounding{Enter}');
+      expect(screen.getByText('Ledger rounding')).toBeInTheDocument();
+    } finally {
+      // Restored even when the assertion fails, or every test after this one writes into a mock.
+      setItem.mockRestore();
+    }
+  });
+
+  test('a name given before the session is persisted follows it to its real id', () => {
+    // A conversation has a local id until the harness persists it and a remote id afterwards.
+    // Keyed only on the current one, a name given early was orphaned under the old id.
+    window.localStorage.setItem('quartermaster.thread-titles', JSON.stringify({ local_1: 'Named early' }));
+    window.dispatchEvent(new StorageEvent('storage', { key: 'quartermaster.thread-titles' }));
+
+    render(<ThreadRow {...base} />);
+    expect(screen.getByText('Named early')).toBeInTheDocument();
+
+    const stored = JSON.parse(window.localStorage.getItem('quartermaster.thread-titles') ?? '{}');
+    expect(stored).toEqual({ sess_1: 'Named early' });
+  });
+
+  test('a stale flag from an abandoned edit does not eat the next rename', async () => {
+    // Escape sets a flag so the blur that follows does not save. If that blur never arrives, the
+    // flag was still set next time and silently threw away a rename the person did want.
     render(<ThreadRow {...base} />);
     await userEvent.click(screen.getByRole('button', { name: /^Rename/ }));
+    await userEvent.type(screen.getByRole('textbox'), '{Escape}');
+
+    await userEvent.click(screen.getByRole('button', { name: /^Rename/ }));
     await userEvent.clear(screen.getByRole('textbox'));
-    await userEvent.type(screen.getByRole('textbox'), 'Ledger rounding{Enter}');
-    expect(screen.getByText('Fix the ledger test')).toBeInTheDocument();
-    setItem.mockRestore();
+    await userEvent.type(screen.getByRole('textbox'), 'Ledger rounding');
+    await userEvent.tab();
+    expect(screen.getByText('Ledger rounding')).toBeInTheDocument();
   });
 
   test('a stored value of the wrong type is ignored rather than rendered', () => {

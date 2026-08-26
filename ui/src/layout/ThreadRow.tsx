@@ -1,4 +1,4 @@
-import { Children, isValidElement, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Children, isValidElement, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useAuiState } from '@truefoundry/trueforge-ui/assistant-ui';
 import { ChatIcon, PencilIcon } from './icons';
 import { useCloseSheet } from './SheetContext';
@@ -36,17 +36,26 @@ export function ThreadRow({
    * from state even though the slot is not handed an id. The remote id is the durable one; the
    * local id is the fallback for a conversation that has not been persisted yet.
    */
-  const id = useAuiState((s: AuiSnapshot) => {
+  /**
+   * One string, not an array.
+   *
+   * The store compares snapshots by identity, so a selector returning a fresh array every render
+   * never settles - "the result of getSnapshot should be cached", which this project has already
+   * paid for once with a blank page. A joined key is stable by value.
+   */
+  const idKey = useAuiState((s: AuiSnapshot) => {
     try {
-      return s.threadListItem?.remoteId ?? s.threadListItem?.id ?? null;
+      // Most durable first: the remote id survives a reload, the local one only this session.
+      return `${s.threadListItem?.remoteId ?? ''}\u0000${s.threadListItem?.id ?? ''}`;
     } catch {
       // Outside an AuiProvider the default client throws on scope access. A row rendered there
       // has no session to name, but it still has a conversation to show - and one row taking the
       // sidebar down with it would be a worse bug than the missing button.
-      return null;
+      return '';
     }
   });
-  const { title: shown, rename } = useThreadTitle(id, title);
+  const ids = useMemo(() => idKey.split('\u0000').filter(Boolean), [idKey]);
+  const { title: shown, canRename, rename } = useThreadTitle(ids, title);
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(shown);
@@ -63,11 +72,19 @@ export function ThreadRow({
   // Focus once, when the field opens. An inline ref callback re-runs on every commit and drags
   // focus back mid-typing - the same defect this project has now fixed twice elsewhere.
   useEffect(() => {
-    if (editing) input.current?.select();
+    if (!editing) return;
+    // Focus, then select. Opening a field the keyboard has not moved to is a field you cannot type
+    // in without reaching for the mouse first.
+    input.current?.focus();
+    input.current?.select();
   }, [editing]);
 
   const startEditing = () => {
     setDraft(shown);
+    // Cleared on the way in, not only on the way out. If a previous edit closed without its blur
+    // ever firing - the field lost focus some other way - the flag stayed set and silently threw
+    // away the next rename instead of that one.
+    cancelling.current = false;
     setEditing(true);
   };
 
@@ -162,7 +179,7 @@ export function ThreadRow({
         * keeps it reachable by keyboard, where hover never happens.
         */}
       <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-        {id && (
+        {canRename && (
           <button
             type="button"
             onClick={startEditing}
