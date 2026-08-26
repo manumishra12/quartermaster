@@ -1,6 +1,6 @@
 # Testing
 
-170 tests in the root suite, 120 in the UI, one mount test, and a fixture check. What follows is
+188 tests in the root suite, 120 in the UI, one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
 
@@ -38,7 +38,8 @@ flowchart TD
     EN["env.test.mjs<br/>8 - config loading"]
     TS["turn-state.test.mjs<br/>7 - why a turn ended"]
     CO["contrast.test.mjs<br/>23 - palette contrast"]
-    OD["ops-desk/server.test.mjs<br/>9 - the MCP fixture server"]
+    OD["ops-desk/server.test.mjs<br/>9 - incident fixture server"]
+    FD["front-desk/server.test.mjs<br/>9 - workspace fixture server"]
   end
 
   subgraph ui["ui - vitest, two projects"]
@@ -62,6 +63,7 @@ flowchart TD
 | `spec.test.mjs` | Rules agent specs must satisfy — no fail-open approval policy, no promise of a gate that nothing enforces, no sandbox setting by omission. |
 | `annotations.test.mjs` | How `@read-only`, `@write` and `@destructive` resolve from tool annotations, including that an unannotated tool matches none of them. |
 | `report.test.mjs` | The written report: counts, refusals, fenced output, and why a turn failed. |
+| `mcp/front-desk/server.test.mjs` | The workspace server: every write tool refuses what it cannot honestly do and records nothing when it refuses, and the planted prompt injection is still in the fixture - if it is ever removed, the demonstration that the gate holds against a persuaded model silently stops demonstrating anything. |
 | `mcp/ops-desk/server.test.mjs` | The fixture MCP server, tested over the wire: every tool publishes the annotations the selectors resolve from, the destructive ones genuinely mutate, and the fixture still tells a story an investigation can get right. |
 | `env.test.mjs` (8), `contrast.test.mjs` (23) | Config loading, and that every colour pair in both themes clears 4.5:1 — the reference design's own muted grey was 3.37:1 and had to be darkened. |
 
