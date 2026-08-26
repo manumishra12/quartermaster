@@ -24,30 +24,51 @@ const SERVER = fileURLToPath(new URL('./server.mjs', import.meta.url));
  * one and passed for the wrong reason - then failed the moment anything was reordered. A fresh
  * process per test costs a second and removes the coupling entirely.
  */
-let nextPort = 8899;
-
+/**
+ * The OS picks the port.
+ *
+ * Fixed numbers collided with a stray server left over from a manual run and the whole file failed
+ * with "did not start within 10s" - a flake that says nothing about the code under test. Asking for
+ * port 0 gets a free one, and the server prints which.
+ */
 async function startServer() {
-  const port = nextPort++;
   const child = spawn(process.execPath, [SERVER], {
-    env: { ...process.env, OPS_DESK_PORT: String(port) },
+    env: { ...process.env, OPS_DESK_PORT: '0' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  // Wait for the port rather than sleeping a guessed interval, which is how these become flaky.
-  const deadline = Date.now() + 10_000;
-  for (;;) {
-    try {
-      const res = await fetch(`http://localhost:${port}/health`);
-      if (res.ok) break;
-    } catch {
-      // Not up yet.
-    }
-    if (Date.now() > deadline) {
-      child.kill();
-      throw new Error(`ops-desk did not start on ${port} within 10s`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
+  const port = await new Promise((resolve, reject) => {
+    /**
+     * Accumulate, do not match per chunk.
+     *
+     * stdout arrives in whatever pieces the OS feels like, so testing each chunk on its own misses
+     * an announcement split across two of them and times out against a server that is listening
+     * perfectly well.
+     */
+    let seen = '';
+    const done = (error, value) => {
+      clearTimeout(timer);
+      // Kill it here rather than leaving it to withServer: on the failure path withServer never
+      // receives the child, so its finally cannot reach it and the process leaks - which hangs the
+      // whole run on an open handle rather than failing one test.
+      if (error) {
+        child.kill();
+        reject(error);
+      } else {
+        resolve(value);
+      }
+    };
+
+    const timer = setTimeout(() => done(new Error(`ops-desk did not report a port within 10s`)), 10_000);
+
+    child.stdout.on('data', (chunk) => {
+      seen += String(chunk);
+      const match = /listening on http:\/\/localhost:(\d+)\//.exec(seen);
+      if (match) done(null, Number(match[1]));
+    });
+    child.on('error', (error) => done(error));
+    child.on('exit', (code) => done(new Error(`ops-desk exited with code ${code} before reporting a port`)));
+  });
 
   const endpoint = `http://localhost:${port}/mcp`;
 

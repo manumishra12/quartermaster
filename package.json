@@ -10,7 +10,7 @@
     "agents:dry": "tsx scripts/apply-agents.ts --dry-run",
     "tools:audit": "node scripts/audit-tools.mjs",
     "preflight": "node scripts/preflight.mjs",
-    "test": "node --test scripts/lib/*.test.mjs mcp/ops-desk/*.test.mjs",
+    "test": "node --test scripts/lib/*.test.mjs mcp/*/*.test.mjs",
     "agent": "node scripts/run.mjs",
     "agent:resume": "node scripts/run.mjs --resume",
     "fixtures:check": "node scripts/check-fixtures.mjs",
@@ -19,7 +19,8 @@
     "smoke": "node scripts/smoke-agents.mjs",
     "lint": "eslint .",
     "verify": "bash scripts/verify-setup.sh",
-    "ops-desk": "node mcp/ops-desk/server.mjs"
+    "ops-desk": "node mcp/ops-desk/server.mjs",
+    "front-desk": "node mcp/front-desk/server.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

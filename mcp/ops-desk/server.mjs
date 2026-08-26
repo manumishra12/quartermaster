@@ -242,7 +242,9 @@ const http = createServer((req, res) => {
 });
 
 http.listen(PORT, () => {
-  console.log(`ops-desk listening on http://localhost:${PORT}/mcp`);
+  // With PORT=0 the OS assigns a free one, so report what we actually got rather than what we asked for.
+  const bound = http.address().port;
+  console.log(`ops-desk listening on http://localhost:${bound}/mcp`);
   console.log('  read-only: list_alerts, get_alert, list_deploys, get_service_health, list_actions_taken');
   console.log('  destructive (gated): rollback_deploy, restart_service');
 });
