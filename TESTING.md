@@ -1,6 +1,6 @@
 # Testing
 
-206 tests in the root suite, 120 in the UI, one mount test, and a fixture check. What follows is
+210 tests in the root suite, 120 in the UI, one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
 
@@ -138,8 +138,9 @@ It distinguishes the ways a case can fail, because they send you to different pl
 
 | what it says | what it means |
 | --- | --- |
-| `no tool call within Ns` | the agent never called anything - check the model can call tools |
-| `N tool response(s) recorded, all empty` | the turn was cut short; the machine is loaded, raise the budget |
+| `no tool response within Ns` | nothing came back. The call may never have been made, or may have been waiting - the runner reads responses, so it cannot tell those apart and does not pretend to |
+| `all empty` | the turn was cut short; the machine is loaded, raise the budget |
+| `in a shape this runner could not read` | a connector envelope `resultOf` does not handle. No amount of budget fixes it |
 | `the sandbox was not ready` | the harness, not the agent. Retried once, and the retry is announced |
 | `none matched /regex/` | it ran something and the answer was wrong. This is the interesting one |
 

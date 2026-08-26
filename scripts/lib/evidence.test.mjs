@@ -781,6 +781,49 @@ test('a URL offered as a suggestion is not a claim about what it says', () => {
   }
 });
 
+test('an unrelated command does not turn an invented URL into a source', () => {
+  // The first version gave up as soon as any call existed, so one `ls` blessed a fabricated
+  // citation. An ls is not a fetch.
+  const cited = 'According to https://trueforge.dev/, the harness handles the approval gate.';
+  const listed = [{ command: 'ls', exitCode: 0, output: 'a b' }];
+  assert.equal(judge({ finalText: cited, toolResponses: listed }).verdict, UNSUBSTANTIATED);
+
+  // Something that plausibly reached the web does.
+  const searched = [{ command: 'web_search_exa', exitCode: 0, output: 'results' }];
+  assert.notEqual(judge({ finalText: cited, toolResponses: searched }).verdict, UNSUBSTANTIATED);
+});
+
+test('a response it cannot read is not evidence of fabrication', () => {
+  /**
+   * resultOf does not understand every connector envelope. Accusing an agent of inventing a source
+   * because a response was unparseable is the same failure as blessing a lie, pointed the other
+   * way - so where a command is illegible this stays quiet.
+   */
+  const cited = 'According to https://trueforge.dev/, the harness handles the approval gate.';
+  const opaque = [{ command: null, exitCode: null, output: '' }];
+  assert.notEqual(judge({ finalText: cited, toolResponses: opaque }).verdict, UNSUBSTANTIATED);
+});
+
+test('an attribution and a URL in different paragraphs are not one citation', () => {
+  /**
+   * Searching the whole answer for each half independently would let "according to the user" and
+   * an unrelated repository link three paragraphs later be reported as a fabricated citation -
+   * this tool inventing a claim in order to accuse somebody of inventing a claim.
+   */
+  const apart = `According to the user, this is urgent.${' filler'.repeat(60)}\n\nThe repository is https://github.com/a/b`;
+  assert.equal(judge({ finalText: apart, toolResponses: [] }).verdict, NO_CLAIM);
+});
+
+test('the ordinary ways people attribute a fact are recognised', () => {
+  for (const text of [
+    'The report states the figure is 41 percent, at https://example.com/r',
+    'The study at https://example.com/s found no such effect.',
+    'As stated in https://trueforge.dev/, the gate is server-side.',
+  ]) {
+    assert.equal(judge({ finalText: text, toolResponses: [] }).verdict, UNSUBSTANTIATED, text);
+  }
+});
+
 test('a citation stops being unsupported as soon as anything actually ran', () => {
   /**
    * Deliberately weak: the guard only fires when literally nothing was executed. Checking whether

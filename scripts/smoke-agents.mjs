@@ -41,7 +41,11 @@ const budgetArg = flagValue('budget');
  */
 const BUDGET_SECONDS = budgetArg === null ? Number(process.env.SMOKE_BUDGET_SECONDS ?? 180) : Number(budgetArg);
 if (!Number.isFinite(BUDGET_SECONDS) || BUDGET_SECONDS <= 0) {
-  console.error(`--budget must be a positive number of seconds, got ${JSON.stringify(budgetArg)}`);
+  // Name the one that was actually set. Reporting --budget when the environment variable was wrong
+  // prints a value nobody typed and hides the setting that needs changing.
+  const [where, value] =
+    budgetArg === null ? ['SMOKE_BUDGET_SECONDS', process.env.SMOKE_BUDGET_SECONDS] : ['--budget', budgetArg];
+  console.error(`${where} must be a positive number of seconds, got ${JSON.stringify(value)}`);
   process.exit(2);
 }
 const BUDGET_MS = BUDGET_SECONDS * 1000;
@@ -78,7 +82,7 @@ const CASES = [
     // original case piped into a `sqlite3` binary that is not installed, so it established only
     // that the shell could report command-not-found.
     prompt:
-      "Use the sandbox shell to run exactly: python3 -c import sqlite3;print(sqlite3.connect(':memory:').execute('select 7').fetchone()[0])",
+      'Use the sandbox shell to run exactly: python3 -c "import sqlite3;print(sqlite3.connect(\':memory:\').execute(\'select 7\').fetchone()[0])"',
     expect: /(?:^|\n)7(?:\n|$)/,
   },
   {
@@ -103,7 +107,14 @@ const client = new TrueForge({ baseUrl: BASE, timeoutInSeconds: 900 });
  * the agent, the connector and the model, none of which is wrong.
  */
 function sandboxNotReady(recorded) {
-  return recorded.some((r) => /fork\/exec|no such file or directory|sandbox (not|is not) ready/i.test(r.output ?? ''));
+  /**
+   * Narrow on purpose. "no such file or directory" on its own is ordinary stderr from a command
+   * that referenced a missing path - matching it made every such failure look like a harness
+   * problem, and the retry could then report success "after one retry" for something the agent
+   * genuinely got wrong. A fork/exec failure of the shell itself is the signature that means the
+   * sandbox filesystem was not mounted when the command ran.
+   */
+  return recorded.some((r) => /fork\/exec|sandbox (is )?not ready|failed to (start|create) sandbox/i.test(r.output ?? ''));
 }
 
 async function runCase(testCase) {
@@ -152,10 +163,21 @@ async function runCase(testCase) {
   const seconds = ((Date.now() - started) / 1000).toFixed(0);
 
   if (timedOut && recorded.length === 0) {
-    return { ...testCase, ok: false, seconds, why: `no tool call within ${BUDGET_MS / 1000}s - turn cancelled` };
+    /**
+     * What this can honestly say is that no tool *response* arrived. The runner only reads
+     * tool.response events, so a call that was made and is still pending, blocked on approval, or
+     * cancelled before it answered looks identical to a call that was never made - and telling
+     * somebody the agent never called anything sends them to check the model, which may be fine.
+     */
+    return {
+      ...testCase,
+      ok: false,
+      seconds,
+      why: `no tool response within ${BUDGET_MS / 1000}s - turn cancelled. The call may never have been made, or may have been waiting on something`,
+    };
   }
   if (recorded.length === 0) {
-    return { ...testCase, ok: false, seconds, why: 'nothing was recorded - the agent never called a tool' };
+    return { ...testCase, ok: false, seconds, why: 'no tool response was recorded - nothing the agent did produced a result' };
   }
   if (sandboxNotReady(recorded)) {
     return {
@@ -178,13 +200,23 @@ async function runCase(testCase) {
    * reads it at the assertion, which is the one thing that is definitely not wrong.
    */
   if (recorded.every((r) => r.exitCode === null && !(r.output ?? '').trim())) {
+    /**
+     * Two different problems wear the same face, and only one of them is about the machine.
+     *
+     * `resultOf` marks a response it could not parse as not understood. Calling that "the turn was
+     * cut short" is a reassuring diagnosis that sends nobody to the actual fault - a connector
+     * envelope this runner cannot read, which no amount of extra budget will fix.
+     */
+    const unreadable = recorded.filter((r) => r.understood === false).length;
     return {
       ...testCase,
       ok: false,
       seconds,
-      why:
-        `${recorded.length} tool response(s) recorded, all empty - the turn was cut short before any ` +
-        'result came back. Check whether the model is keeping up; --budget raises the limit.',
+      why: unreadable
+        ? `${recorded.length} tool response(s) recorded, ${unreadable} of them in a shape this runner ` +
+          'could not read. That is not a timeout - the envelope needs handling in resultOf.'
+        : `${recorded.length} tool response(s) recorded, all empty - the turn was cut short before any ` +
+          'result came back. Check whether the model is keeping up; --budget raises the limit.',
     };
   }
 
