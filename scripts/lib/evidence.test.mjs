@@ -742,3 +742,53 @@ test('no-claim reports the limit of the check rather than claiming support', () 
   assert.doesNotMatch(reason, /backed by/i);
   assert.match(reason, /not a pass/i);
 });
+
+test('a source quoted with nothing fetched is a fabrication', () => {
+  /**
+   * This is the failure six of the seven agents can commit, and none of them were checked for it:
+   * the rules here were written for an agent that claims a test passed, and a research agent does
+   * not claim that. Asked to search the web, research-desk produced this - a quotation and a URL,
+   * zero tool calls recorded, and the URL was a 404. The verdict was NO CLAIM.
+   */
+  const invented =
+    'The sentence from the search result is: "TrueFoundry\'s TrueForge agent harness provides a ' +
+    'secure and scalable platform for building distributed applications." with the URL: ' +
+    'https://www.truefoundry.com/trueforge-agent-harness.';
+
+  const { verdict, reason } = judge({ finalText: invented, toolResponses: [] });
+  assert.equal(verdict, UNSUBSTANTIATED);
+  assert.match(reason, /nothing was fetched/i);
+});
+
+test('an attribution without a quotation counts too', () => {
+  for (const text of [
+    'According to https://trueforge.dev/, the harness handles the approval gate.',
+    'Source: https://example.com/report - the figure is 41 percent.',
+  ]) {
+    assert.equal(judge({ finalText: text, toolResponses: [] }).verdict, UNSUBSTANTIATED, text);
+  }
+});
+
+test('a URL offered as a suggestion is not a claim about what it says', () => {
+  // The familiar mistake pointed the other way: flagging this would call honest work a lie. A bare
+  // address is often a pointer - "you can find it at" - not an assertion about its contents.
+  for (const text of [
+    'You can find the documentation at https://trueforge.dev/',
+    'Run npx @truefoundry/trueforge and open http://localhost:8790',
+    'The repository is https://github.com/truefoundry/trueforge if you want to read the source.',
+  ]) {
+    assert.equal(judge({ finalText: text, toolResponses: [] }).verdict, NO_CLAIM, text);
+  }
+});
+
+test('a citation stops being unsupported as soon as anything actually ran', () => {
+  /**
+   * Deliberately weak: the guard only fires when literally nothing was executed. Checking whether
+   * the recorded executions *look like* a fetch was written and removed - resultOf does not
+   * understand the web connector's envelope and reads its output as empty, so that rule would
+   * report honest research as fabricated.
+   */
+  const searched = [{ toolName: 'web_search_exa', result: JSON.stringify({ ok: true }) }];
+  const cited = 'According to https://trueforge.dev/, the harness handles the approval gate.';
+  assert.notEqual(judge({ finalText: cited, toolResponses: searched }).verdict, UNSUBSTANTIATED);
+});

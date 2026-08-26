@@ -55,16 +55,25 @@ const CASES = [
   {
     agent: 'code-runner',
     what: 'executes submitted code',
-    // Kept quote-free on purpose. This case tests whether the agent can reach the sandbox at all,
-    // so a prompt that also tests quote handling would confuse a wiring failure with a parsing one.
-    prompt: 'Use the sandbox shell to run exactly: python3 -c print(9*9)',
+    /**
+     * Quoted, because the unquoted version was not a command.
+     *
+     * This was kept quote-free on the theory that it isolated wiring from parsing. It did the
+     * opposite: parentheses are shell metacharacters, so `python3 -c print(9*9)` is a bash syntax
+     * error, and the case asked the agent to run something that could never work. The agent did
+     * exactly as it was told and the test called that a failure to reach its tools.
+     */
+    prompt: "Use the sandbox shell to run exactly: python3 -c 'print(9*9)'",
     expect: /(?:^|\n)81(?:\n|$)/,
   },
   {
     agent: 'analytics',
     what: 'builds the warehouse and queries it',
+    // Through Python's bundled sqlite3, because the sandbox has no database command line. The
+    // original case piped into a `sqlite3` binary that is not installed, so it established only
+    // that the shell could report command-not-found.
     prompt:
-      "Use the sandbox shell to run exactly: printf 'CREATE TABLE t(a);INSERT INTO t VALUES(7);SELECT a FROM t;' | sqlite3 :memory:",
+      "Use the sandbox shell to run exactly: python3 -c import sqlite3;print(sqlite3.connect(':memory:').execute('select 7').fetchone()[0])",
     expect: /(?:^|\n)7(?:\n|$)/,
   },
   {

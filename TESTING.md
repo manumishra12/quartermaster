@@ -1,6 +1,6 @@
 # Testing
 
-202 tests in the root suite, 120 in the UI, one mount test, and a fixture check. What follows is
+206 tests in the root suite, 120 in the UI, one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
 
