@@ -38,15 +38,36 @@ async function startServer() {
   });
 
   const port = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('ops-desk did not report a port within 10s')), 10_000);
-    child.stdout.on('data', (chunk) => {
-      const match = /listening on http:\/\/localhost:(\d+)\//.exec(String(chunk));
-      if (match) {
-        clearTimeout(timer);
-        resolve(Number(match[1]));
+    /**
+     * Accumulate, do not match per chunk.
+     *
+     * stdout arrives in whatever pieces the OS feels like, so testing each chunk on its own misses
+     * an announcement split across two of them and times out against a server that is listening
+     * perfectly well.
+     */
+    let seen = '';
+    const done = (error, value) => {
+      clearTimeout(timer);
+      // Kill it here rather than leaving it to withServer: on the failure path withServer never
+      // receives the child, so its finally cannot reach it and the process leaks - which hangs the
+      // whole run on an open handle rather than failing one test.
+      if (error) {
+        child.kill();
+        reject(error);
+      } else {
+        resolve(value);
       }
+    };
+
+    const timer = setTimeout(() => done(new Error(`ops-desk did not report a port within 10s`)), 10_000);
+
+    child.stdout.on('data', (chunk) => {
+      seen += String(chunk);
+      const match = /listening on http:\/\/localhost:(\d+)\//.exec(seen);
+      if (match) done(null, Number(match[1]));
     });
-    child.on('error', reject);
+    child.on('error', (error) => done(error));
+    child.on('exit', (code) => done(new Error(`ops-desk exited with code ${code} before reporting a port`)));
   });
 
   const endpoint = `http://localhost:${port}/mcp`;
