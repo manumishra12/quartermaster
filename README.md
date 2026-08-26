@@ -276,8 +276,41 @@ What it surfaced, and what changed:
 | **GitHub writes lack durable approval** - no repository-bound approval artifact independent of the harness | **Dismissed, with reasoning in the thread.** The approval *is* the harness's `tool.approval_required` pause: the turn stops server-side and resumes only when a `user.tool_approval` arrives for that `toolCallId`. Building a second gate beside TrueForge's would contradict the premise of the submission. The blast radius concern is addressed instead by enabling five of the seventeen GitHub write tools, so the agent cannot merge, delete, fork, or create a repository at all |
 | **deepwiki policy duplicated** across both quartermaster specs | **Dismissed, with reasoning.** Agent specs are plain JSON with no include mechanism, and inventing one would put a build step between a reviewer and the safety policy they are reading. A test now fails if the two drift apart |
 
+### The rest of the history
+
+Qodo has reviewed every merged pull request here, and the threads are the record of what it found
+and what was decided. The reviews are not a formality: they have changed the code in every case,
+and several of them found defects that go to the heart of what this project claims to do.
+
+| Pull request | What review changed |
+| --- | --- |
+| [#5 - Recognise the test runners real projects actually use](https://github.com/manumishra12/quartermaster/pull/5) | Fifteen findings across seven rounds, all on one function. Widening it to recognise `poetry run pytest` opened a series of ways to fabricate a test run - quoted text read as a command, a heredoc body read as commands, `$((pytest))` read as an invocation, a branch behind `false &&` counted as executed. Each fix had to hold without discarding honest runs, and several rounds found exactly that failure pointed the other way. It ended with a shell scanner rather than more patterns. |
+| [#6 - Stop calling six of the seven agents fabricators](https://github.com/manumishra12/quartermaster/pull/6) | Narrowing which claims need a test run behind them left "all checks pass" unchecked, because the two halves of the rule did not share a vocabulary. Then the correction over-widened and demanded test runs of a research agent saying "I verified the product specs". Both directions are now pinned in one table. |
+| [#7 - Show the approver what the call will change](https://github.com/manumishra12/quartermaster/pull/7) | Seven findings, all one defect: a summary that read as a complete account of a change while dropping part of it. It showed a file's first line and not its body, ten paths of twenty, and let terminal and bidirectional control characters through - so a crafted path could rewrite the prompt the operator was reading. |
+| [#8 - A call the gate refused is not a call that ran](https://github.com/manumishra12/quartermaster/pull/8) | Making the documented `echo deny \|` example real also made an unattended `echo allow \|` real. A pipe can now refuse but not approve: authorising something irreversible needs a person at a terminal. Also caught denials being forgotten across `--resume`, which let a refusal count as evidence. |
+| [#9 - Give the answer the room, and let a conversation be renamed](https://github.com/manumishra12/quartermaster/pull/9) | Six findings on new UI. A rename that storage refused vanished from the screen as well; Escape poisoned the next edit's save; two tabs renaming different conversations erased each other. The first of those had a comment beside it describing the correct behaviour and a test asserting the wrong one. |
+
 Also merged: [#2 - Qodo configuration and this section](https://github.com/manumishra12/quartermaster/pull/2),
 where Qodo caught the branch-protection claim above.
+
+### What was dismissed, and why
+
+Two findings were dismissed with the reasoning recorded in the thread rather than acted on.
+
+**"Verdicts depend on answer text"** ([#6](https://github.com/manumishra12/quartermaster/pull/6)) - the
+rule is ours, and it is a good one: a behavioural test must not pass because some text was phrased
+agreeably. But `judge()` exists to compare a claim against recorded evidence, and a claim only
+exists as text. Every one of those tests supplies harness-shaped executions and turns on what they
+contain; the same sentence against a red run, a green run and no run gives three different
+verdicts. Text decides whether a verdict is owed, never what it is.
+
+**"gate-demo safety is inline"** ([#8](https://github.com/manumishra12/quartermaster/pull/8)) - the
+suggestion was to derive agent safety settings from a shared configuration block. Specs are plain
+JSON with no include mechanism, and inventing one puts a build step between a reviewer and the
+policy they are reading. The concern underneath it is real, though, so it is addressed the other
+way: `config.sandbox.enabled` must now be stated explicitly in every spec, and an agent without a
+sandbox may not declare file downloads or subagents. Divergence fails a check instead of being
+prevented by indirection.
 
 `.pr_agent.toml` configures what the review looks for. It is deliberately specific to this project
 rather than a copy of the defaults: a false SUBSTANTIATED verdict is the worst defect this codebase
