@@ -824,6 +824,23 @@ test('the ordinary ways people attribute a fact are recognised', () => {
   }
 });
 
+test('a long quotation followed by its own address is still a citation', () => {
+  // Distance measured between where each span *starts* called a 300-character quotation unrelated
+  // to the URL immediately after it - as tight a citation as there is.
+  const long = `The result says: "${'a'.repeat(300)}" with the URL: https://example.com/x`;
+  assert.equal(judge({ finalText: long, toolResponses: [] }).verdict, UNSUBSTANTIATED);
+});
+
+test('quoting the person who asked is not citing a web page', () => {
+  /**
+   * Treating every quoted sentence as a source quotation accused answers that were quoting the
+   * user, with a link sitting nearby for an unrelated reason. A quotation counts only when
+   * something introduces the address as its origin.
+   */
+  const quotingTheUser = 'You said "please fix the checkout timeout bug today" and the repo is https://github.com/a/b';
+  assert.equal(judge({ finalText: quotingTheUser, toolResponses: [] }).verdict, NO_CLAIM);
+});
+
 test('a citation stops being unsupported as soon as anything actually ran', () => {
   /**
    * Deliberately weak: the guard only fires when literally nothing was executed. Checking whether

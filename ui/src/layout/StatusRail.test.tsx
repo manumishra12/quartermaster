@@ -18,6 +18,7 @@ const state = {
   respondToApproval: vi.fn(),
   pendingQuestions: [] as Array<{ question?: string }>,
   sandboxId: undefined as string | undefined,
+  finalText: '',
 };
 
 let busy = false;
@@ -39,6 +40,7 @@ const RED = exec('Ran 5 tests\n\nFAILED (failures=1)\nAssertionError: 999 != 100
 
 beforeEach(() => {
   state.executions = [];
+  state.finalText = '';
   state.pendingApprovals = [];
   state.pendingQuestions = [];
   state.sandboxId = undefined;
@@ -380,5 +382,41 @@ describe('the recorded output can be read at full size', () => {
     expect(screen.queryByRole('button', { name: /show more/i })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /enlarge/i }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+});
+
+describe('a tool call the model printed instead of making', () => {
+  /**
+   * This arrives in the transcript as raw JSON, which reads as a question the agent is asking -
+   * and nothing is listening for an answer, because the call was never made. The rail is where
+   * that gets said in words.
+   */
+  const printed = JSON.stringify({
+    name: 'ask_user_question',
+    arguments: {
+      question: 'What specific ticket action would you like me to propose?',
+      options: ['Create a new issue', 'Close an existing issue'],
+    },
+  });
+
+  test('the rail says what it wanted, in English', () => {
+    state.finalText = printed;
+    render(<StatusRail />);
+    expect(screen.getByText(/What specific ticket action/)).toBeInTheDocument();
+    expect(screen.getByText(/1\. Create a new issue/)).toBeInTheDocument();
+  });
+
+  test('and says it never happened, which is the part that matters', () => {
+    // Rendering it prettily without this would be a nicer way of being misleading: a question on
+    // screen that nothing will ever collect an answer to.
+    state.finalText = printed;
+    render(<StatusRail />);
+    expect(screen.getByText(/wrote this out as text rather than calling it/)).toBeInTheDocument();
+  });
+
+  test('an ordinary answer shows none of this', () => {
+    state.finalText = 'The tests now pass, and here is the diff.';
+    render(<StatusRail />);
+    expect(screen.queryByText(/Printed, not called/)).not.toBeInTheDocument();
   });
 });

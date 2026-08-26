@@ -1,6 +1,6 @@
 # Testing
 
-210 tests in the root suite, 120 in the UI, one mount test, and a fixture check. What follows is
+217 tests in the root suite, 123 in the UI, one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
 
@@ -72,7 +72,7 @@ flowchart TD
 
 Two vitest projects, because they need different things:
 
-- **`unit`** — 12 files, 120 tests, jsdom, components in isolation.
+- **`unit`** — 12 files, 123 tests, jsdom, components in isolation.
 - **`mount`** — one test that mounts the entire app. It exists because the app once rendered a
   blank page while every unit test passed: the crash was an infinite render loop that only appears
   when the real provider stack is assembled. `--dangerouslyIgnoreUnhandledErrors` is scoped to this

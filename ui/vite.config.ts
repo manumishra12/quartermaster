@@ -15,6 +15,9 @@ export default defineConfig({
       // whether a claim is substantiated, so they import the same module rather than each keeping
       // their own copy of the logic.
       '@evidence': fileURLToPath(new URL('../scripts/lib/evidence.mjs', import.meta.url)),
+      // Shared with the CLI on purpose: two renderings of the same fact drift, and this one is a
+      // statement about whether something happened.
+      '@render-call': fileURLToPath(new URL('../scripts/lib/render-call.mjs', import.meta.url)),
     },
   },
   server: {

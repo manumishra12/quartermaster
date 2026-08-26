@@ -15,6 +15,7 @@ export default defineConfig({
       // The same shared evidence module the app and the CLI use. Tests must exercise the real
       // rules, not a stand-in, or they would only prove the interface agrees with a copy of itself.
       '@evidence': fileURLToPath(new URL('../scripts/lib/evidence.mjs', import.meta.url)),
+      '@render-call': fileURLToPath(new URL('../scripts/lib/render-call.mjs', import.meta.url)),
     },
   },
   test: {

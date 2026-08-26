@@ -80,8 +80,30 @@ export function useAgentState() {
     return found;
   }, [messages]);
 
+  /**
+   * The last thing the assistant said, as text.
+   *
+   * Needed because a model that cannot call tools prints the JSON it would have sent, and that
+   * lands in the transcript as a wall of braces - and, worse, as a question the agent appears to
+   * be asking that nothing will ever collect an answer to. The rail is where this is named.
+   */
+  const finalText = useMemo(() => {
+    const list = Array.isArray(messages) ? messages : [];
+    for (let i = list.length - 1; i >= 0; i -= 1) {
+      const message = list[i] as { role?: string; content?: unknown };
+      if (message?.role !== 'assistant' || !Array.isArray(message.content)) continue;
+      const text = message.content
+        .filter((part) => (part as { type?: string })?.type === 'text')
+        .map((part) => (part as { text?: string }).text ?? '')
+        .join('');
+      if (text.trim()) return text;
+    }
+    return '';
+  }, [messages]);
+
   return {
     executions,
+    finalText,
     pendingApprovals: approvals?.pending ?? [],
     respondToApproval: approvals?.respond,
     pendingQuestions: questions?.pending ?? [],
