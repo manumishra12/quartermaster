@@ -21,6 +21,7 @@ loadEnv();
 import { judge, performed, refused, resultOf, SUBSTANTIATED, NO_CLAIM } from './lib/evidence.mjs';
 import { buildReport } from './lib/report.mjs';
 import { describeCall } from './lib/describe-call.mjs';
+import { endedBecause } from './lib/turn-state.mjs';
 
 const argv = process.argv.slice(2);
 const flag = (name, fallback) => {
@@ -200,7 +201,7 @@ async function consume(stream) {
       // run that died on a provider quota printed "[error]" and nothing else - which is the exact
       // kind of silent, unhelpful tooling this project exists to argue against. It cost me an
       // afternoon of guessing at a message the server had been sending all along.
-      failure = settled.state?.message ?? null;
+      failure = endedBecause(settled.state);
     }
   }
   save();
@@ -238,7 +239,7 @@ async function reattach() {
   }
   // Resuming into a turn that already failed has to carry its reason too, or the reattach path
   // prints the same bare status the live path used to.
-  return { pending, status: turn.state?.status, failure: turn.state?.message ?? null };
+  return { pending, status: turn.state?.status, failure: endedBecause(turn.state) };
 }
 
 /**
