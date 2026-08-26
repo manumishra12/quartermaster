@@ -187,28 +187,38 @@ function buildServer() {
       const issue = state.issues.find((i) => i.id === issue_id);
       if (!issue) return notFound(`No issue with id ${issue_id}.`, state.issues.map((i) => i.id));
 
-      const offered = Object.entries(changes).filter(([, value]) => value !== undefined && value !== null);
+      const offered = Object.entries(changes).filter(([, value]) => value !== undefined);
 
       /**
-       * A field that was named but is blank is an attempt to erase it, not to change it. Assignee
-       * is required on every project here, so clearing it would leave the issue in a state the
-       * desk would refuse to create - and it slipped past the existence check, which only ran when
-       * the value was truthy.
+       * A field named but left blank is an attempt to erase it, and whether that is allowed
+       * depends on the project rather than on the field.
+       *
+       * Clearing something the project requires would leave the issue in a state the desk would
+       * refuse to create - and it slipped past the existence check entirely, which only ran when
+       * the value was truthy. But refusing *every* blank was the opposite mistake: priority is
+       * optional on SRCH, so removing it is a real edit, and calling it a missing required field
+       * made a valid operation impossible and described it wrongly on the way out.
        */
-      const blank = offered.filter(([, value]) => !given(value)).map(([field]) => field);
-      if (blank.length > 0) {
+      const required = state.projects.find((p) => p.key === issue.project)?.required_fields ?? [];
+      const erasingRequired = offered
+        .filter(([field, value]) => !given(value) && required.includes(field))
+        .map(([field]) => field);
+      if (erasingRequired.length > 0) {
         return text({
           error: 'missing_fields',
-          message: `${blank.join(', ')} cannot be set to nothing on ${issue_id}. Nothing was changed.`,
+          message: `${issue.project} requires ${erasingRequired.join(', ')}, so it cannot be set to nothing on ${issue_id}. Nothing was changed.`,
         });
       }
+
+      // An optional field cleared is stored as absent rather than as an empty string.
+      const cleared = offered.map(([field, value]) => [field, given(value) ? value : null]);
 
       /**
        * And a value identical to the one already there is not a change. Recording it as one is
        * exactly the false event this handler claims to prevent: an edit in the record that nobody
        * would find any trace of in the issue.
        */
-      const applied = offered.filter(([field, value]) => issue[field] !== value);
+      const applied = cleared.filter(([field, value]) => issue[field] !== value);
       if (applied.length === 0) {
         return text({
           error: 'no_changes',
@@ -315,7 +325,9 @@ const http = createServer((req, res) => {
 });
 
 http.listen(PORT, () => {
-  console.log(`front-desk listening on http://localhost:${PORT}/mcp`);
+  // With PORT=0 the OS assigns a free one, so report what we actually got rather than what we asked for.
+  const bound = http.address().port;
+  console.log(`front-desk listening on http://localhost:${bound}/mcp`);
   console.log('  read-only: list_projects, list_teammates, list_issues, get_issue, list_outbox');
   console.log('  gated:     create_issue, update_issue, close_issue, send_message');
 });

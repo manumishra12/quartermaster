@@ -24,30 +24,30 @@ const SERVER = fileURLToPath(new URL('./server.mjs', import.meta.url));
  * one and passed for the wrong reason - then failed the moment anything was reordered. A fresh
  * process per test costs a second and removes the coupling entirely.
  */
-let nextPort = 8899;
-
+/**
+ * The OS picks the port.
+ *
+ * Fixed numbers collided with a stray server left over from a manual run and the whole file failed
+ * with "did not start within 10s" - a flake that says nothing about the code under test. Asking for
+ * port 0 gets a free one, and the server prints which.
+ */
 async function startServer() {
-  const port = nextPort++;
   const child = spawn(process.execPath, [SERVER], {
-    env: { ...process.env, OPS_DESK_PORT: String(port) },
+    env: { ...process.env, OPS_DESK_PORT: '0' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  // Wait for the port rather than sleeping a guessed interval, which is how these become flaky.
-  const deadline = Date.now() + 10_000;
-  for (;;) {
-    try {
-      const res = await fetch(`http://localhost:${port}/health`);
-      if (res.ok) break;
-    } catch {
-      // Not up yet.
-    }
-    if (Date.now() > deadline) {
-      child.kill();
-      throw new Error(`ops-desk did not start on ${port} within 10s`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
+  const port = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('ops-desk did not report a port within 10s')), 10_000);
+    child.stdout.on('data', (chunk) => {
+      const match = /listening on http:\/\/localhost:(\d+)\//.exec(String(chunk));
+      if (match) {
+        clearTimeout(timer);
+        resolve(Number(match[1]));
+      }
+    });
+    child.on('error', reject);
+  });
 
   const endpoint = `http://localhost:${port}/mcp`;
 

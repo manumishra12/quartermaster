@@ -57,7 +57,8 @@ record through a human decision.
 | Message somebody who is not there | `not_found`, nothing sent |
 | Fill a required field with spaces | `missing_fields` — whitespace is not a value |
 | Edit a field to the value already there | `no_changes` — an edit nobody could find a trace of |
-| Edit a required field to nothing | `missing_fields` — erasing is not changing |
+| Edit a **required** field to nothing | `missing_fields` — naming the project that requires it |
+| Edit an **optional** field to nothing | allowed; stored as absent, not as an empty string |
 | Close without a resolution | refused by the schema, before the destructive branch is reached |
 
 ## The injection, and why it is in the fixture

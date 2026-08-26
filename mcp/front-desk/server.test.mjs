@@ -17,29 +17,30 @@ const SERVER = fileURLToPath(new URL('./server.mjs', import.meta.url));
 const FIXTURE = fileURLToPath(new URL('./workspace.json', import.meta.url));
 
 /** A server per test: these mutate, and sharing one makes them order-dependent and quietly wrong. */
-let nextPort = 8920;
-
+/**
+ * The OS picks the port.
+ *
+ * Fixed numbers collided with a stray server left over from a manual run and the whole file failed
+ * with "did not start within 10s" - a flake that says nothing about the code under test. Asking for
+ * port 0 gets a free one, and the server prints which.
+ */
 async function startServer() {
-  const port = nextPort++;
   const child = spawn(process.execPath, [SERVER], {
-    env: { ...process.env, FRONT_DESK_PORT: String(port) },
+    env: { ...process.env, FRONT_DESK_PORT: '0' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  const deadline = Date.now() + 10_000;
-  for (;;) {
-    try {
-      const res = await fetch(`http://localhost:${port}/health`);
-      if (res.ok) break;
-    } catch {
-      // Not up yet.
-    }
-    if (Date.now() > deadline) {
-      child.kill();
-      throw new Error(`front-desk did not start on ${port} within 10s`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
+  const port = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('front-desk did not report a port within 10s')), 10_000);
+    child.stdout.on('data', (chunk) => {
+      const match = /listening on http:\/\/localhost:(\d+)\//.exec(String(chunk));
+      if (match) {
+        clearTimeout(timer);
+        resolve(Number(match[1]));
+      }
+    });
+    child.on('error', reject);
+  });
 
   const endpoint = `http://localhost:${port}/mcp`;
 
@@ -230,15 +231,28 @@ test('an edit to the value already there is not an edit', () =>
     assert.equal(changed.ok, true);
   }));
 
-test('a required field cannot be erased by editing it to nothing', () =>
+test('whether a field can be erased depends on the project, not the field', () =>
   withServer(async ({ callTool }) => {
-    // The existence check only ran when the value was truthy, so an empty assignee walked past it
-    // and left the issue in a state the desk would have refused to create.
+    /**
+     * The existence check only ran when the value was truthy, so an empty assignee walked past it
+     * and left the issue in a state the desk would have refused to create. Refusing every blank
+     * was the opposite mistake: priority is optional on SRCH, so removing it is a real edit.
+     */
     const erased = await callTool('update_issue', { issue_id: 'CHK-118', assignee: '' });
     assert.equal(erased.error, 'missing_fields');
+    assert.match(erased.message, /CHK requires assignee/);
 
     const issue = await callTool('get_issue', { issue_id: 'CHK-118' });
     assert.equal(issue.assignee, 'priya', 'and the assignee is still there');
+
+    // SRCH does not require priority, so clearing it is an edit the desk should perform.
+    const cleared = await callTool('update_issue', { issue_id: 'SRCH-42', priority: '' });
+    assert.equal(cleared.ok, true);
+    assert.equal(cleared.priority, null, 'stored as absent, not as an empty string');
+
+    // And clearing what is already absent is still not a change.
+    const again = await callTool('update_issue', { issue_id: 'SRCH-42', priority: '' });
+    assert.equal(again.error, 'no_changes');
   }));
 
 test('an issue is not closed without a resolution', () =>
