@@ -26,7 +26,8 @@ describe('renaming a conversation', () => {
    */
   const reset = () => {
     window.localStorage.clear();
-    window.dispatchEvent(new StorageEvent('storage', { key: 'quartermaster.thread-titles' }));
+    // A real localStorage.clear() emits an event with a null key, meaning the whole store went.
+    window.dispatchEvent(new StorageEvent('storage', { key: null }));
   };
   beforeEach(reset);
   afterEach(reset);
@@ -120,6 +121,28 @@ describe('renaming a conversation', () => {
 
     const stored = JSON.parse(window.localStorage.getItem('quartermaster.thread-titles') ?? '{}');
     expect(stored).toEqual({ sess_1: 'Named early' });
+  });
+
+  test('another tab renaming a different conversation is not overwritten', async () => {
+    /**
+     * Each tab held a whole map. Writing ours back erased theirs, and their storage event then
+     * erased ours - last writer wins, silently, on a change neither person made. Only the one
+     * conversation being renamed here is ours to decide, so the write merges onto what is on disk.
+     */
+    render(<ThreadRow {...base} />);
+
+    // Another tab names a different conversation while this row is open.
+    window.localStorage.setItem(
+      'quartermaster.thread-titles',
+      JSON.stringify({ sess_other: 'Named in the other tab' }),
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: /^Rename/ }));
+    await userEvent.clear(screen.getByRole('textbox'));
+    await userEvent.type(screen.getByRole('textbox'), 'Ledger rounding{Enter}');
+
+    const stored = JSON.parse(window.localStorage.getItem('quartermaster.thread-titles') ?? '{}');
+    expect(stored).toEqual({ sess_other: 'Named in the other tab', sess_1: 'Ledger rounding' });
   });
 
   test('a stale flag from an abandoned edit does not eat the next rename', async () => {

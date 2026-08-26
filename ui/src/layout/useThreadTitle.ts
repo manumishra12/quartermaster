@@ -37,12 +37,33 @@ function read(): Titles {
  * storage is where it is kept for next time, so a private window that refuses to store still shows
  * you the name you just typed - it simply will not have it tomorrow.
  */
-function write(titles: Titles) {
+function write(titles: Titles): boolean {
   try {
     window.localStorage.setItem(KEY, JSON.stringify(titles));
+    return true;
   } catch {
     // Nothing to do about it, and nothing that should be undone because of it.
+    return false;
   }
+}
+
+/**
+ * Changes storage would not accept, kept so they are not lost twice.
+ *
+ * Without this, the next successful write would rebuild the map from disk and quietly drop a name
+ * that had already failed to save once.
+ */
+const unsaved = new Map<string, string | null>();
+
+/** Re-apply what storage refused on top of whatever is on disk now. */
+function withUnsaved(base: Titles): Titles {
+  if (unsaved.size === 0) return base;
+  const merged = { ...base };
+  for (const [id, name] of unsaved) {
+    if (name) merged[id] = name;
+    else delete merged[id];
+  }
+  return merged;
 }
 
 /**
@@ -69,8 +90,14 @@ function notify() {
  */
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event: StorageEvent) => {
+    if (event.key === null) {
+      // A cleared store. Nothing is pending against a store that no longer has anything in it,
+      // and holding refused writes across a clear would silently put them back.
+      unsaved.clear();
+    }
     if (event.key === null || event.key === KEY) {
-      snapshot = read();
+      // Another tab's map, plus anything of ours it could not have known about.
+      snapshot = withUnsaved(read());
       notify();
     }
   });
@@ -84,12 +111,25 @@ function subscribe(listener: () => void) {
 }
 
 function set(id: string, name: string | null) {
-  const updated = { ...snapshot };
+  /**
+   * Merged onto what is on disk, not onto our copy of it.
+   *
+   * Two tabs renaming different conversations each held a whole map; writing ours back erased
+   * theirs, and their storage event then erased ours - last writer wins, silently, on a change
+   * neither person made. Only the one conversation being renamed is ours to decide.
+   */
+  const updated = withUnsaved(read());
   // An empty name is not a name: it hands the conversation back to the title TrueForge gave it.
   if (name) updated[id] = name;
   else delete updated[id];
+
   snapshot = updated;
-  write(updated);
+  if (write(updated)) {
+    // The map just written already carries every earlier refusal, so none of them are pending.
+    unsaved.clear();
+  } else {
+    unsaved.set(id, name);
+  }
   notify();
 }
 
@@ -111,11 +151,8 @@ export function useThreadTitle(ids: (string | null | undefined)[], fallback: str
     if (!primary || !holder || holder === primary) return;
     const name = snapshot[holder];
     if (!name) return;
-    const updated = { ...snapshot, [primary]: name };
-    delete updated[holder];
-    snapshot = updated;
-    write(updated);
-    notify();
+    set(primary, name);
+    set(holder, null);
   }, [primary, holder]);
 
   const rename = useCallback(
