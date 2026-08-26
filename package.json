@@ -10,7 +10,7 @@
     "agents:dry": "tsx scripts/apply-agents.ts --dry-run",
     "tools:audit": "node scripts/audit-tools.mjs",
     "preflight": "node scripts/preflight.mjs",
-    "test": "node --test scripts/lib/*.test.mjs",
+    "test": "node --test scripts/lib/*.test.mjs mcp/ops-desk/*.test.mjs",
     "agent": "node scripts/run.mjs",
     "agent:resume": "node scripts/run.mjs --resume",
     "fixtures:check": "node scripts/check-fixtures.mjs",
@@ -18,9 +18,11 @@
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke-agents.mjs",
     "lint": "eslint .",
-    "verify": "bash scripts/verify-setup.sh"
+    "verify": "bash scripts/verify-setup.sh",
+    "ops-desk": "node mcp/ops-desk/server.mjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@truefoundry/trueforge-sdk": "^0.1.3"
   },
   "devDependencies": {

@@ -1,0 +1,77 @@
+{
+  "now": "2026-08-26T14:20:00Z",
+  "alerts": [
+    {
+      "id": "ALRT-4471",
+      "title": "Checkout error rate above threshold",
+      "service": "checkout-api",
+      "severity": "critical",
+      "status": "firing",
+      "first_seen": "2026-08-26T14:02:00Z",
+      "last_seen": "2026-08-26T14:19:00Z",
+      "detail": "5xx rate on POST /checkout rose from 0.4% to 11.7%. Upstream payment-gateway timeouts dominate the errors.",
+      "sample_error": "UpstreamTimeout: payment-gateway did not respond within 2000ms"
+    },
+    {
+      "id": "ALRT-4468",
+      "title": "Search latency p99 elevated",
+      "service": "search-api",
+      "severity": "warning",
+      "status": "firing",
+      "first_seen": "2026-08-26T09:40:00Z",
+      "last_seen": "2026-08-26T14:18:00Z",
+      "detail": "p99 latency 820ms against a 500ms objective. Steady since 09:40, no step change.",
+      "sample_error": null
+    },
+    {
+      "id": "ALRT-4455",
+      "title": "Nightly export job failed",
+      "service": "reporting",
+      "severity": "warning",
+      "status": "resolved",
+      "first_seen": "2026-08-26T02:11:00Z",
+      "last_seen": "2026-08-26T02:44:00Z",
+      "detail": "Export retried three times and succeeded on the fourth at 02:44. No action taken.",
+      "sample_error": "S3PutObject: SlowDown"
+    }
+  ],
+  "deploys": [
+    {
+      "id": "4c21",
+      "service": "checkout-api",
+      "shipped_at": "2026-08-26T13:58:00Z",
+      "author": "priya",
+      "summary": "Reduce payment-gateway client timeout from 5000ms to 2000ms",
+      "previous": "9ab7"
+    },
+    {
+      "id": "9ab7",
+      "service": "checkout-api",
+      "shipped_at": "2026-08-25T11:20:00Z",
+      "author": "sam",
+      "summary": "Add idempotency key to checkout submission",
+      "previous": "77f0"
+    },
+    {
+      "id": "1de9",
+      "service": "search-api",
+      "shipped_at": "2026-08-24T16:05:00Z",
+      "author": "priya",
+      "summary": "Bump analyzer dictionary",
+      "previous": "0cc2"
+    }
+  ],
+  "health": {
+    "checkout-api": [
+      { "at": "2026-08-26T13:40:00Z", "error_rate": 0.004, "p99_ms": 310 },
+      { "at": "2026-08-26T13:50:00Z", "error_rate": 0.004, "p99_ms": 305 },
+      { "at": "2026-08-26T14:00:00Z", "error_rate": 0.021, "p99_ms": 1980 },
+      { "at": "2026-08-26T14:10:00Z", "error_rate": 0.117, "p99_ms": 2010 },
+      { "at": "2026-08-26T14:20:00Z", "error_rate": 0.117, "p99_ms": 2005 }
+    ],
+    "search-api": [
+      { "at": "2026-08-26T13:40:00Z", "error_rate": 0.001, "p99_ms": 815 },
+      { "at": "2026-08-26T14:20:00Z", "error_rate": 0.001, "p99_ms": 822 }
+    ]
+  }
+}

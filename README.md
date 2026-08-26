@@ -115,7 +115,7 @@ event stream rather than the transcript - turns out to generalise, and each is o
 | `code-runner` | sandbox | nothing leaves it | **yes** |
 | `analytics` | sandbox + a SQLite warehouse | instruction-only, see below | **yes** |
 | `research-desk` | Exa web search | read-only throughout | **yes** |
-| `incident-responder` | Sentry | every remediation | needs Sentry |
+| `incident-responder` | `ops-desk` (ships here) | every remediation | **yes** |
 | `desk-assistant` | Linear | every create, edit and close | needs Linear |
 | `gate-demo` | + GitHub | its one tool | needs the GitHub connector |
 
@@ -162,9 +162,38 @@ write, using the harness's question mechanism - but that pause is the agent choo
 something outside the agent enforcing it. The spec says so in as many words, and the spec validator
 now refuses any agent that promises a gate without either declaring one or admitting it has none.
 
-`incident-responder` and `desk-assistant` can currently only read. Their write tools are not
-enabled, because those two connectors' annotations have not been audited and this project's own
-rule is not to rely on selectors it has not verified.
+`incident-responder` is the hackathon's hero project, and it used to be the one nobody could run:
+it was written against Sentry, so without a Sentry account it could not even be applied to the
+harness. It now reaches [`ops-desk`](mcp/ops-desk/README.md), a small MCP server that ships in this
+repo - alerts to read, deploys to correlate them against, and two remediations behind the gate.
+No account, no key.
+
+```bash
+npm run ops-desk    # in one terminal
+npm run agents:apply
+npm run agent -- --agent incident-responder "Alert ALRT-4471 is firing on checkout-api. Investigate it, and if a deploy caused it, roll that deploy back."
+```
+
+```text
+  -- APPROVAL REQUIRED ------------------------------
+  tool: rollback_deploy
+    reason: payment-gateway timeout reduced from 5000ms to 2000ms causing error rate spike at 14:00
+    deploy_id: 4c21
+  allow / deny > deny
+  -> denied
+
+  [tool] refused: rollback_deploy
+  refused at the gate: 1 (not counted as evidence)
+```
+
+That gate fires from the tool's own `destructiveHint` annotation rather than from a name in the
+spec, which is the part worth pointing at: it is the selector machinery working as designed,
+against a connector whose annotations are correct. The shipped deepwiki server publishes none at
+all, which is the fail-open hole `SECURITY.md` describes and why the specs reach it by name.
+
+`desk-assistant` still needs Linear, and is skipped by `agents:apply` until that connector is
+configured. Its write tools are not enabled either, because that connector's annotations have not
+been audited and this project's rule is not to rely on selectors it has not verified.
 
 `code-runner` is the odd one: subagents are switched **off** for it. It runs code somebody else
 wrote, so widening the blast radius by handing that code to more agents is the wrong direction.
@@ -238,13 +267,20 @@ from recorded tool responses, never from the agent's narration.
 ## Development
 
 ```bash
-npm test                  # 37 tests: evidence rules, contrast, report rendering
+npm run check             # lint, typecheck, 169 tests, and the fixture check - what CI runs
+npm test                  # the root suite alone
 npm run fixtures:check    # the fixtures must still fail
 npm run tools:audit       # every reachable tool is gated as claimed
-cd ui && npm run build    # the interface compiles
+npm run ops-desk          # the MCP server the incident responder investigates
+cd ui && npm run test:unit && npm run build   # 120 tests, then the interface compiles
 ```
 
-CI runs all of it on every pull request.
+CI runs all of it on every pull request. [`TESTING.md`](TESTING.md) covers how the suites are
+organised and the rules they are written under - including the six times a test here agreed with
+the bug it was supposed to catch, which is why anything that matters is mutation-checked.
+
+Never pipe a test command into `grep`: `npm test | grep FAIL` reports **grep's** exit code, so a
+red suite reads as green. That mistake shipped from here once.
 
 `zustand@^5` is pinned as a direct dependency in `ui/` on purpose. Without it `@openuidev/*` hoists
 zustand 4.5.7 to the root, `@assistant-ui/core` cannot find `useShallow`, and the build fails.
