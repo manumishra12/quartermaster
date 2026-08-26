@@ -1,6 +1,6 @@
 # Testing
 
-197 tests in the root suite, 120 in the UI, one mount test, and a fixture check. What follows is
+200 tests in the root suite, 120 in the UI, one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
 
@@ -37,7 +37,7 @@ flowchart TD
     RP["report.test.mjs<br/>9 - the written evidence"]
     EN["env.test.mjs<br/>8 - config loading"]
     TS["turn-state.test.mjs<br/>7 - why a turn ended"]
-    CA["connector-advice.test.mjs<br/>5 - what to tell a person"]
+    CA["connector-advice.test.mjs<br/>8 - what to tell a person"]
     CO["contrast.test.mjs<br/>23 - palette contrast"]
     OD["ops-desk/server.test.mjs<br/>9 - incident fixture server"]
     FD["front-desk/server.test.mjs<br/>13 - workspace fixture server"]

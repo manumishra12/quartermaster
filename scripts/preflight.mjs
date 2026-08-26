@@ -8,7 +8,7 @@
  *   npm run preflight
  */
 import { readdirSync, readFileSync } from 'node:fs';
-import { connectorAdvice, connectorReason } from './lib/connector-advice.mjs';
+import { describeConnectorFailure } from './lib/connector-advice.mjs';
 import { join } from 'node:path';
 import { classify, ungatedRisks } from './lib/annotations.mjs';
 import { loadEnv } from './lib/env.mjs';
@@ -160,12 +160,8 @@ try {
          * credentials for a process they only needed to start. Being confidently unhelpful is the
          * failure this project is about; it does not get a pass in the tool that checks for it.
          */
-        record(
-          false,
-          `Connector: ${name}`,
-          `cannot list tools - ${connectorReason(err.message)}`,
-          connectorAdvice(name, err.message),
-        );
+        const failure = describeConnectorFailure(name, err.message);
+        record(false, `Connector: ${name}`, `cannot list tools - ${failure.reason}`, failure.advice);
       }
     }
   }
