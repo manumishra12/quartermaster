@@ -15,7 +15,7 @@ export default tseslint.config(
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'module',
-      globals: { process: 'readonly', console: 'readonly', fetch: 'readonly', URL: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly' },
+      globals: { process: 'readonly', console: 'readonly', fetch: 'readonly', URL: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly', TextEncoder: 'readonly' },
     },
     rules: {
       // A promise nobody waits for is how a run finishes before its work does.

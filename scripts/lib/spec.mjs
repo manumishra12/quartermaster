@@ -127,6 +127,27 @@ export function validateSpec(spec, filename = 'spec') {
     say('skills are attached but the sandbox is not enabled - the harness rejects this');
   }
 
+  /**
+   * Every spec states its sandbox setting, rather than inheriting one by omission.
+   *
+   * There is no shared safety block to derive from - specs are plain JSON with no include
+   * mechanism, and inventing one would put a build step between a reviewer and the policy they
+   * are reading. The alternative to a shared block is not silent divergence, though: it is that
+   * divergence fails a check. So the choice has to be written down in every spec, where a reviewer
+   * reading one file can see it, and an agent without a sandbox has to have nothing that needs one.
+   */
+  if (typeof m.config?.sandbox?.enabled !== 'boolean') {
+    say('config.sandbox.enabled must be stated explicitly, so no agent gets its sandbox policy by omission');
+  }
+  if (m.config?.sandbox?.enabled === false) {
+    if (m.config?.sandbox?.file_downloads) {
+      say('sandbox is disabled but file_downloads is set - one of the two is wrong');
+    }
+    if (m.config?.dynamic_sub_agents?.enabled === true) {
+      say('sandbox is disabled but subagents are enabled - a spec with nowhere safe to run should not be spawning more agents');
+    }
+  }
+
   // Invariants the documentation states as guarantees. SECURITY.md says code-runner runs with
   // subagents disabled and asks that the property be kept; nothing was keeping it.
   if (spec.name === 'code-runner' && m.config?.dynamic_sub_agents?.enabled !== false) {
