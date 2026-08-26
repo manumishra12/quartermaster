@@ -5,6 +5,42 @@
 An agent that never says "I fixed it." It shows you the test output that proves it, then asks
 permission before touching anything outside the sandbox.
 
+## The shape of it
+
+```mermaid
+flowchart LR
+  subgraph you[" "]
+    CLI["scripts/run.mjs<br/>headless runner"]
+    UI["ui/<br/>TrueForge UI SDK"]
+  end
+
+  subgraph harness["TrueForge harness :8790"]
+    LOOP["agent loop"]
+    GATE{{"approval gate<br/>require_approval_for_tools"}}
+    SBX["sandbox"]
+  end
+
+  subgraph outside["reached, not mocked"]
+    GH["GitHub"]
+    OPS["ops-desk<br/>local MCP"]
+    WEB["Exa / deepwiki"]
+  end
+
+  CLI --> LOOP
+  UI --> LOOP
+  LOOP --> SBX
+  LOOP --> GATE
+  GATE -->|"allowed by a person"| GH
+  GATE -->|"allowed by a person"| OPS
+  LOOP -->|"read-only, ungated"| WEB
+  LOOP -.->|"event stream"| EV["evidence verifier<br/>scripts/lib/evidence.mjs"]
+  EV --> REP["evidence/&lt;session&gt;/report.md"]
+```
+
+The dotted line is the one that matters. The verifier reads the harness's recorded event stream,
+which the model cannot write to - so a claim in the answer is checked against something the author
+of the claim did not produce.
+
 ## The problem
 
 Coding agents claim. They say "I've fixed the failing test" and you find out they didn't when CI
@@ -60,6 +96,29 @@ first; breadth is bonus, never at the cost of depth.
 
 ## The evidence check — why instructions are not enough
 
+```mermaid
+flowchart TD
+  A["answer text + recorded executions"] --> B{"any answer text?"}
+  B -->|no| NA["NO_ANSWER<br/>nothing was captured, and that is not a pass"]
+  B -->|yes| C{"does it claim<br/>a passing result?"}
+  C -->|no| NC1["NO_CLAIM"]
+  C -->|yes| D{"did anything<br/>run at all?"}
+  D -->|no| U1["UNSUBSTANTIATED<br/>claimed a pass, executed nothing"]
+  D -->|yes| E{"is the claim<br/>about tests?"}
+  E -->|no| NC2["NO_CLAIM<br/>this check reads test results only"]
+  E -->|yes| F{"any recorded<br/>test run?"}
+  F -->|no| U2["UNSUBSTANTIATED"]
+  F -->|yes| G{"did the last<br/>run pass?"}
+  G -->|no| CON["CONTRADICTED<br/>the answer says green, the run says red"]
+  G -->|yes| S["SUBSTANTIATED"]
+```
+
+`CONTRADICTED` is the verdict the whole thing exists for: the agent said it passed and the recorded
+run says otherwise. `NO_CLAIM` is the one that took the longest to get right - six of the seven
+agents never run tests, and demanding a test run of a research agent is the same failure as
+blessing a lie, pointed the other way.
+
+
 During development the agent was asked to fix a failing test. It produced a correct-looking analysis
 and this:
 
@@ -106,6 +165,32 @@ nothing is replayed twice. If it finished while we were gone, it rebuilds from `
 2. Never claim a result that was not executed. No run, no claim.
 3. Minimal diff. One root cause per patch.
 4. Nothing leaves the sandbox **through a gated tool** without approval.
+
+## What a gated turn actually does
+
+```mermaid
+sequenceDiagram
+  participant P as person
+  participant R as run.mjs
+  participant H as harness
+  participant T as gated tool
+
+  P->>R: a job to do
+  R->>H: create turn
+  H-->>R: tool.response (read-only calls)
+  H->>H: agent decides to call a gated tool
+  H-->>R: tool.approval_required
+  R->>P: describeCall() - owner, repo, paths, file bodies
+  Note over R,P: the turn is stopped server-side<br/>until an answer arrives for this toolCallId
+  P-->>R: deny
+  R->>H: user.tool_approval { status: deny }
+  H-->>R: tool.response (refused)
+  Note over R: recorded as refused,<br/>never counted as an execution
+  R->>R: judge() + write evidence report
+```
+
+A pipe can answer `deny` here but never `allow`: authorising something irreversible requires a
+person at a terminal, because a token in a file is not somebody deciding.
 
 ## Where the gate does not reach
 
