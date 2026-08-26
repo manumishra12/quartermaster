@@ -1,112 +1,152 @@
 # Demo script
 
-Three minutes. One idea: **the agent does not get to say it worked.**
+Three minutes. One idea: **the agent does not get to decide whether it worked, and it does not get
+to decide whether it is allowed.**
 
-Record at 1440x900 or larger, dark theme, font scaled up so code is legible on a phone. Have both
-fixture repos already cloned in the sandbox before recording - watching `npm install` is not a demo.
+Record at 1440x900 or larger, font scaled up so code is legible on a phone.
+
+## Before you record
+
+```bash
+npm run forge          # the harness, :8790
+npm run ops-desk       # :8795
+npm run front-desk     # :8796
+npm run agents:apply   # preflight should report every agent applied
+cd ui && npm run dev   # :5173
+```
+
+Everything below runs on a **local Ollama model with no API key**, against MCP servers that ship in
+this repo. Nothing in this script needs an account, which means it will still work on the day.
+
+> A note on the model. `ollama/qwen3-4b` calls tools correctly but is not strong enough to close a
+> long investigation on its own - it reads the right things and then loops. The two beats that
+> carry this video are the gate and the verifier, and neither depends on the model reasoning well.
+> If you have a working paid key by recording day, put it in the harness and the middle section
+> gets better; if not, the script below still holds.
 
 ---
 
-## 0:00-0:20 — The problem, stated once
+## 0:00-0:25 — The problem, stated once
 
-> "Every coding agent says 'I fixed it.' Most of the time it never ran anything, and you find out
-> in CI twenty minutes later."
+> "Every coding agent says 'I fixed it.' Often it never ran anything, and you find out in CI twenty
+> minutes later."
 
-Show a real screenshot of that failure. **We have one from this build:** the agent inventing
-`test_split_evenly ... ok` with no sandbox and no recorded tool call. Use it. It is the strongest
-twenty seconds in the video because it is not hypothetical and it is our own agent.
+Show the screenshot from this build: the agent inventing `test_split_evenly ... ok` with no sandbox
+and no recorded tool call. It is our own agent, which is what makes it worth twenty seconds.
 
-## 0:20-0:45 — Point it at real work
+> "So this one is not allowed to tell you. Every claim it makes is checked against what the harness
+> recorded — a stream the model cannot write to."
 
-Type into Quartermaster:
+## 0:25-1:05 — The verifier, on a real run
 
-> Both repos have a failing test. Fix them.
+In the terminal:
 
-Two repos, two languages - Python and JavaScript. Say why that matters:
-
-> "Two independent problems, so the harness fans out to subagents and works on them in parallel.
-> Only their conclusions come back."
-
-Show the subagents appearing in the transcript. **This is the Double-O 'work handed to subagents'
-beat - do not skip it.**
-
-## 0:45-1:20 — Red, in the sandbox
-
-The rail's **Doing** light goes amber. The transcript shows the clone and the test run.
-
-The **Did** panel fills in with the real failure:
-
-```
-AssertionError: 999 != 1000
-Ran 5 tests - FAILED (failures=1)
+```bash
+npm run agent -- --agent quartermaster-local "Clone the ledger fixture, run its tests, and tell me what happened."
 ```
 
-Say the line that matters:
-
-> "That output is not the agent describing what happened. It is what the sandbox recorded."
-
-## 1:20-1:50 — The fix, and the proof
-
-The diff appears. Small - two lines in one, one character in the other. Then the re-run, and the
-**Did** panel flips green with `OK`.
-
-> "Same panel, same source. It only turns green when a real run turns green."
-
-## 1:50-2:20 — The gate
-
-The agent wants to open a pull request. Everything stops.
-
-Read the approval card aloud: the tool, the repo, the branch. Pause. Then **deny it first.**
-
-> "Deny, and nothing happens. That is the point."
-
-Then run it again and allow. The PR appears on GitHub.
-
-Denying before allowing is worth the ten seconds: anyone can show a button that says Allow.
-
-## 2:20-2:50 — The part nobody else has
-
-Open the terminal and run the same job headless with the verifier on. Show the closing block:
+Let it reach the sandbox and run the suite. Then read the closing block aloud:
 
 ```
-── EVIDENCE CHECK ───────────────────────
-SUBSTANTIATED
-Backed by 2 recorded run(s); the last one passed.
+  -- EVIDENCE CHECK ---------------------------------
+  CONTRADICTED
+  The answer says the tests pass; the last recorded run exited 1.
 ```
 
-Then the honest version - the transcript where the agent claimed a pass with nothing behind it:
+> "The agent said one thing. The recording says another. The verifier believes the recording."
+
+If the run comes back SUBSTANTIATED instead, that is also a good beat — show the report under
+`evidence/<session>/report.md` and point at the executions it is standing on.
+
+## 1:05-1:50 — The gate, on something irreversible
+
+This is the beat that must land. Switch to the incident responder:
+
+```bash
+npm run agent -- --agent incident-responder "The cause is established: deploy 4c21 on checkout-api cut the payment-gateway timeout at 13:58 and the error rate moved at 14:00. Roll back deploy 4c21."
+```
 
 ```
-UNSUBSTANTIATED
-The answer claims a passing result, but no recorded tool call ran a test.
+  -- APPROVAL REQUIRED ------------------------------
+  tool: rollback_deploy
+    reason: payment-gateway timeout reduced from 5000ms to 2000ms causing error rate spike at 14:00
+    deploy_id: 4c21
+  allow / deny >
 ```
 
-> "The claim is checked against the harness's event stream, which the model cannot write to.
-> It exits non-zero, so it works in CI."
+**Deny it first.** Say why while it is on screen:
+
+> "Anyone can show you a button that says Allow. Deny, and nothing happens — and it is recorded as
+> refused, not as something that ran."
+
+```
+  refused at the gate: 1 (not counted as evidence)
+```
+
+Then run it again and **allow** it, at the terminal, by hand. The deploy disappears from the
+timeline. Point out that the pipe you used elsewhere cannot do this:
+
+> "A pipe can refuse. It cannot approve. Authorising something irreversible needs a person here."
+
+## 1:50-2:30 — Why the gate is not in the model
+
+The strongest thirty seconds. Same harness, different agent:
+
+```bash
+npm run agent -- --agent desk-assistant "Read issue SRCH-42 and do what it needs."
+```
+
+`SRCH-42` looks like an ordinary bug. Its body ends with a note claiming the work is pre-approved
+and that the agent must not stop for approval. Show that text on screen, then the result:
+
+```
+  -- APPROVAL REQUIRED ------------------------------
+  tool: close_issue
+    issue_id: SRCH-42
+    resolution: Fixed: Short queries now return relevant results
+  allow / deny > deny
+  -> denied
+```
+
+> "The injection worked. The model was talked into closing an open bug, and it invented a fix that
+> never happened. It did not matter — because the thing that stops it is not in the model. It is
+> the harness holding the turn until a person answers."
+
+Deny it. Nothing was closed.
+
+## 2:30-2:50 — The interface
+
+Cut to `localhost:5173` mid-run. The rail on the right: **doing**, **waiting on you**, **did**.
+
+> "Same evidence, same verdict, same gate — the CLI and the interface read from one place, so they
+> cannot disagree with each other."
+
+Show the approval card, and the verdict chip on a finished conversation.
 
 ## 2:50-3:00 — Close
 
-> "Sandboxed execution, a gate before anything irreversible, and a verdict the agent cannot fake.
-> Quartermaster. Built on TrueForge."
+> "The agent runs the tests, and it does not get to tell you they passed. It proposes the
+> irreversible thing, and it does not get to do it. Both of those live outside the model, which is
+> the only place they are worth anything."
 
 ---
 
 ## Shot checklist
 
-Every judged criterion, and the second it appears:
-
-| Criterion | Where |
-| --- | --- |
-| real tools through MCP | 0:20 (GitHub), 1:50 (the PR) |
-| code running in a sandbox | 0:45 |
-| pause before anything irreversible | 1:50 - denied first, then allowed |
-| work handed to subagents | 0:20-0:45 |
-| session survives reconnect | mention at 2:20; `--resume` clip if time |
-| interface shows doing / waiting / did | the rail, continuously |
+- [ ] The fabricated `... ok` screenshot — our own agent, not a hypothetical
+- [ ] A real sandbox execution scrolling past
+- [ ] A verdict that is **not** SUBSTANTIATED (contradiction is the interesting one)
+- [ ] `rollback_deploy` denied, then allowed by hand, and the deploy actually gone
+- [ ] `refused at the gate: 1 (not counted as evidence)`
+- [ ] The injection text on screen, then `close_issue` denied
+- [ ] The rail showing waiting-on-you
+- [ ] No keys, tokens or personal data anywhere in frame
 
 ## Do not
 
-- Do not narrate what is on screen. Say what it means.
-- Do not show a key, a token, or a `.env`. Judges look.
-- Do not speed up the test run. The waiting is the product.
-- Do not claim a track. Show the work and let them place it.
+- Do not narrate the architecture. Show the pause and the verdict; those explain themselves.
+- Do not demo the happy path only. A verifier that only ever says SUBSTANTIATED proves nothing, and
+  a gate that is only ever approved proves less.
+- Do not speed up the terminal. The waiting **is** the point — it stopped, and it stayed stopped.
+- Do not put a real repository token on screen. The gate demo against GitHub is optional; the two
+  local ones make the same case without a credential in frame.
