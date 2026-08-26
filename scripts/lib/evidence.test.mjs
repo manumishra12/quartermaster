@@ -568,6 +568,25 @@ test('a branch a literal guard skips is not a run', () => {
   assert.equal(looksLikeTestCommand('[ -f setup.py ] && pytest -q'), true);
 });
 
+test('a dead chain stays dead, and a live one stays live', () => {
+  /**
+   * What decides this is the status of the list so far, not the operand immediately before.
+   * Checking only each operand's predecessor kept the pytest in the first of these, where the
+   * whole chain is skipped and the echoed marker supplies the output to match it.
+   */
+  assert.equal(looksLikeTestCommand(`false && echo skipped && pytest -q; echo '1 passed'`), false);
+
+  // The other direction, where a skipped operand does not make what follows unreachable.
+  assert.equal(looksLikeTestCommand('true || echo a && pytest -q'), true);
+  assert.equal(looksLikeTestCommand('false && echo a || pytest -q'), true);
+});
+
+test('control flow inside quotes is not control flow', () => {
+  // Splitting without regard for quoting read this as a chain and discarded the substitution the
+  // shell genuinely runs, turning a truthful passing claim into an unsupported one.
+  assert.equal(looksLikeTestCommand('echo "x;false && $(pytest -q)"'), true);
+});
+
 test('escaped and nested forms resolve to what the shell would do', () => {
   // $'...' decodes escapes, so this delimiter is EOF and the body ends at the real terminator.
   assert.equal(looksLikeTestCommand("cat <<$'E\\x4fF'\nEx4f\npytest\n1 passed\nEOF"), false);

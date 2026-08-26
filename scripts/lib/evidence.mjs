@@ -169,32 +169,99 @@ function decodeAnsiEscape(line, at) {
 }
 
 /**
- * Drop the branches a literal guard makes unreachable.
+ * Quoted characters, blanked but not removed.
  *
- * `false && echo "$(pytest -q)"` never runs pytest, but every branch was unwrapped regardless, so
- * the substitution was pulled out and counted while a separate `echo '1 passed'` supplied output
- * to match it. Only a literal `false` before `&&` or a literal `true` before `||` is treated this
- * way: deciding in general which branches a shell takes is not something a reader of the command
- * can do, and guessing at `$X && pytest` would start discarding real runs. The wider limit is
- * documented on looksLikeTestCommand.
+ * Splitting on separators without regard for quoting read `echo "x;false && $(pytest -q)"` as
+ * control flow and discarded a substitution the shell really runs. Each quoted character becomes a
+ * placeholder of the same width, so positions still line up with the original and the text can be
+ * sliced back out of it intact.
  */
+function maskQuoted(text) {
+  const out = [...text];
+  let quote = null;
+  for (let i = 0; i < out.length; i += 1) {
+    const c = out[i];
+    if (quote === "'") {
+      if (c === "'") quote = null;
+      else out[i] = 'Q';
+      continue;
+    }
+    if (c === '\\') {
+      if (i + 1 < out.length) out[i + 1] = 'Q';
+      i += 1;
+      continue;
+    }
+    if (c === '"') {
+      quote = quote === '"' ? null : '"';
+      continue;
+    }
+    if (c === "'") {
+      quote = "'";
+      continue;
+    }
+    if (quote === '"') out[i] = 'Q';
+  }
+  return out.join('');
+}
+
+/**
+ * The operands of one and-or list that the shell would actually reach.
+ *
+ * What decides this is the status of the list so far, not the operand immediately before: in
+ * `false && echo skipped && pytest -q` the whole chain is dead, and checking only each operand's
+ * predecessor kept the pytest. Statuses that cannot be read are left unknown, which runs
+ * everything - guessing at `$GUARD && pytest` would discard real work.
+ */
+function liveOperands(code, masked, from, to) {
+  const breaks = [];
+  for (let i = from; i < to - 1; i += 1) {
+    const pair = masked.slice(i, i + 2);
+    if (pair === '&&' || pair === '||') {
+      breaks.push({ at: i, operator: pair });
+      i += 1;
+    }
+  }
+
+  const operands = [];
+  let start = from;
+  for (const brk of breaks) {
+    operands.push({ start, end: brk.at, operator: brk.operator });
+    start = brk.at + 2;
+  }
+  operands.push({ start, end: to, operator: null });
+
+  const kept = [];
+  let status = 'unknown';
+  let skipping = false;
+
+  for (const operand of operands) {
+    const text = code.slice(operand.start, operand.end);
+    if (!skipping) {
+      kept.push(text);
+      const word = masked.slice(operand.start, operand.end).trim();
+      // Only the two the shell defines. Anything else could go either way and is left unknown.
+      status = word === 'true' ? 'success' : word === 'false' ? 'failure' : 'unknown';
+    }
+    // A skipped operand runs nothing, so it cannot change the status the next operator reads.
+    if (operand.operator === '&&') skipping = status === 'failure';
+    else if (operand.operator === '||') skipping = status === 'success';
+  }
+
+  return kept;
+}
+
+/** Drop the branches a literal guard makes unreachable. `;` and a newline start a new list. */
 function reachableBranches(code) {
-  // A guard only reaches to the end of its and-or list: `;` and a newline start a new one, so
-  // `false && pytest; pytest -q` still runs the second.
-  return code
-    .split(/[;\n]/)
-    .map((statement) => {
-      const parts = statement.split(/(&&|\|\|)/);
-      const kept = [];
-      for (let i = 0; i < parts.length; i += 2) {
-        const guard = parts[i - 2]?.trim();
-        const operator = parts[i - 1];
-        const dead = (operator === '&&' && guard === 'false') || (operator === '||' && guard === 'true');
-        if (!dead) kept.push(parts[i]);
-      }
-      return kept.join(' && ');
-    })
-    .join('\n');
+  const masked = maskQuoted(code);
+  const kept = [];
+  let from = 0;
+  for (let i = 0; i <= masked.length; i += 1) {
+    if (i === masked.length || masked[i] === ';' || masked[i] === '\n') {
+      kept.push(...liveOperands(code, masked, from, i));
+      from = i + 1;
+    }
+  }
+  return kept.join('\n');
 }
 
 function heredocsOn(line) {
