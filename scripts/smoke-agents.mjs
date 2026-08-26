@@ -34,7 +34,12 @@ const only = flagValue('agent');
  * is indistinguishable from a broken harness and useless in CI.
  */
 const budgetArg = flagValue('budget');
-const BUDGET_SECONDS = budgetArg === null ? 180 : Number(budgetArg);
+/**
+ * 180 seconds suits an unloaded machine. A small local model on a busy one takes minutes per turn,
+ * so the limit is raisable rather than fixed - a slow machine is not a broken agent, and a suite
+ * that cannot tell the difference is not worth running.
+ */
+const BUDGET_SECONDS = budgetArg === null ? Number(process.env.SMOKE_BUDGET_SECONDS ?? 180) : Number(budgetArg);
 if (!Number.isFinite(BUDGET_SECONDS) || BUDGET_SECONDS <= 0) {
   console.error(`--budget must be a positive number of seconds, got ${JSON.stringify(budgetArg)}`);
   process.exit(2);
@@ -89,6 +94,18 @@ const CASES = [
 
 const client = new TrueForge({ baseUrl: BASE, timeoutInSeconds: 900 });
 
+/**
+ * A sandbox that was not ready yet, rather than an agent that could not reach it.
+ *
+ * `fork/exec /usr/bin/bash: no such file or directory` with exit -1 is the sandbox filesystem not
+ * mounted at the moment the command ran - bash is plainly there, since another case used it a
+ * minute earlier. Reporting that as "the agent never reached its tools" sends someone to check
+ * the agent, the connector and the model, none of which is wrong.
+ */
+function sandboxNotReady(recorded) {
+  return recorded.some((r) => /fork\/exec|no such file or directory|sandbox (not|is not) ready/i.test(r.output ?? ''));
+}
+
 async function runCase(testCase) {
   const started = Date.now();
   let session;
@@ -140,6 +157,37 @@ async function runCase(testCase) {
   if (recorded.length === 0) {
     return { ...testCase, ok: false, seconds, why: 'nothing was recorded - the agent never called a tool' };
   }
+  if (sandboxNotReady(recorded)) {
+    return {
+      ...testCase,
+      ok: false,
+      seconds,
+      sandbox: true,
+      why:
+        'the sandbox was not ready when the command ran - this is the harness, not the agent\n' +
+        recorded.map((r, i) => `                       [${i}] exit ${r.exitCode} ${JSON.stringify((r.output ?? '').slice(0, 120))}`).join('\n'),
+    };
+  }
+
+  /**
+   * A tool response that carries no result at all.
+   *
+   * Every recorded execution with a null exit code and empty output means the harness logged the
+   * call and never got an answer back - a turn cut short, usually because the machine is loaded
+   * and the model timed out mid-call. Reporting that as "none matched /regex/" points whoever
+   * reads it at the assertion, which is the one thing that is definitely not wrong.
+   */
+  if (recorded.every((r) => r.exitCode === null && !(r.output ?? '').trim())) {
+    return {
+      ...testCase,
+      ok: false,
+      seconds,
+      why:
+        `${recorded.length} tool response(s) recorded, all empty - the turn was cut short before any ` +
+        'result came back. Check whether the model is keeping up; --budget raises the limit.',
+    };
+  }
+
   const matched = recorded.some((r) => testCase.expect.test(r.output));
   return {
     ...testCase,
@@ -165,9 +213,22 @@ console.log(`\nSmoke testing ${selected.length} agent(s) against ${BASE}\n`);
 const results = [];
 for (const testCase of selected) {
   process.stdout.write(`  ${testCase.agent.padEnd(20)} ${testCase.what} ... `);
-  const result = await runCase(testCase);
+  let result = await runCase(testCase);
+  /**
+   * One retry, and only for a sandbox that was not ready - never for a wrong answer.
+   *
+   * The retry is announced rather than hidden. A suite that quietly re-runs until it passes is a
+   * suite that tells you nothing, and the number of retries is itself a fact about the harness
+   * worth seeing.
+   */
+  if (!result.ok && result.sandbox) {
+    console.log('sandbox not ready, retrying once');
+    process.stdout.write(`  ${testCase.agent.padEnd(20)} ${testCase.what} ... `);
+    result = await runCase(testCase);
+    result.retried = true;
+  }
   results.push(result);
-  console.log(result.ok ? `ok (${result.seconds}s)` : 'FAILED');
+  console.log(result.ok ? `ok (${result.seconds}s)${result.retried ? ' after one retry' : ''}` : 'FAILED');
   if (!result.ok) console.log(`  ${' '.repeat(20)} ${result.why}`);
 }
 
@@ -178,6 +239,8 @@ if (failed.length) {
   console.log('  A failure here is one of three things:');
   console.log('    - the agent is not applied      -> npm run agents:apply');
   console.log('    - its connector is unconfigured -> npm run preflight');
-  console.log('    - the model cannot call tools   -> a small local model will print tool calls as text\n');
+  console.log('    - the model cannot call tools   -> a small local model will print tool calls as text');
+  console.log('    - the sandbox was not ready     -> named as such above; it is the harness, not the agent');
+  console.log('    - the machine is loaded         -> empty tool responses; raise --budget or free the machine\n');
   process.exit(1);
 }

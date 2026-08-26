@@ -120,9 +120,33 @@ names, so a test fails when the control becomes unusable rather than when the ma
 fixtures:check` asserts they are **still broken** — a fixture that quietly starts passing turns the
 whole demonstration into a tautology, and CI runs this as its own job so it cannot be missed.
 
-## What is not covered
-
 Stated plainly, rather than left for someone to discover:
+
+### Smoke testing the agents
+
+`npm run smoke` runs each credential-free agent against the real harness and checks that the
+harness **recorded** an execution matching what was asked - the same rule as the evidence check:
+the transcript is the agent's account, the event stream is what happened.
+
+```bash
+npm run smoke                          # every case
+npm run smoke -- --agent analytics     # one
+SMOKE_BUDGET_SECONDS=420 npm run smoke # a loaded machine, or a slow local model
+```
+
+It distinguishes the ways a case can fail, because they send you to different places:
+
+| what it says | what it means |
+| --- | --- |
+| `no tool call within Ns` | the agent never called anything - check the model can call tools |
+| `N tool response(s) recorded, all empty` | the turn was cut short; the machine is loaded, raise the budget |
+| `the sandbox was not ready` | the harness, not the agent. Retried once, and the retry is announced |
+| `none matched /regex/` | it ran something and the answer was wrong. This is the interesting one |
+
+That table exists because the suite used to report all four as the last one, which points at the
+assertion - the only part that is definitely not wrong.
+
+### What is not covered
 
 - **No end-to-end test drives a real model.** Runs cost money and quota, and a flaky suite that
   depends on a provider is worse than an honest gap. The recorded sessions under `evidence/` are
