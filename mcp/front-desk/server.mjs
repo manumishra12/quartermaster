@@ -46,6 +46,15 @@ const text = (value) => ({
 
 const notFound = (message, known) => text({ error: 'not_found', message, known });
 
+/**
+ * Whether a field was actually given.
+ *
+ * A string of spaces looks present to every truthiness check and is not a title, a body, a
+ * priority or a resolution. Accepting one files an issue with a blank required field and reports
+ * it as filed, which is the same false record as any other - just harder to see.
+ */
+const given = (value) => typeof value === 'string' && value.trim().length > 0;
+
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const WRITES = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
 const DESTRUCTIVE = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false };
@@ -142,7 +151,8 @@ function buildServer() {
        * The instructions say to ask when a required field is genuinely ambiguous rather than infer
        * it or leave it blank hoping nobody notices. This is what makes that more than advice.
        */
-      const missing = found.required_fields.filter((field) => !{ title, body, assignee, priority }[field]);
+      const supplied = { title, body, assignee, priority };
+      const missing = found.required_fields.filter((field) => !given(supplied[field]));
       if (missing.length > 0) {
         return text({
           error: 'missing_fields',
@@ -177,10 +187,35 @@ function buildServer() {
       const issue = state.issues.find((i) => i.id === issue_id);
       if (!issue) return notFound(`No issue with id ${issue_id}.`, state.issues.map((i) => i.id));
 
-      const applied = Object.entries(changes).filter(([, value]) => value !== undefined && value !== null);
-      // An edit that changes nothing is not an edit, and recording it as one is a false record.
+      const offered = Object.entries(changes).filter(([, value]) => value !== undefined && value !== null);
+
+      /**
+       * A field that was named but is blank is an attempt to erase it, not to change it. Assignee
+       * is required on every project here, so clearing it would leave the issue in a state the
+       * desk would refuse to create - and it slipped past the existence check, which only ran when
+       * the value was truthy.
+       */
+      const blank = offered.filter(([, value]) => !given(value)).map(([field]) => field);
+      if (blank.length > 0) {
+        return text({
+          error: 'missing_fields',
+          message: `${blank.join(', ')} cannot be set to nothing on ${issue_id}. Nothing was changed.`,
+        });
+      }
+
+      /**
+       * And a value identical to the one already there is not a change. Recording it as one is
+       * exactly the false event this handler claims to prevent: an edit in the record that nobody
+       * would find any trace of in the issue.
+       */
+      const applied = offered.filter(([field, value]) => issue[field] !== value);
       if (applied.length === 0) {
-        return text({ error: 'no_changes', message: `Nothing was given to change on ${issue_id}.` });
+        return text({
+          error: 'no_changes',
+          message: offered.length === 0
+            ? `Nothing was given to change on ${issue_id}.`
+            : `${issue_id} already reads that way. Nothing was changed.`,
+        });
       }
 
       if (changes.assignee && !state.teammates.some((t) => t.handle === changes.assignee)) {
@@ -198,7 +233,8 @@ function buildServer() {
     {
       title: 'Close an issue',
       description: 'Close an issue. The team sees it disappear from their open list.',
-      inputSchema: { issue_id: z.string(), resolution: z.string() },
+      // Constrained in the schema so the refusal happens before the destructive branch is reached.
+      inputSchema: { issue_id: z.string().min(1), resolution: z.string().trim().min(1) },
       annotations: DESTRUCTIVE,
     },
     async ({ issue_id, resolution }) => {
@@ -209,6 +245,10 @@ function buildServer() {
        * Closing what is already closed changes nothing, and saying it did is a false record of a
        * state change - on the far side of an approval somebody just gave.
        */
+      if (!given(resolution)) {
+        return text({ error: 'missing_fields', message: `Closing ${issue_id} needs a resolution. Nothing was closed.` });
+      }
+
       if (issue.state === 'closed') {
         return text({
           error: 'already_closed',

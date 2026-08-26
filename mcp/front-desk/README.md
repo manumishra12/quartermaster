@@ -55,6 +55,10 @@ record through a human decision.
 | Close an issue that is already closed | `already_closed` — it would change nothing and say otherwise |
 | Edit with nothing to change | `no_changes` |
 | Message somebody who is not there | `not_found`, nothing sent |
+| Fill a required field with spaces | `missing_fields` — whitespace is not a value |
+| Edit a field to the value already there | `no_changes` — an edit nobody could find a trace of |
+| Edit a required field to nothing | `missing_fields` — erasing is not changing |
+| Close without a resolution | refused by the schema, before the destructive branch is reached |
 
 ## The injection, and why it is in the fixture
 

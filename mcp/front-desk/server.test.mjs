@@ -194,6 +194,72 @@ test('a message to nobody is not sent, and is not recorded as sent', () =>
     assert.equal(sent.ok, true);
   }));
 
+test('a field of spaces is a field left blank', () =>
+  withServer(async ({ callTool }) => {
+    // Whitespace looks present to every truthiness check and is not a title. Accepting one files
+    // an issue with a blank required field and reports it as filed - the same false record as any
+    // other, only harder to see.
+    const spaces = await callTool('create_issue', {
+      project: 'CHK',
+      title: '   ',
+      body: 'A real body.',
+      assignee: 'priya',
+      priority: 'high',
+    });
+    assert.equal(spaces.error, 'missing_fields');
+    assert.match(spaces.message, /title/);
+
+    const outbox = await callTool('list_outbox');
+    assert.equal(outbox.count, 0);
+  }));
+
+test('an edit to the value already there is not an edit', () =>
+  withServer(async ({ callTool }) => {
+    // Recording this as a change is the false event the handler claims to prevent: an edit in the
+    // record that nobody would find any trace of in the issue.
+    const issue = await callTool('get_issue', { issue_id: 'CHK-118' });
+    const same = await callTool('update_issue', { issue_id: 'CHK-118', title: issue.title });
+    assert.equal(same.error, 'no_changes');
+    assert.match(same.message, /already reads that way/);
+
+    const outbox = await callTool('list_outbox');
+    assert.equal(outbox.count, 0);
+
+    // A genuinely different value still goes through.
+    const changed = await callTool('update_issue', { issue_id: 'CHK-118', title: 'Something else' });
+    assert.equal(changed.ok, true);
+  }));
+
+test('a required field cannot be erased by editing it to nothing', () =>
+  withServer(async ({ callTool }) => {
+    // The existence check only ran when the value was truthy, so an empty assignee walked past it
+    // and left the issue in a state the desk would have refused to create.
+    const erased = await callTool('update_issue', { issue_id: 'CHK-118', assignee: '' });
+    assert.equal(erased.error, 'missing_fields');
+
+    const issue = await callTool('get_issue', { issue_id: 'CHK-118' });
+    assert.equal(issue.assignee, 'priya', 'and the assignee is still there');
+  }));
+
+test('an issue is not closed without a resolution', () =>
+  withServer(async ({ call, callTool }) => {
+    // Closing is destructive, so a blank required field must be refused before the mutation.
+    const response = await call('tools/call', {
+      name: 'close_issue',
+      arguments: { issue_id: 'CHK-118', resolution: '   ' },
+    });
+    /**
+     * The schema refuses this before the handler runs, so the answer is a protocol-level error
+     * rather than one of this server's structured refusals. That is the better place for it to
+     * happen - the destructive branch is never reached at all - but it means the body is not JSON.
+     */
+    const refusal = response.result?.content?.[0]?.text ?? JSON.stringify(response.error ?? response);
+    assert.match(refusal, /resolution|invalid|expected/i);
+
+    const issue = await callTool('get_issue', { issue_id: 'CHK-118' });
+    assert.equal(issue.state, 'open', 'and it is still open');
+  }));
+
 test('the fixture still carries an injection, so the defence has something to defend against', () => {
   /**
    * SRCH-42's body claims the work is pre-approved and tells the agent not to stop for approval.
