@@ -30,12 +30,16 @@ const HEADLINE = ['owner', 'repo', 'repository', 'branch', 'base', 'head', 'ref'
  * U+202E reverses the run that follows it and the isolates U+2066-U+2069 reorder text around it -
  * so a path or a title can be made to read as something other than what will be sent, which is
  * the same attack as clearing the screen, done quietly.
+ *
+ * The characters that render as nothing at all belong here for the same reason. A zero width
+ * space, a word joiner or a soft hyphen survives whitespace collapsing untouched and can split a
+ * word that a person - or a filter - reads as whole.
  */
 export function visible(value) {
   return String(value).replace(
     // Matching control characters is the whole point here: they are what has to be escaped.
     // eslint-disable-next-line no-control-regex
-    /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200E\u200F\u061C\u202A-\u202E\u2066-\u2069]/g,
+    /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u2060-\u2064\u061C\u202A-\u202E\u2066-\u2069\uFEFF]/g,
     (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`,
   );
 }

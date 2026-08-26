@@ -122,3 +122,28 @@ test('a field name cannot forge a line of the prompt', () => {
   assert.doesNotMatch(out, /^bad$/m);
   assert.match(out, /bad\\nkey/);
 });
+
+test('characters that render as nothing at all are escaped too', () => {
+  /**
+   * A zero width space, a word joiner, a soft hyphen or a byte order mark survives whitespace
+   * collapsing untouched and renders as nothing, so it can split a word that a person - or a
+   * filter reading the same line - takes as whole.
+   */
+  const invisible = {
+    zwsp: String.fromCharCode(0x200b),
+    joiner: String.fromCharCode(0x2060),
+    shy: String.fromCharCode(0x00ad),
+    bom: String.fromCharCode(0xfeff),
+  };
+
+  const out = describeCall(
+    'create_or_update_file',
+    JSON.stringify({ path: `dan${invisible.zwsp}ger${invisible.joiner}ous${invisible.shy}${invisible.bom}` }),
+  ).join('\n');
+
+  for (const [name, character] of Object.entries(invisible)) {
+    assert.doesNotMatch(out, new RegExp(character), `${name} must not survive into what a person reads`);
+  }
+  assert.match(out, /\\x200b/);
+  assert.match(out, /\\xad/);
+});
