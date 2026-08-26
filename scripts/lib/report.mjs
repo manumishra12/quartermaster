@@ -6,7 +6,8 @@
  * codes, the captured output - not a summary of them. So every run writes both a machine-readable
  * record and something a person can read.
  */
-import { PHASES, judge, performed, progress, refused } from './evidence.mjs';
+import { PHASES, judge, performed, progress, refused, unexecutedToolCalls } from './evidence.mjs';
+import { renderUnexecutedCalls } from './render-call.mjs';
 
 const VERDICT_TEXT = {
   substantiated: 'SUBSTANTIATED',
@@ -141,5 +142,14 @@ function render(r, runs) {
   }
 
   lines.push('## Answer', '', r.answer || '(none)', '');
+
+  /**
+   * When the answer is a tool call written out as JSON, the section above is a wall of braces.
+   * This says what it meant, and that it never happened.
+   */
+  const printed = renderUnexecutedCalls(unexecutedToolCalls(r.answer ?? ''));
+  if (printed.length) {
+    lines.push('## What that answer was trying to do', '', ...printed.map((l) => l.trim()), '');
+  }
   return lines.join('\n');
 }

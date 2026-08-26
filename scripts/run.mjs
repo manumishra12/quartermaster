@@ -22,6 +22,8 @@ import { judge, performed, refused, resultOf, SUBSTANTIATED, NO_CLAIM } from './
 import { buildReport } from './lib/report.mjs';
 import { describeCall } from './lib/describe-call.mjs';
 import { endedBecause } from './lib/turn-state.mjs';
+import { unexecutedToolCalls } from './lib/evidence.mjs';
+import { renderUnexecutedCalls } from './lib/render-call.mjs';
 
 const argv = process.argv.slice(2);
 const flag = (name, fallback) => {
@@ -424,6 +426,12 @@ console.log(`  ${reason}`);
 const ran = performed(toolResponses);
 const stopped = refused(toolResponses);
 console.log(`  recorded executions: ${ran.length}, of which test runs: ${runs.length}`);
+/**
+ * The model printed a tool call instead of making one, so the answer above is a wall of JSON.
+ * Say what it meant in English - and say that it did not happen, which is the half a prettier
+ * rendering would quietly drop.
+ */
+for (const line of renderUnexecutedCalls(unexecutedToolCalls(finalText))) console.log(line);
 if (stopped.length) {
   console.log(`  refused at the gate: ${stopped.length} (not counted as evidence)`);
 }

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useComposerBusyState } from '@truefoundry/trueforge-ui';
 // @ts-expect-error - shared JS module, aliased in vite.config.ts
-import { PHASES, isGreen, progress, testRuns } from '@evidence';
+import { PHASES, isGreen, progress, testRuns, unexecutedToolCalls } from '@evidence';
+// @ts-expect-error - shared JS module, aliased in vite.config.ts
+import { renderUnexecutedCalls } from '@render-call';
 import { useAgentState } from './useAgentState';
 import { CheckIcon, ClockIcon, CloseIcon, CrossIcon, DotIcon, ExpandIcon, SpinnerIcon } from './icons';
 
@@ -109,7 +111,7 @@ function Steps({ index, settled, busy }: { index: number; settled: boolean; busy
 
 export function StatusRail() {
   const busy = useComposerBusyState() as unknown as boolean | { isBusy?: boolean } | null;
-  const { executions, pendingApprovals, respondToApproval, pendingQuestions, sandboxId } = useAgentState();
+  const { executions, finalText, pendingApprovals, respondToApproval, pendingQuestions, sandboxId } = useAgentState();
 
   const isBusy = typeof busy === 'boolean' ? busy : Boolean(busy?.isBusy);
 
@@ -123,6 +125,18 @@ export function StatusRail() {
   const runs = useMemo(() => testRuns(asResponses) as Run[], [asResponses]);
   const step = useMemo(() => progress(asResponses) as { index: number; label: string; settled: boolean }, [asResponses]);
   const last = runs[runs.length - 1];
+
+  /**
+   * A tool call the model wrote out instead of making.
+   *
+   * It arrives in the transcript as raw JSON, which reads as a question the agent is asking - and
+   * nothing is listening for an answer, because the call was never made. The rail says so in
+   * words, using the same renderer the CLI and the evidence report use.
+   */
+  const printed = useMemo(
+    () => renderUnexecutedCalls(unexecutedToolCalls(finalText)) as string[],
+    [finalText],
+  );
 
   return (
     <aside
@@ -172,6 +186,20 @@ export function StatusRail() {
               </span>
             )}
           </p>
+        )}
+        {printed.length > 0 && (
+          <div className="mb-3 rounded-lg border border-failed/40 bg-failed/5 p-3">
+            <p className="text-2xs font-medium uppercase tracking-[0.07em] text-failed">
+              Printed, not called
+            </p>
+            <ul className="mt-1.5 space-y-1 text-xs leading-snug text-ink">
+              {printed.map((line) => (
+                <li key={line} className={line.startsWith('      ') ? 'pl-3 text-muted' : ''}>
+                  {line.trim()}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
         {last ? (
           <Verdict last={last} />
