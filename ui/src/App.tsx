@@ -4,6 +4,7 @@ import { QuartermasterLayout } from './layout/QuartermasterLayout';
 import { ThemeContext } from './layout/ThemeContext';
 import { Welcome } from './layout/Welcome';
 import { ThreadList, ThreadRow } from './layout/ThreadRow';
+import { AgentStepsCard, ReasoningCard } from './layout/Steps';
 import { useTheme } from './layout/useTheme';
 import { tokensFor } from './theme';
 
@@ -37,6 +38,11 @@ const OVERRIDES = {
   WelcomeScreen: Welcome,
   ThreadListRow: ThreadRow,
   ThreadListShell: ThreadList,
+  // The agent's working is secondary to the answer, and the defaults give it the larger share of
+  // the screen: a one-line greeting arrived under eight lines of expanded reasoning. These collapse
+  // it to a line with a preview and put the answer back on top.
+  AgentStepsCard,
+  ReasoningCard,
 } as const;
 const BRAND = { name: 'Quartermaster', logo: { src: '/mark.svg' } } as const;
 

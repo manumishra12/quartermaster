@@ -187,3 +187,140 @@
 .qm-nums {
   font-variant-numeric: tabular-nums;
 }
+
+/* ---------------------------------------------------------------------------------------------
+ * Agent working: reasoning and steps.
+ *
+ * Both are secondary to the answer, and the sizing says so. The SDK's own cards are replaced
+ * through `overrides` rather than restyled from outside, so there is one set of rules here rather
+ * than a stack of selectors fighting the defaults.
+ * ------------------------------------------------------------------------------------------- */
+
+.qm-reasoning,
+.qm-steps {
+  margin: 0.5rem 0;
+  font-size: 0.8125rem;
+}
+
+.qm-reasoning-head,
+.qm-steps-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--qm-border-soft);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--qm-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.qm-reasoning-head:hover,
+.qm-steps-head:hover {
+  background: var(--qm-surface);
+  color: var(--qm-text);
+}
+
+/* The focus ring is the keyboard user's only cue that these are controls at all. */
+.qm-reasoning-head:focus-visible,
+.qm-steps-head:focus-visible {
+  outline: 2px solid var(--qm-accent);
+  outline-offset: 2px;
+}
+
+.qm-reasoning-chevron,
+.qm-steps-chevron {
+  flex: none;
+  transition: transform 140ms ease;
+}
+
+.qm-reasoning-chevron.is-open,
+.qm-steps-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.qm-reasoning-icon {
+  flex: none;
+  color: var(--qm-accent);
+}
+
+.qm-reasoning-label,
+.qm-steps-label {
+  flex: none;
+  font-weight: var(--font-weight-medium);
+  color: var(--qm-text);
+}
+
+/* The preview takes the slack and gives it back: one line, truncated, never wrapping. */
+.qm-reasoning-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--qm-muted);
+}
+
+.qm-reasoning-meta,
+.qm-steps-meta {
+  flex: none;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--qm-muted);
+}
+
+.qm-reasoning-body {
+  max-height: 16rem;
+  overflow-y: auto;
+  margin-top: 0.35rem;
+  padding: 0.6rem 0.75rem;
+  border-left: 2px solid var(--qm-border);
+  color: var(--qm-muted);
+  white-space: pre-wrap;
+  line-height: 1.55;
+}
+
+.qm-steps-body {
+  margin-top: 0.35rem;
+  padding-left: 0.5rem;
+}
+
+/* A turn with no tool calls took no steps worth a card, so it loses the box. */
+.qm-steps.is-quiet .qm-steps-head {
+  border-color: transparent;
+  padding-left: 0.1rem;
+}
+
+.qm-steps-pulse {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--qm-accent);
+  animation: qm-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes qm-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Motion here is decoration on a status that is also stated in words. */
+@media (prefers-reduced-motion: reduce) {
+  .qm-steps-pulse {
+    animation: none;
+    opacity: 1;
+  }
+
+  .qm-reasoning-chevron,
+  .qm-steps-chevron {
+    transition: none;
+  }
+}
