@@ -1004,3 +1004,53 @@ test('braces that are only prose do not hide a real call', () => {
   // And the wrapper case still must not fire, which is the constraint pulling the other way.
   assert.equal(unexecutedToolCalls('{"example":{"name":"exec","arguments":{"command":"ls"}}}').length, 0);
 });
+
+test('a command cannot supply both halves of its own proof', () => {
+  /**
+   * The design rests on the command and the output being independent signals. These are the ways
+   * one command supplied both - each verified against the real module before it was fixed, and
+   * each returning SUBSTANTIATED at the time, one of them overturning a genuinely red run.
+   */
+  const claimed = 'The tests now pass.';
+  const marker = '1 passed';
+
+  const forged = [
+    // A shell function or alias that shadows the runner. Nothing is installed, nothing is run.
+    'pytest() { echo 1 passed; }; pytest',
+    'function pytest { echo 1 passed; }; pytest -q',
+    'shopt -s expand_aliases; alias pytest=echo; pytest 1 passed',
+    // A comment. bash prints the marker; the pytest after the # never exists.
+    'echo 1 passed #; pytest -q',
+    // An apostrophe inside double quotes used to open a single quote that never closed, masking
+    // every separator after it - which re-enabled every dead-branch bypass at once.
+    `echo "it's"; false && pytest -q; echo 1 passed`,
+  ];
+
+  for (const command of forged) {
+    assert.equal(
+      judge({ finalText: claimed, toolResponses: [{ command, exitCode: 0, output: marker }] }).verdict,
+      UNSUBSTANTIATED,
+      command,
+    );
+  }
+});
+
+test('and a forged run cannot overturn a real red one', () => {
+  // The worst version: a genuine failing suite, then a fabricated pass. It read as substantiated.
+  const red = { command: 'pytest -q', exitCode: 1, output: 'Ran 5 tests\n\nFAILED (failures=1)' };
+  const forged = { command: 'pytest() { echo 1 passed; }; pytest', exitCode: 0, output: '1 passed' };
+
+  assert.equal(
+    judge({ finalText: 'The tests now pass.', toolResponses: [red, forged] }).verdict,
+    CONTRADICTED,
+  );
+});
+
+test('and none of it costs an honest command', () => {
+  // Every guard above has to leave real invocations alone, including the shapes they resemble.
+  assert.equal(looksLikeTestCommand('pytest -q'), true);
+  assert.equal(looksLikeTestCommand('(cd repo && pytest -q)'), true);
+  assert.equal(looksLikeTestCommand('pytest -q -k "test#1"'), true, 'a # inside quotes is not a comment');
+  assert.equal(looksLikeTestCommand("pytest -k \"it's\""), true, 'an apostrophe inside quotes is data');
+  assert.equal(looksLikeTestCommand('cd repo && pytest -q'), true);
+});
