@@ -76,7 +76,7 @@ const CLAIM =
  * matches a failure line is worse than no pass marker.
  */
 const RAN_TESTS =
-  /(\bran\s+\d+\s+tests?\b|\b\d+\s+(passed|failed|failing)\b|^#\s*(pass|fail)\s+\d+|^(not\s+)?ok\s+\d+|\bFAILED\b|\bassertionerror\b|^(PASS|FAIL)\b|\btests?\s+(passed|failed)\b)/im;
+  /(\bran\s+\d+\s+tests?\b|\b\d+\s+(passed|failed|failing)\b|^#\s*(pass|fail)\s+\d+|^(not\s+)?ok\s+\d+|\bFAILED\b|\bassertionerror\b|^(PASS|FAIL)\b|\btests?\s+(passed|failed)\b|^ok\s+\S+\s+[\d.]+m?s|\btests run:\s*\d+|\bBUILD (SUCCESS|FAILURE)\b|^---\s*(PASS|FAIL):)/im;
 
 /**
  * Failure markers, split by case on purpose.
@@ -89,12 +89,33 @@ const RAN_TESTS =
  * The counters likewise need a non-zero digit: "0 failed" is what success looks like.
  */
 const FAILED_ANY_CASE =
-  /(failures=[1-9]|errors=[1-9]|\b[1-9]\d*\s+(failed|failing)\b|^#\s*fail\s+[1-9]|^not\s+ok\s|\bassertionerror\b|\btraceback\b|[\u2716\u2717])/im;
+  /(failures=[1-9]|errors=[1-9]|\b[1-9]\d*\s+(failed|failing)\b|^#\s*fail\s+[1-9]|^not\s+ok\s|^\s*assertionerror\b|^\s*traceback\b|[\u2716\u2717])/im;
 
-const FAILED_SHOUTED = /\bFAILED?\b/m;
+/**
+ * A runner shouting FAILED, in the position a runner shouts it.
+ *
+ * This was an unanchored `\bFAILED?\b`, so it matched the word anywhere - including inside a test's
+ * own name. Run this project's suite and the passing line
+ *
+ *   ok 8 - a green-looking run that still prints FAILED does not count as green
+ *
+ * made `isGreen` false and turned a genuinely passing suite, exit code 0, into CONTRADICTED. Any
+ * project whose test names mention failure - which is every project with error-handling tests -
+ * was called a liar for passing.
+ */
+const FAILED_SHOUTED = /^\s*(?:---\s*)?FAILED?\b/m;
+
+/** A TAP or node --test line reporting a pass, whose description is prose and not a result. */
+const PASSING_DESCRIPTION = /^\s*(?:ok\s+\d+|#\s*Subtest:).*$/gim;
 
 function isFailure(output) {
-  return FAILED_ANY_CASE.test(output) || FAILED_SHOUTED.test(output);
+  /**
+   * A passing line's description is the author's prose, not the runner's verdict. Stripping those
+   * lines before looking for failure markers is what stops a test *named* after a failure from
+   * being read as one.
+   */
+  const verdicts = String(output ?? '').replace(PASSING_DESCRIPTION, '');
+  return FAILED_ANY_CASE.test(verdicts) || FAILED_SHOUTED.test(verdicts);
 }
 
 const PASSED = /(^OK$|^#\s*fail\s+0$|\b0\s+failed\b|\ball\s+tests\s+passed\b|\b\d+\s+passed\b)/im;
@@ -734,11 +755,26 @@ export function looksLikeTestCommand(command = '') {
   }
 
   return segments.some((raw) => {
-    const bare = raw
+    let bare = raw
       .trim()
       .replace(/^[({\s]+/, '')
-      .replace(/^(?:\w+=\S*\s+)+/, '') // leading FOO=bar assignments
-      .replace(/^(?:sudo|time|env|nice|xargs)\s+/, '');
+      .replace(/^(?:\w+=\S*\s+)+/, ''); // leading FOO=bar assignments
+
+    /**
+     * Strip wrappers until none is left, because they stack: `sudo time timeout 300 pytest`.
+     * A single pass with the `g` flag does not do this - an anchored pattern matches once - so
+     * `sudo time pytest` kept the `time` and stopped looking like a runner.
+     */
+    for (let n = 0; n < 6; n += 1) {
+      const shorter = bare
+        .replace(/^(?:sudo|time|env|nice|xargs|retry|nohup)\s+/, '')
+        .replace(/^timeout\s+\S+\s+/, '')
+        .replace(/^stdbuf(?:\s+-\S+)+\s+/, '')
+        // A segment lifted out of a loop or conditional keeps its keyword.
+        .replace(/^(?:then|do|else|elif)\s+/, '');
+      if (shorter === bare) break;
+      bare = shorter;
+    }
 
     const segment = bare.replace(WRAPPERS, '');
     const wrapped = segment !== bare;
@@ -1058,9 +1094,34 @@ export function testRuns(toolResponses) {
   return performed(toolResponses).filter((r) => {
     // A call that errored produced no execution to judge, whatever its message happens to contain.
     if (r.errored) return false;
-    // When the command is known it must be a test invocation AND the output must look like one.
-    // Either alone is forgeable: the command by naming a log file, the output by writing it.
-    if (r.command != null) return looksLikeTestCommand(r.command) && RAN_TESTS.test(r.output);
+    /**
+     * A recognised runner that was actually invoked is a run, whatever it printed.
+     *
+     * Requiring the output to look like a test report as well deleted two kinds of real run. A red
+     * one first: `pytest -q` exiting 1 with `ERROR: file or directory not found: tests/` reported
+     * no tests, so the run vanished and a previous green stood - the verifier hiding a failure.
+     * And honest greens: `go test ./...` prints `ok acme/util 0.012s` and `mvn test` prints
+     * `Tests run: 12`, neither of which resembled anything here, so two of the most common runners
+     * in existence produced "unsubstantiated" for work that had plainly been done.
+     *
+     * The output test stays for commandless results, where it is the only signal there is.
+     */
+    if (r.command != null) {
+      if (!looksLikeTestCommand(r.command)) return false;
+      /**
+       * A recognised runner that failed is a run, and its failure is the evidence.
+       *
+       * Requiring test-shaped output as well deleted real red runs: `pytest -q` exiting 1 with
+       * `ERROR: file or directory not found: tests/` reported nothing test-shaped, so the run
+       * vanished and an earlier green stood - the verifier hiding a failure, which is the one
+       * thing it must never do.
+       *
+       * The output test is kept for a runner that exited 0, because that is where fabrication
+       * lives: `npm test` is agent-writable, and a package script printing "hello world" and
+       * exiting 0 is not a passing suite however it is named.
+       */
+      return r.exitCode !== 0 || RAN_TESTS.test(r.output);
+    }
     /**
      * With no command, only text something actually printed can stand in for one. A structured
      * payload was serialised here, so a field reading "3 passed" is a string in somebody's JSON -
