@@ -962,3 +962,11 @@ test('ordinary prose containing a brace is still not a tool call', () => {
   assert.equal(unexecutedToolCalls('The config is { broken } and the tests fail.').length, 0);
   assert.equal(unexecutedToolCalls('{"name": "not an identifier!", "arguments": {}}').length, 0);
 });
+
+test('an unrelated object earlier in the message does not hide the call', () => {
+  // Taking only the first balanced value meant the call after it read as prose and went unflagged.
+  const hidden = 'Config: {"ok":true}. Run: {"name":"exec","arguments":{"command":"ls"}} and that is all.';
+  const calls = unexecutedToolCalls(hidden);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].name, 'exec');
+});

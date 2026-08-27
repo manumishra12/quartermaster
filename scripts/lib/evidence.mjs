@@ -700,8 +700,15 @@ export function unexecutedToolCalls(text = '') {
 
   for (const candidate of candidates) {
     const trimmed = candidate.trim();
-    const start = trimmed.search(/[{[]/);
-    if (start === -1) continue;
+    /**
+     * Every JSON value in the text, not only the first.
+     *
+     * Taking the first balanced value meant an unrelated object earlier in the message hid the
+     * call after it - `Config: {"ok":true}. Run: {"name":"exec",...}` read as prose, and the
+     * printed call went unflagged.
+     */
+    for (const match of trimmed.matchAll(/[{[]/g)) {
+    const start = match.index;
     try {
       /**
        * Take the balanced value, not everything to the end of the message.
@@ -723,7 +730,8 @@ export function unexecutedToolCalls(text = '') {
         return calls.map((c) => ({ name: c.name, arguments: c.arguments ?? c.parameters ?? {} }));
       }
     } catch {
-      // Not JSON; try the next candidate.
+      // Not JSON here; try the next opening brace, then the next candidate.
+    }
     }
   }
   return [];

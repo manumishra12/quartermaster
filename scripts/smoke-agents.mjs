@@ -210,6 +210,8 @@ async function runCase(testCase) {
       ...testCase,
       ok: false,
       seconds,
+      // The most direct no-response failure there is, so it gets the retry the others get.
+      noResponse: true,
       why: `no tool response within ${BUDGET_MS / 1000}s - turn cancelled. The call may never have been made, or may have been waiting on something`,
     };
   }
