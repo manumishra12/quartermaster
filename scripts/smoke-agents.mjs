@@ -9,7 +9,7 @@
  *   npm run smoke -- --agent analytics
  */
 import { TrueForge, isEventDelta } from '@truefoundry/trueforge-sdk';
-import { resultOf } from './lib/evidence.mjs';
+import { resultOf, unexecutedToolCalls } from './lib/evidence.mjs';
 import { loadEnv } from './lib/env.mjs';
 
 loadEnv();
@@ -150,6 +150,8 @@ async function runCase(testCase) {
   }
 
   const recorded = [];
+  /** What the model said, so a call it printed instead of making can be named as such. */
+  let said = '';
   let status;
   let timedOut = false;
 
@@ -158,8 +160,20 @@ async function runCase(testCase) {
       input: [{ type: 'user.message', content: testCase.prompt }],
     });
     for await (const { data: event } of stream.withMetadata()) {
-      if (isEventDelta(event)) continue;
+      if (isEventDelta(event)) {
+        /**
+         * The answer arrives in pieces, and only in pieces.
+         *
+         * Skipping every delta left `said` empty, so a call the model printed as text was never
+         * recognised - the runner had the evidence streaming past it and threw each fragment away,
+         * then reported that nothing had happened. The settled `model.message` does not carry the
+         * content; the deltas are the content.
+         */
+        if (event.type === 'model.message.delta') said += event.content ?? '';
+        continue;
+      }
       if (event.type === 'tool.response') recorded.push(resultOf(event));
+      if (event.type === 'model.message') said += event.content ?? '';
       if (event.type === 'turn.done') status = event.state?.status;
     }
   };
@@ -196,11 +210,43 @@ async function runCase(testCase) {
       ...testCase,
       ok: false,
       seconds,
+      // The most direct no-response failure there is, so it gets the retry the others get.
+      noResponse: true,
       why: `no tool response within ${BUDGET_MS / 1000}s - turn cancelled. The call may never have been made, or may have been waiting on something`,
     };
   }
+  /**
+   * The model wrote the call out instead of making it.
+   *
+   * This is a specific, diagnosable thing and not the same as "nothing happened": the command is
+   * usually correct, and what failed is the emission. Saying "no tool response was recorded" sends
+   * somebody to check the wiring, which is fine. It is the model.
+   */
+  const printed = unexecutedToolCalls(said);
+  if (recorded.length === 0 && printed.length > 0) {
+    return {
+      ...testCase,
+      ok: false,
+      seconds,
+      noResponse: true,
+      /**
+       * What this establishes and no more. It was worded "the wiring is fine, the emission is
+       * not" - but a printed call proves only that nothing was invoked on this attempt. If the
+       * connector were also broken this would look identical, and clearing the wiring would send
+       * somebody away from a real fault.
+       */
+      why: `the model printed the ${printed.map((c) => c.name).join(', ')} call as text instead of making it - nothing was invoked, so this attempt says nothing either way about the connector`,
+    };
+  }
+
   if (recorded.length === 0) {
-    return { ...testCase, ok: false, seconds, why: 'no tool response was recorded - nothing the agent did produced a result' };
+    return {
+      ...testCase,
+      ok: false,
+      seconds,
+      noResponse: true,
+      why: 'no tool response was recorded - nothing the agent did produced a result',
+    };
   }
   if (sandboxNotReady(recorded)) {
     return {
@@ -276,8 +322,25 @@ for (const testCase of selected) {
    * suite that tells you nothing, and the number of retries is itself a fact about the harness
    * worth seeing.
    */
-  if (!result.ok && result.sandbox) {
-    console.log('sandbox not ready, retrying once');
+  /**
+   * Retried for two causes, both announced: a sandbox that was not ready, and a model that printed
+   * the call instead of making it. Neither is an answer to "can this agent reach its tools", and
+   * both are known to pass on a second attempt with a small local model.
+   *
+   * Never retried for a wrong answer. A suite that re-runs until it agrees with itself is worthless.
+   */
+  /**
+   * Retried on facts from the event stream, not on what the model said.
+   *
+   * The two retryable causes are "the sandbox was not ready" and "no tool response was recorded" -
+   * both read from recorded events. A printed call is *why* the second happened and it is worth
+   * reporting, but it must not be what decides whether the suite tries again, or the outcome would
+   * turn on parsing transcript text.
+   *
+   * Never retried for a wrong answer: a suite that re-runs until it agrees with itself is worthless.
+   */
+  if (!result.ok && (result.sandbox || result.noResponse)) {
+    console.log(result.sandbox ? 'sandbox not ready, retrying once' : 'no tool response, retrying once');
     process.stdout.write(`  ${testCase.agent.padEnd(20)} ${testCase.what} ... `);
     result = await runCase(testCase);
     result.retried = true;
@@ -294,7 +357,7 @@ if (failed.length) {
   console.log('  A failure here is one of three things:');
   console.log('    - the agent is not applied      -> npm run agents:apply');
   console.log('    - its connector is unconfigured -> npm run preflight');
-  console.log('    - the model cannot call tools   -> a small local model will print tool calls as text');
+  console.log('    - the model printed the call    -> named as such above; the wiring is fine, the model is not');
   console.log('    - the sandbox was not ready     -> named as such above; it is the harness, not the agent');
   console.log('    - the machine is loaded         -> empty tool responses; raise --budget or free the machine\n');
   process.exit(1);

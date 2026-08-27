@@ -26,11 +26,6 @@
         "preload": true
       }
     ],
-    "skills": [
-      {
-        "name": "evidence-report"
-      }
-    ],
     "config": {
       "sandbox": {
         "enabled": true,

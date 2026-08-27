@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PHASES, claimedExitCode, claimedValues, isGreen, judge, looksLikeTestCommand, looksLikeUnexecutedToolCall, progress, resultOf, testRuns, SUBSTANTIATED, UNSUBSTANTIATED, CONTRADICTED, NO_CLAIM, NO_ANSWER } from './evidence.mjs';
+import { PHASES, claimedExitCode, claimedValues, isGreen, judge, looksLikeTestCommand, looksLikeUnexecutedToolCall, progress, resultOf, unexecutedToolCalls, testRuns, SUBSTANTIATED, UNSUBSTANTIATED, CONTRADICTED, NO_CLAIM, NO_ANSWER } from './evidence.mjs';
 
 const toolResponse = (obj) => ({ content: JSON.stringify({ success: true, response: obj }) });
 
@@ -938,4 +938,69 @@ test('a commandless result that something really printed still counts', () => {
   // no command attached gets recognised at all.
   const printed = resultOf({ content: JSON.stringify({ exitCode: 0, result: 'Ran 3 tests in 0.01s\n\nOK\n' }) });
   assert.equal(testRuns([printed]).length, 1);
+});
+
+test('a printed call is recognised with prose on either side of it', () => {
+  /**
+   * Slicing from the first brace to the end of the message meant any explanation after the JSON -
+   * which a model usually adds - broke the parse, so the call went unrecognised unless it happened
+   * to be fenced. This is what the real emission looked like.
+   */
+  const unfenced =
+    'To run the specified command, use the following exec call:\n' +
+    '{\n "name": "exec",\n "arguments": {"command": "python3 -c 1", "cwd": "/"}\n}\n\n' +
+    '**Explanation**: this runs Python in the sandbox.';
+
+  const calls = unexecutedToolCalls(unfenced);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].name, 'exec');
+  assert.equal(looksLikeUnexecutedToolCall(unfenced), true);
+});
+
+test('ordinary prose containing a brace is still not a tool call', () => {
+  // The balanced scan must not turn arbitrary text into a call.
+  assert.equal(unexecutedToolCalls('The config is { broken } and the tests fail.').length, 0);
+  assert.equal(unexecutedToolCalls('{"name": "not an identifier!", "arguments": {}}').length, 0);
+});
+
+test('an unrelated object earlier in the message does not hide the call', () => {
+  // Taking only the first balanced value meant the call after it read as prose and went unflagged.
+  const hidden = 'Config: {"ok":true}. Run: {"name":"exec","arguments":{"command":"ls"}} and that is all.';
+  const calls = unexecutedToolCalls(hidden);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].name, 'exec');
+});
+
+test('a call shown inside wrapper data is not a call the model made', () => {
+  /**
+   * Scanning every opening brace reached inside a value, so ordinary data like
+   * {"example":{"name":"exec",...}} read as a printed call - an answer merely *illustrating* one
+   * would have been called a fabrication. Each balanced value is tried and then skipped over
+   * rather than descended into.
+   */
+  assert.equal(unexecutedToolCalls('{"example":{"name":"exec","arguments":{"command":"ls"}}}').length, 0);
+  assert.equal(unexecutedToolCalls('{"docs":{"sample":{"name":"exec","arguments":{}}}}').length, 0);
+
+  // And the two cases it must still catch.
+  assert.equal(unexecutedToolCalls('Config: {"ok":true}. Run: {"name":"exec","arguments":{"command":"ls"}}').length, 1);
+  assert.equal(unexecutedToolCalls('{"name":"exec","arguments":{"command":"ls"}}').length, 1);
+});
+
+test('braces that are only prose do not hide a real call', () => {
+  /**
+   * Skipping a whole balanced group before knowing it was JSON meant a call sitting inside
+   * prose braces was stepped over, and an unmatched opener stopped the search entirely - so
+   * everything after it was invisible.
+   *
+   * Valid JSON is one value and is stepped over, which is what keeps wrapper data from being read
+   * from the inside. Text that merely looks bracketed is stepped through.
+   */
+  const inProse = 'Template { use {"name":"exec","arguments":{"command":"ls"}} } or something';
+  assert.equal(unexecutedToolCalls(inProse).length, 1);
+
+  const afterUnmatched = '{placeholder ... Run: {"name":"exec","arguments":{"command":"ls"}}';
+  assert.equal(unexecutedToolCalls(afterUnmatched).length, 1);
+
+  // And the wrapper case still must not fire, which is the constraint pulling the other way.
+  assert.equal(unexecutedToolCalls('{"example":{"name":"exec","arguments":{"command":"ls"}}}').length, 0);
 });
