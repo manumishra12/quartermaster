@@ -17,47 +17,14 @@
  * Exits non-zero if any reachable tool would run ungated under the default policy.
  */
 import { classify, ungatedRisks, UNANNOTATED } from './lib/annotations.mjs';
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { policiesFor } from './lib/policies.mjs';
 import { loadEnv } from './lib/env.mjs';
 
 loadEnv();
 
 const BASE = process.env.TRUEFORGE_BASE_URL ?? 'http://localhost:8790';
-const AGENTS_DIR = new URL('../agents/', import.meta.url).pathname;
 
 /** What the specs actually declare for a connector, rather than the library default. */
-/**
- * Every agent's policy for this server, separately.
- *
- * These used to be merged into one set, which audits a policy no single agent has. Two agents
- * declaring the same server - `github` is declared by both quartermaster and gate-demo today - had
- * their gates unioned, so one agent's narrow policy was covered by another's wide one and the
- * result was reported safe. That is the exact failure the per-spec read was introduced to prevent:
- * checking against something other than what an agent actually runs with.
- */
-function policiesFor(serverName) {
-  const policies = [];
-
-  for (const file of readdirSync(AGENTS_DIR).filter((f) => f.endsWith('.json'))) {
-    let spec;
-    try {
-      spec = JSON.parse(readFileSync(join(AGENTS_DIR, file), 'utf8'));
-    } catch {
-      continue;
-    }
-    for (const server of spec?.manifest?.mcp_servers ?? []) {
-      if (server?.name !== serverName) continue;
-      policies.push({
-        agent: spec?.name ?? file.replace(/\.json$/, ''),
-        approval: server.require_approval_for_tools ?? ['@write', '@destructive'],
-        enabled: server.enable_tools ?? ['@all'],
-      });
-    }
-  }
-
-  return policies;
-}
 
 const get = async (path) => {
   const res = await fetch(`${BASE}${path}`);
@@ -124,11 +91,20 @@ for (const server of list) {
 }
 
 if (ungated > 0) {
+  /**
+   * Say what was found, not what used to be the only thing findable.
+   *
+   * This read "unannotated tool(s) ... under the default policy" whatever it had found. Once
+   * annotated write and destructive tools could be reported too, that sentence described neither
+   * the cause nor the policy actually audited - and the fix it recommends is the wrong one for a
+   * tool whose annotations are perfectly good and simply is not gated.
+   */
   console.log(
-    `\n${ungated} unannotated tool(s) would execute with no approval under the default policy.\n` +
-      'Fix by making the spec fail closed: restrict `enable_tools` to ["@read-only", ...literal write tools you\n' +
-      'actually want], and name those same tools in `require_approval_for_tools` so the gate does not depend\n' +
-      'on the server annotating them correctly.',
+    `\n${ungated} tool(s) would execute with no approval under the policy some agent declares.\n` +
+      'For a tool with no annotations, the fix is to restrict `enable_tools` to ["@read-only", ...the literal\n' +
+      'write tools you actually want], so a tool the server adds later is not enabled at all.\n' +
+      'For an annotated write or destructive tool, the allowlist is not the fix: name it in\n' +
+      '`require_approval_for_tools` as well, because admitting a tool is not the same as gating it.',
   );
   process.exit(1);
 }
