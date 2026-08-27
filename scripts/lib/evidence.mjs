@@ -201,31 +201,130 @@ function decodeAnsiEscape(line, at) {
  * placeholder of the same width, so positions still line up with the original and the text can be
  * sliced back out of it intact.
  */
+/**
+ * The command with its comments removed.
+ *
+ * `maskQuoted` blanks them for the branch analysis, but the final split in
+ * `looksLikeTestCommand` works on the original text - so the `;` inside `echo 1 passed #; pytest`
+ * still cut a live segment and handed the pytest back. Cutting them out once, before either
+ * step, keeps the two passes agreeing about what is code.
+ */
+/**
+ * Names the command redefined for itself.
+ *
+ * `pytest() { echo '1 passed'; }; pytest` runs no tests. The definition segment is discarded as
+ * unrecognised, the bare `pytest` matches a runner, and the echoed marker satisfies the output
+ * check - one command supplying both halves of the proof, which is exactly what the two-signal
+ * design is supposed to prevent. `alias pytest='echo 1 passed'` does the same.
+ *
+ * A name defined here cannot be trusted for the rest of the command.
+ */
+function shadowedNames(code) {
+  const names = new Set();
+
+  for (const [, name] of code.matchAll(/(?:^|[;&|\n{(]\s*)(?:function\s+)?([A-Za-z_][\w.-]*)\s*\(\s*\)/g)) {
+    names.add(name);
+  }
+  for (const [, name] of code.matchAll(/(?:^|[;&|\n]\s*)alias\s+([A-Za-z_][\w.-]*)=/g)) {
+    names.add(name);
+  }
+  // `function foo {` without parentheses is also valid bash.
+  for (const [, name] of code.matchAll(/(?:^|[;&|\n]\s*)function\s+([A-Za-z_][\w.-]*)\s*\{/g)) {
+    names.add(name);
+  }
+
+  return names;
+}
+
+function withoutComments(text) {
+  const out = [...text];
+  let quote = null;
+
+  for (let i = 0; i < out.length; i += 1) {
+    const c = out[i];
+    if (quote) {
+      if (c === quote) quote = null;
+      else if (c === '\\' && quote === '"') i += 1;
+      continue;
+    }
+    if (c === '\\') {
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+      continue;
+    }
+    if (c === '#' && (i === 0 || /\s/.test(out[i - 1]))) {
+      while (i < out.length && out[i] !== '\n') {
+        out[i] = ' ';
+        i += 1;
+      }
+      i -= 1;
+    }
+  }
+
+  return out.join('');
+}
+
 function maskQuoted(text) {
   const out = [...text];
   let quote = null;
+
   for (let i = 0; i < out.length; i += 1) {
     const c = out[i];
+
     if (quote === "'") {
       if (c === "'") quote = null;
       else out[i] = 'Q';
       continue;
     }
+
     if (c === '\\') {
       if (i + 1 < out.length) out[i + 1] = 'Q';
       i += 1;
       continue;
     }
-    if (c === '"') {
-      quote = quote === '"' ? null : '"';
+
+    /**
+     * Inside double quotes an apostrophe is an apostrophe.
+     *
+     * The single-quote branch used to run whether or not we were already inside double quotes, so
+     * `echo "it's"` opened a single quote that never closed. Everything after it was masked as
+     * data - including every `;` and `&&` - so `false && pytest -q` stopped being recognised as a
+     * dead branch and the pytest came back as a live segment. One apostrophe anywhere in a command
+     * re-enabled every bypass the branch guards were written to close.
+     */
+    if (quote === '"') {
+      if (c === '"') quote = null;
+      else out[i] = 'Q';
       continue;
     }
+
+    if (c === '"') {
+      quote = '"';
+      continue;
+    }
+
     if (c === "'") {
       quote = "'";
       continue;
     }
-    if (quote === '"') out[i] = 'Q';
+
+    /**
+     * A comment is not a command. `echo '1 passed' #; pytest -q` prints the marker and never runs
+     * pytest, but the `;` inside the comment split a segment and handed `pytest -q` back as live.
+     * Blanked to end of line, in place, so every offset the callers rely on still lines up.
+     */
+    if (c === '#' && (i === 0 || /\s/.test(out[i - 1]))) {
+      while (i < out.length && out[i] !== '\n') {
+        out[i] = 'Q';
+        i += 1;
+      }
+      i -= 1;
+    }
   }
+
   return out.join('');
 }
 
@@ -598,6 +697,8 @@ export function looksLikeTestCommand(command = '') {
    * until the worklist runs dry.
    */
   const segments = [];
+  /** Runner names this command redefined for itself, which are therefore not that runner. */
+  const shadowed = new Set();
   const seen = new Set();
   const queue = [text];
 
@@ -608,7 +709,7 @@ export function looksLikeTestCommand(command = '') {
 
     // A heredoc body is data being written, not commands being run.
     const { code: written, expandingBodies } = splitHeredocs(part);
-    const code = reachableBranches(written);
+    const code = reachableBranches(withoutComments(written));
 
     // An unquoted delimiter still expands `$(...)` inside the body; a quoted one expands nothing.
     for (const body of expandingBodies) queue.push(...expandedSubstitutions(body));
@@ -628,6 +729,7 @@ export function looksLikeTestCommand(command = '') {
       .replace(/'[^']*'|"[^"]*"/g, 'Q');
 
     // Any segment of a compound command can be the real invocation: `cd repo && pytest -q`.
+    for (const name of shadowedNames(code)) shadowed.add(name);
     segments.push(...collapsed.split(/&&|\|\||;|\||\n/));
   }
 
@@ -642,6 +744,15 @@ export function looksLikeTestCommand(command = '') {
     const wrapped = segment !== bare;
 
     if (!segment || READERS.test(segment)) return false;
+    /**
+     * A name the command defined for itself is not the runner it is named after.
+     *
+     * The trailing parentheses have to come off before the comparison, because the definition
+     * `pytest() { ... }` is itself a segment whose first word ends at a word boundary - so it
+     * matched the runner pattern on its own, before the call to it was ever reached.
+     */
+    const leader = segment.split(/\s/)[0]?.replace(/^.*\//, '').replace(/\(\)?$/, '');
+    if (leader && shadowed.has(leader)) return false;
     if (NOT_A_RUN.test(segment)) return false;
     if (RUNNERS.some((r) => r.test(segment))) return true;
     return wrapped && WRAPPED_SCRIPT.test(segment);
