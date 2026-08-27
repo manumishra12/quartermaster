@@ -7,7 +7,13 @@ import tseslint from 'typescript-eslint';
  * costs more than it saves, and none of it changes what the code does.
  */
 export default tseslint.config(
-  { ignores: ['node_modules/**', 'ui/**', 'fixtures/**', 'evidence/**', 'design-system/**'] },
+  /**
+   * `.claude/` holds git worktrees, each a second full checkout of this repository. Without it
+   * here, `npm run check` lints every worktree as though it were part of the tree you are in - so
+   * work in progress somewhere else fails the check where you are, over rules the file being
+   * linted is not even configured for.
+   */
+  { ignores: ['node_modules/**', 'ui/**', 'fixtures/**', 'evidence/**', 'design-system/**', '.claude/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

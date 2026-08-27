@@ -7,3 +7,6 @@ ui/dist/
 *.tsbuildinfo
 .quartermaster/
 fixtures/warehouse/*.db
+
+# git worktrees, and anything else the agent tooling keeps beside the checkout
+.claude/
