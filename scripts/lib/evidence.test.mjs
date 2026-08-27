@@ -970,3 +970,18 @@ test('an unrelated object earlier in the message does not hide the call', () => 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].name, 'exec');
 });
+
+test('a call shown inside wrapper data is not a call the model made', () => {
+  /**
+   * Scanning every opening brace reached inside a value, so ordinary data like
+   * {"example":{"name":"exec",...}} read as a printed call - an answer merely *illustrating* one
+   * would have been called a fabrication. Each balanced value is tried and then skipped over
+   * rather than descended into.
+   */
+  assert.equal(unexecutedToolCalls('{"example":{"name":"exec","arguments":{"command":"ls"}}}').length, 0);
+  assert.equal(unexecutedToolCalls('{"docs":{"sample":{"name":"exec","arguments":{}}}}').length, 0);
+
+  // And the two cases it must still catch.
+  assert.equal(unexecutedToolCalls('Config: {"ok":true}. Run: {"name":"exec","arguments":{"command":"ls"}}').length, 1);
+  assert.equal(unexecutedToolCalls('{"name":"exec","arguments":{"command":"ls"}}').length, 1);
+});

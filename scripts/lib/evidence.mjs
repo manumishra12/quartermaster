@@ -701,14 +701,21 @@ export function unexecutedToolCalls(text = '') {
   for (const candidate of candidates) {
     const trimmed = candidate.trim();
     /**
-     * Every JSON value in the text, not only the first.
+     * Every top-level JSON value in the text, and only those.
      *
-     * Taking the first balanced value meant an unrelated object earlier in the message hid the
-     * call after it - `Config: {"ok":true}. Run: {"name":"exec",...}` read as prose, and the
-     * printed call went unflagged.
+     * Taking the first meant an unrelated object earlier in the message hid the call after it.
+     * Examining every opening brace was the opposite mistake: it reached *inside* a value, so
+     * ordinary wrapper data like {"example":{"name":"exec","arguments":{...}}} was read as a
+     * printed call, and an answer that merely showed one as an illustration was called a
+     * fabrication.
+     *
+     * So each balanced value is tried, and then skipped over rather than descended into.
      */
-    for (const match of trimmed.matchAll(/[{[]/g)) {
-    const start = match.index;
+    for (let at = 0; at < trimmed.length; at += 1) {
+    if (trimmed[at] !== '{' && trimmed[at] !== '[') continue;
+    const value = balancedFrom(trimmed, at);
+    if (value == null) break;
+    at += value.length - 1;
     try {
       /**
        * Take the balanced value, not everything to the end of the message.
@@ -717,7 +724,7 @@ export function unexecutedToolCalls(text = '') {
        * usually adds, explaining what the call would do - broke the parse, and a printed call went
        * unrecognised. It worked only when the JSON happened to be fenced.
        */
-      const parsed = JSON.parse(balancedFrom(trimmed, start) ?? trimmed.slice(start));
+      const parsed = JSON.parse(value);
       const calls = (Array.isArray(parsed) ? parsed : [parsed]).filter(
         (c) =>
           c &&
