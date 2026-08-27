@@ -94,11 +94,15 @@ enough on a fresh harness - it also has to be told they exist, once:
 
 ```bash
 for s in ops-desk:8795 front-desk:8796; do
-  curl -sS -X POST http://localhost:8790/api/v1/settings/mcp-servers \
+  curl -sS --fail-with-body -X POST http://localhost:8790/api/v1/settings/mcp-servers \
     -H 'content-type: application/json' \
-    -d "{\"manifest\":{\"type\":\"remote\",\"name\":\"${s%%:*}\",\"url\":\"http://localhost:${s##*:}/mcp\",\"description\":\"Ships with this repository; no account needed.\"}}"
+    -d "{\"manifest\":{\"type\":\"remote\",\"name\":\"${s%%:*}\",\"url\":\"http://localhost:${s##*:}/mcp\",\"description\":\"Ships with this repository; no account needed.\"}}" \
+    || echo "could not register ${s%%:*} - is the harness running on :8790?"
 done
 ```
+
+`--fail-with-body` matters: without it curl exits 0 on an HTTP 400 or 500, the loop finishes
+quietly, and the first sign that nothing was registered is an agent that cannot reach anything.
 
 Without both steps `agents:apply` skips `incident-responder` and `desk-assistant` as unknown
 servers. `preflight` names whichever half is missing: it says `start it: npm run ops-desk` when the
