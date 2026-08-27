@@ -17,20 +17,30 @@ Everything Quartermaster is allowed to touch, and what is gated. Kept in sync wi
 
 ## 2. MCP connectors
 
-| Server | Auth | Phase | Tools enabled | Approval |
+| Server | Auth | Agent | Tools enabled | Approval |
 | --- | --- | --- | --- | --- |
-| **GitHub** (shipped catalog) | header (PAT) | `quartermaster` | `@read-only` + 5 named writes (see section 7) | `["@write", "@destructive"]` + those 5 by name |
+| **GitHub** (shipped catalog) | header (PAT) | `quartermaster`, `gate-demo` | `@read-only` + 5 named writes (see section 7); `gate-demo` gets one | `["@write", "@destructive"]` + those writes by name |
 | **Exa** (shipped catalog) | none | `research-desk` | `@read-only` | `["@write", "@destructive"]` - nothing it exposes is a write |
 | **deepwiki** (shipped catalog) | none | both quartermasters | 3 tools by name | `["@write", "@destructive"]` |
-| **Sentry** (shipped catalog) | OAuth (DCR) | `incident-responder` | `@read-only` - unaudited, so writes are not enabled at all | `["@all"]` |
-| **Linear** (shipped catalog) | OAuth (DCR) | `desk-assistant` | `@read-only` - unaudited, so writes are not enabled at all | `["@all"]` |
+| **ops-desk** (ours, `mcp/ops-desk`) | none | `incident-responder` | `@read-only` + `rollback_deploy`, `restart_service` | both writes by name, plus `["@write", "@destructive"]` |
+| **front-desk** (ours, `mcp/front-desk`) | none | `desk-assistant` | `@read-only` + `create_issue`, `update_issue`, `close_issue`, `send_message` | all four by name, plus `["@write", "@destructive"]` |
+
+Sentry and Linear used to sit in the last two rows. Both needed an account, so `agents:apply`
+skipped the two agents that used them and the hackathon's own "easiest start" agent was one nobody
+could run. `ops-desk` and `front-desk` replaced them: same shape of surface, every write gated, no
+credential anywhere. They also annotate their tools properly, which the thing they replaced was
+not guaranteed to do - see section 2a for why that matters more than it sounds.
 
 Notes:
 - Verified against the live catalog: GitHub authenticates by **static header (a personal access
   token)**, not OAuth. Scope the token to the demo repo only - it is the blast radius if the
   approval gate is ever bypassed.
 - Credentials live in the connector, never in the agent spec. Nothing secret is committed.
-- `preload: false` on both — tool schemas load on demand (deferred loading) to keep context lean.
+- **Every connector is preloaded.** An earlier version of this table said `preload: false` on the
+  grounds that deferring tool schemas keeps context lean. It does, and it also does not work here:
+  a deferred tool resolves to `{"error":"MCP server 'deferred-tools' not found"}`. The section
+  "Why every connector is preloaded" near the end of this file has the whole investigation, and
+  `npm run check` now fails a spec that sets it.
 ## 2a. The approval gate is only as good as the annotations behind it
 
 Read this before trusting the default policy.
@@ -74,7 +84,8 @@ there is nothing to gate. Fail closed at the enable layer, not the approval laye
 {
   "name": "deepwiki",
   "enable_tools": ["ask_question", "read_wiki_contents", "read_wiki_structure"],
-  "require_approval_for_tools": ["@write", "@destructive"]
+  "require_approval_for_tools": ["@write", "@destructive"],
+  "preload": true
 }
 ```
 
@@ -106,6 +117,13 @@ is relevant, then the whole pack is materialized in the sandbox at `/opt/tfy/ski
 | Open or update a pull request | GitHub, real | **approval required** |
 | Comment on an issue or PR | GitHub, real | **approval required** |
 | Read repo, issues, CI status | GitHub, real | no gate — read-only |
+| Roll back a deploy, restart a service | ops-desk | **approval required** |
+| File, edit or close an issue; send a message | front-desk | **approval required** |
+| Read alerts, deploys, health, projects, issues | ops-desk, front-desk | no gate — read-only |
+
+The last three rows are the ones that matter for anyone reproducing this, because they are the only
+gated actions that need no account at all. Both servers annotate every tool, so the tags in the
+policy resolve to what their names say - which, as section 2a explains, is not something to assume.
 
 Tool approval is API-only in TrueForge today (`require_approval_for_tools` in the agent spec), which
 is exactly why the specs live in this repo as JSON and are applied through the SDK rather than
@@ -122,7 +140,17 @@ clicked into the UI.
 - [ ] GitHub — a fine-grained PAT pasted into the connector, scoped to one repo (v1)
 - [ ] Qodo — GitHub App installed on the submission repo from the first commit
 
+Only the first is needed to see the gate work. `ops-desk` and `front-desk` run from this repo with
+`npm run ops-desk` and `npm run front-desk`, and between them they carry every gated action in the
+demo script - a rollback, a restart, filing an issue, closing one, sending a message. Nothing in
+`DEMO.md` requires a GitHub token, and the local-model configuration (`quartermaster-local`) does
+not require a provider key either.
+
 ## 6. Catalog as shipped (verified against a running server, 2026-08-23)
+
+This section is an inventory of what **TrueForge** ships. The two servers in `mcp/` are ours and
+are not in it; they are registered once against a running harness with the `curl` in each server's
+README, and `npm run agents:apply` then reports the agents as applied rather than skipped.
 
 14 MCP servers ship in the catalog: `github` and `tavily` and `bright-data` (header auth);
 `deepwiki`, `exa`, `parallel-web` (no auth); `linear`, `notion`, `sentry`, `supabase`, `stripe`,
