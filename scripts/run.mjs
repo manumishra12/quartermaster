@@ -117,10 +117,36 @@ if (piped) {
  * The fallback for an approval is always deny. A gate that quietly allows when nobody is watching
  * is not a gate, and this agent's whole argument is that the unattended path must be the safe one.
  */
+/**
+ * End of input has to *settle*, or the invariant is only a comment.
+ *
+ * `question()` never resolves when the input ends, so Ctrl-D at an approval prompt left an
+ * unsettled await: no denial was sent, the readline was never closed, and the process exited
+ * without writing a report - while the claim above says silence is a denial. It is a denial only
+ * for a pipe; on a terminal it was a hang. Aborting the question when the interface closes turns
+ * the hang back into the refusal it was always described as.
+ */
+const inputEnded = new AbortController();
+rl?.on('close', () => inputEnded.abort());
+
 async function ask(question, fallback) {
-  const answer = piped ? queued.shift() : (await rl.question(question).catch(() => null))?.trim();
-  // Running out of answers is not an answer. Whatever the caller's fallback is, silence gets it.
-  if (answer == null || answer === '') {
+  const answer = piped
+    ? queued.shift()
+    : (await rl.question(question, { signal: inputEnded.signal }).catch(() => null))?.trim();
+
+  /**
+   * Running out of answers is not an answer. Whatever the caller's fallback is, silence gets it -
+   * and every caller's fallback is a refusal.
+   *
+   * An empty line is deliberately *not* silence for a caller that wants an acknowledgement: the
+   * auth prompt asks somebody to press enter, and reading that as "nobody is here" made the one
+   * documented action impossible to perform.
+   */
+  if (answer == null) {
+    console.log(`${question}${fallback ?? '(no answer)'}   [end of input]`);
+    return fallback;
+  }
+  if (answer === '' && fallback !== null) {
     console.log(`${question}${fallback}   [no answer given]`);
     return fallback;
   }
@@ -366,9 +392,21 @@ for (let hop = 0; hop < 24; hop++) {
        * permissive possible answer through the question channel. An agent that asks "should I
        * force-push?" gets a refusal, not "use your best judgement".
        */
-      const fallback = denyAll
-        ? 'No. Do not proceed. This session cannot approve anything.'
-        : (flag('answer', null) ?? 'Use your best judgement and continue.');
+      /**
+       * With nobody there to answer, the answer is no.
+       *
+       * The fallback was "Use your best judgement and continue" for every unattended run that had
+       * not passed --deny-all - so an agent asking "should I force-push?" through the question
+       * channel got a yes that nobody gave. The reasoning for the --deny-all wording was already
+       * written here and applied to only half the cases: an agent asking a question is asking
+       * because the answer matters, and silence is not consent to whichever branch it prefers.
+       *
+       * --answer is still honoured, because that is somebody deciding in advance and saying so.
+       */
+      const supplied = flag('answer', null);
+      const fallback =
+        supplied ??
+        'No. Nobody is available to answer this. Do not proceed on an assumption - report what you needed to know and stop.';
       const answer = denyAll ? fallback : await ask('  > ', fallback);
       resume.push({ type: 'user.tool_response', threadId: event.threadId, toolCallId: ref.id, content: answer });
     }
