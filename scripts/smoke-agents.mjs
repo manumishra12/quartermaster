@@ -160,7 +160,18 @@ async function runCase(testCase) {
       input: [{ type: 'user.message', content: testCase.prompt }],
     });
     for await (const { data: event } of stream.withMetadata()) {
-      if (isEventDelta(event)) continue;
+      if (isEventDelta(event)) {
+        /**
+         * The answer arrives in pieces, and only in pieces.
+         *
+         * Skipping every delta left `said` empty, so a call the model printed as text was never
+         * recognised - the runner had the evidence streaming past it and threw each fragment away,
+         * then reported that nothing had happened. The settled `model.message` does not carry the
+         * content; the deltas are the content.
+         */
+        if (event.type === 'model.message.delta') said += event.content ?? '';
+        continue;
+      }
       if (event.type === 'tool.response') recorded.push(resultOf(event));
       if (event.type === 'model.message') said += event.content ?? '';
       if (event.type === 'turn.done') status = event.state?.status;
@@ -215,13 +226,25 @@ async function runCase(testCase) {
       ...testCase,
       ok: false,
       seconds,
-      printedCall: true,
-      why: `the model printed the ${printed.map((c) => c.name).join(', ')} call as text instead of making it - the wiring is fine, the emission is not`,
+      noResponse: true,
+      /**
+       * What this establishes and no more. It was worded "the wiring is fine, the emission is
+       * not" - but a printed call proves only that nothing was invoked on this attempt. If the
+       * connector were also broken this would look identical, and clearing the wiring would send
+       * somebody away from a real fault.
+       */
+      why: `the model printed the ${printed.map((c) => c.name).join(', ')} call as text instead of making it - nothing was invoked, so this attempt says nothing either way about the connector`,
     };
   }
 
   if (recorded.length === 0) {
-    return { ...testCase, ok: false, seconds, why: 'no tool response was recorded - nothing the agent did produced a result' };
+    return {
+      ...testCase,
+      ok: false,
+      seconds,
+      noResponse: true,
+      why: 'no tool response was recorded - nothing the agent did produced a result',
+    };
   }
   if (sandboxNotReady(recorded)) {
     return {
@@ -304,8 +327,18 @@ for (const testCase of selected) {
    *
    * Never retried for a wrong answer. A suite that re-runs until it agrees with itself is worthless.
    */
-  if (!result.ok && (result.sandbox || result.printedCall)) {
-    console.log(result.sandbox ? 'sandbox not ready, retrying once' : 'call printed as text, retrying once');
+  /**
+   * Retried on facts from the event stream, not on what the model said.
+   *
+   * The two retryable causes are "the sandbox was not ready" and "no tool response was recorded" -
+   * both read from recorded events. A printed call is *why* the second happened and it is worth
+   * reporting, but it must not be what decides whether the suite tries again, or the outcome would
+   * turn on parsing transcript text.
+   *
+   * Never retried for a wrong answer: a suite that re-runs until it agrees with itself is worthless.
+   */
+  if (!result.ok && (result.sandbox || result.noResponse)) {
+    console.log(result.sandbox ? 'sandbox not ready, retrying once' : 'no tool response, retrying once');
     process.stdout.write(`  ${testCase.agent.padEnd(20)} ${testCase.what} ... `);
     result = await runCase(testCase);
     result.retried = true;

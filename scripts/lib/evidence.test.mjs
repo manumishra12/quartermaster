@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PHASES, claimedExitCode, claimedValues, isGreen, judge, looksLikeTestCommand, looksLikeUnexecutedToolCall, progress, resultOf, testRuns, SUBSTANTIATED, UNSUBSTANTIATED, CONTRADICTED, NO_CLAIM, NO_ANSWER } from './evidence.mjs';
+import { PHASES, claimedExitCode, claimedValues, isGreen, judge, looksLikeTestCommand, looksLikeUnexecutedToolCall, progress, resultOf, unexecutedToolCalls, testRuns, SUBSTANTIATED, UNSUBSTANTIATED, CONTRADICTED, NO_CLAIM, NO_ANSWER } from './evidence.mjs';
 
 const toolResponse = (obj) => ({ content: JSON.stringify({ success: true, response: obj }) });
 
@@ -938,4 +938,27 @@ test('a commandless result that something really printed still counts', () => {
   // no command attached gets recognised at all.
   const printed = resultOf({ content: JSON.stringify({ exitCode: 0, result: 'Ran 3 tests in 0.01s\n\nOK\n' }) });
   assert.equal(testRuns([printed]).length, 1);
+});
+
+test('a printed call is recognised with prose on either side of it', () => {
+  /**
+   * Slicing from the first brace to the end of the message meant any explanation after the JSON -
+   * which a model usually adds - broke the parse, so the call went unrecognised unless it happened
+   * to be fenced. This is what the real emission looked like.
+   */
+  const unfenced =
+    'To run the specified command, use the following exec call:\n' +
+    '{\n "name": "exec",\n "arguments": {"command": "python3 -c 1", "cwd": "/"}\n}\n\n' +
+    '**Explanation**: this runs Python in the sandbox.';
+
+  const calls = unexecutedToolCalls(unfenced);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].name, 'exec');
+  assert.equal(looksLikeUnexecutedToolCall(unfenced), true);
+});
+
+test('ordinary prose containing a brace is still not a tool call', () => {
+  // The balanced scan must not turn arbitrary text into a call.
+  assert.equal(unexecutedToolCalls('The config is { broken } and the tests fail.').length, 0);
+  assert.equal(unexecutedToolCalls('{"name": "not an identifier!", "arguments": {}}').length, 0);
 });

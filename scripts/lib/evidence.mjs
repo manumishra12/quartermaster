@@ -666,6 +666,33 @@ export function looksLikeTestCommand(command = '') {
  *
  * Returns `[]` when the answer is ordinary prose, so callers can simply ask.
  */
+/**
+ * The JSON value starting at `from`, ending where its braces balance.
+ * Returns null when they never do, so the caller can fall back to its old behaviour.
+ */
+function balancedFrom(text, from) {
+  const open = text[from];
+  const close = open === '{' ? '}' : ']';
+  let depth = 0;
+  let inString = false;
+
+  for (let i = from; i < text.length; i += 1) {
+    const c = text[i];
+    if (inString) {
+      if (c === '\\') i += 1;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') inString = true;
+    else if (c === open) depth += 1;
+    else if (c === close) {
+      depth -= 1;
+      if (depth === 0) return text.slice(from, i + 1);
+    }
+  }
+  return null;
+}
+
 export function unexecutedToolCalls(text = '') {
   const candidates = [String(text)];
   for (const [, body] of String(text).matchAll(/```(?:json)?\n([\s\S]*?)```/g)) candidates.push(body);
@@ -676,7 +703,14 @@ export function unexecutedToolCalls(text = '') {
     const start = trimmed.search(/[{[]/);
     if (start === -1) continue;
     try {
-      const parsed = JSON.parse(trimmed.slice(start));
+      /**
+       * Take the balanced value, not everything to the end of the message.
+       *
+       * Slicing from the first brace onwards meant any prose after the JSON - which a model
+       * usually adds, explaining what the call would do - broke the parse, and a printed call went
+       * unrecognised. It worked only when the JSON happened to be fenced.
+       */
+      const parsed = JSON.parse(balancedFrom(trimmed, start) ?? trimmed.slice(start));
       const calls = (Array.isArray(parsed) ? parsed : [parsed]).filter(
         (c) =>
           c &&
@@ -696,38 +730,16 @@ export function unexecutedToolCalls(text = '') {
 }
 
 export function looksLikeUnexecutedToolCall(text = '') {
-  // The JSON is often introduced ("Here is the call I would make:") or wrapped in <tool_call> tags,
-  // so requiring it at position zero missed the most common emissions.
-  const candidates = [text];
-  for (const [, body] of text.matchAll(/```(?:json)?\n([\s\S]*?)```/g)) candidates.push(body);
-  for (const [, body] of text.matchAll(/<tool_call>([\s\S]*?)<\/tool_call>/gi)) candidates.push(body);
-
-  for (const candidate of candidates) {
-    const trimmed = candidate.trim();
-    const start = trimmed.search(/[{[]/);
-    if (start === -1) continue;
-    try {
-      const parsed = JSON.parse(trimmed.slice(start));
-      const calls = Array.isArray(parsed) ? parsed : [parsed];
-      if (
-        calls.some(
-          (c) =>
-            c &&
-            typeof c === 'object' &&
-            typeof c.name === 'string' &&
-            // A tool name is an identifier. Requiring that keeps ordinary data - an analytics
-            // answer like {"name": "Q1 revenue", "parameters": {...}} - from being flagged.
-            /^[a-z][a-z0-9_.-]*$/i.test(c.name) &&
-            ('arguments' in c || 'parameters' in c),
-        )
-      ) {
-        return true;
-      }
-    } catch {
-      // Not JSON; try the next candidate.
-    }
-  }
-  return false;
+  /**
+   * One parser, not two.
+   *
+   * This had its own copy of the scan, and the copies drifted the moment the other one learned to
+   * read a call with prose after it: the same message was a printed call to `unexecutedToolCalls`
+   * and ordinary prose to this. Two implementations of one rule reaching opposite answers is a
+   * mistake this codebase has paid for before, with an envelope parser in the interface disagreeing
+   * with the one in the verifier.
+   */
+  return unexecutedToolCalls(text).length > 0;
 }
 
 /**
