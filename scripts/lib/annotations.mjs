@@ -61,7 +61,26 @@ export function ungatedRisks(tools, selectors, enableSelectors) {
     // that SECURITY.md prescribes, and failing loudest for the specs doing it right.
     if (Array.isArray(enableSelectors) && enableSelectors.length > 0) {
       const reachedByTag = enableSelectors.some((sel) => sel.startsWith('@'));
-      if (!reachedByTag) return false; // nothing is reachable except by name, and named is fine
+      /**
+       * A name-only allowlist forgives the tools it *excludes*, not the ones it admits.
+       *
+       * The check stopped at "no tags, so nothing unexpected can appear" and returned false for
+       * every tool - including one the allowlist deliberately enables. So a spec that enabled
+       * `delete_repo` by name and gated only `@write`, which does not match a destructive tool,
+       * was reported clean; `audit-tools` printed GATED beside it and exited 0 saying "the default
+       * policy gates what it claims to gate". Being confidently wrong about a destructive tool is
+       * the worst thing this file can do.
+       */
+      const admittedByName = enableSelectors.includes(tool.name);
+      /**
+       * The allowlist contains what the server might *add*; it does not gate what it admits.
+       *
+       * For an unannotated tool that containment is the whole answer, and a deliberate one: we
+       * cannot tell what it does, so naming it is the strongest statement available. But a tool
+       * whose annotations say destructive or write is one we *do* know about, and admitting it
+       * without a gate is not contained by anything - it is simply ungated.
+       */
+      if (!reachedByTag && !(admittedByName && kind !== UNANNOTATED)) return false;
     }
     return true;
   });

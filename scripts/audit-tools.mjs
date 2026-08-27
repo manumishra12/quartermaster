@@ -27,9 +27,18 @@ const BASE = process.env.TRUEFORGE_BASE_URL ?? 'http://localhost:8790';
 const AGENTS_DIR = new URL('../agents/', import.meta.url).pathname;
 
 /** What the specs actually declare for a connector, rather than the library default. */
-function specFor(serverName) {
-  const approval = new Set();
-  const enabled = new Set();
+/**
+ * Every agent's policy for this server, separately.
+ *
+ * These used to be merged into one set, which audits a policy no single agent has. Two agents
+ * declaring the same server - `github` is declared by both quartermaster and gate-demo today - had
+ * their gates unioned, so one agent's narrow policy was covered by another's wide one and the
+ * result was reported safe. That is the exact failure the per-spec read was introduced to prevent:
+ * checking against something other than what an agent actually runs with.
+ */
+function policiesFor(serverName) {
+  const policies = [];
+
   for (const file of readdirSync(AGENTS_DIR).filter((f) => f.endsWith('.json'))) {
     let spec;
     try {
@@ -39,11 +48,15 @@ function specFor(serverName) {
     }
     for (const server of spec?.manifest?.mcp_servers ?? []) {
       if (server?.name !== serverName) continue;
-      for (const s of server.require_approval_for_tools ?? ['@write', '@destructive']) approval.add(s);
-      for (const s of server.enable_tools ?? ['@all']) enabled.add(s);
+      policies.push({
+        agent: spec?.name ?? file.replace(/\.json$/, ''),
+        approval: server.require_approval_for_tools ?? ['@write', '@destructive'],
+        enabled: server.enable_tools ?? ['@all'],
+      });
     }
   }
-  return { approval: approval.size ? [...approval] : undefined, enabled: enabled.size ? [...enabled] : undefined };
+
+  return policies;
 }
 
 const get = async (path) => {
@@ -78,8 +91,19 @@ for (const server of list) {
     continue;
   }
 
-  const policy = specFor(name);
-  const risks = new Set(ungatedRisks(tools, policy.approval, policy.enabled).map((t) => t.name));
+  /**
+   * Judged against the weakest policy any agent uses, and the agent named.
+   *
+   * Reporting the union hid a narrow gate behind a wide one. What matters is whether *some* agent
+   * can reach this tool ungated, and which - that is the sentence somebody has to act on.
+   */
+  const policies = policiesFor(name);
+  const risks = new Map();
+  for (const policy of policies.length ? policies : [{ agent: null, approval: undefined, enabled: undefined }]) {
+    for (const tool of ungatedRisks(tools, policy.approval, policy.enabled)) {
+      if (!risks.has(tool.name)) risks.set(tool.name, policy.agent);
+    }
+  }
 
   console.log(`\n${name} - ${tools.length} tools`);
   for (const tool of tools) {
@@ -94,7 +118,8 @@ for (const server of list) {
         : kind === UNANNOTATED
           ? 'allowed'
           : '  free ';
-    console.log(`  ${label}  ${String(tool.name).padEnd(30)} ${kind}`);
+    const via = risky && risks.get(tool.name) ? ` - via ${risks.get(tool.name)}` : '';
+    console.log(`  ${label}  ${String(tool.name).padEnd(30)} ${kind}${via}`);
   }
 }
 

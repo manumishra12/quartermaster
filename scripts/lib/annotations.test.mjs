@@ -109,3 +109,34 @@ test('the two quartermaster specs declare the same deepwiki policy', () => {
   assert.deepEqual(local.enable_tools, full.enable_tools);
   assert.deepEqual(local.require_approval_for_tools, full.require_approval_for_tools);
 });
+
+test('an allowlist contains what a server might add, not what it admits', () => {
+  /**
+   * The check stopped at "no tags, so nothing unexpected can appear" and cleared every tool -
+   * including one the allowlist deliberately enables. A spec enabling `delete_repo` by name and
+   * gating only `@write`, which does not match a destructive tool, was reported clean, and
+   * `audit-tools` printed GATED beside it and exited 0 saying the policy gates what it claims to.
+   */
+  const destructive = [{ name: 'delete_repo', annotations: { destructiveHint: true } }];
+  assert.equal(ungatedRisks(destructive, ['@write'], ['delete_repo']).length, 1);
+
+  // Naming it in the gate as well is what makes it safe.
+  assert.equal(ungatedRisks(destructive, ['delete_repo'], ['delete_repo']).length, 0);
+
+  // A tool the allowlist excludes still cannot run, so it is still not a risk.
+  const other = [{ name: 'fork_repository', annotations: { destructiveHint: true } }];
+  assert.equal(ungatedRisks(other, ['@write'], ['delete_repo']).length, 0);
+});
+
+test('an unannotated tool named in the allowlist is contained, and that is deliberate', () => {
+  /**
+   * The distinction that keeps the fix above from being over-eager. For a tool whose annotations
+   * say nothing, naming it is the strongest statement available - we cannot tell what it does, so
+   * the allowlist is the containment. deepwiki ships exactly this way and TOOLS.md records it.
+   */
+  const unannotated = [{ name: 'ask_question', annotations: undefined }];
+  assert.equal(ungatedRisks(unannotated, undefined, ['ask_question']).length, 0);
+
+  // But a tag alongside the names re-opens the door, so it is a risk again.
+  assert.equal(ungatedRisks(unannotated, undefined, ['@all', 'ask_question']).length, 1);
+});
