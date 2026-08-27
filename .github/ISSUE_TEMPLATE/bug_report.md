@@ -9,7 +9,7 @@ assignees: ''
 ## What you ran
 
 <!-- The exact command, including flags. For example: npm run agent -- "Fix the failing test in
-     fixtures/ledger" -->
+     https://github.com/manumishra12/ledger-fixture" -->
 
 ## What happened
 
