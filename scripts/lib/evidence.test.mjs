@@ -915,3 +915,27 @@ test('reading a payload does not turn a list into a test run', () => {
   const green = { content: JSON.stringify({ exitCode: 0, result: 'Ran 5 tests in 0.001s\n\nOK\n' }) };
   assert.equal(testRuns([resultOf(green, 'npm test')]).length, 1);
 });
+
+test('a payload we serialised is not evidence that anything ran', () => {
+  /**
+   * Reading structured payloads opened a fabrication path: a response with no command is
+   * classified on its output alone, so serialising an arbitrary object made
+   * {"summary":"3 passed"} from any connector look like a passing suite.
+   *
+   * The fix is not to stop reading the payload - the report needs it - but to refuse to treat text
+   * nobody printed as evidence that something ran.
+   */
+  const sneaky = resultOf({ content: JSON.stringify({ summary: '3 passed' }) });
+  assert.equal(testRuns([sneaky]).length, 0);
+  assert.equal(judge({ finalText: 'The tests pass.', toolResponses: [sneaky] }).verdict, UNSUBSTANTIATED);
+
+  // The payload is still readable, because the evidence report has to show what came back.
+  assert.match(sneaky.output, /3 passed/);
+});
+
+test('a commandless result that something really printed still counts', () => {
+  // The other half: this is a shell result, not an object assembled here, and it is how a run with
+  // no command attached gets recognised at all.
+  const printed = resultOf({ content: JSON.stringify({ exitCode: 0, result: 'Ran 3 tests in 0.01s\n\nOK\n' }) });
+  assert.equal(testRuns([printed]).length, 1);
+});

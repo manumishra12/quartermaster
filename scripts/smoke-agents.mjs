@@ -101,13 +101,21 @@ const CASES = [
     // that is a pause rather than an execution - a smoke runner that streams to completion would
     // sit on it until the budget ran out and call the gate a failure.
     prompt: 'List the firing alerts on the ops desk and tell me the id of the one on checkout-api.',
-    expect: /ALRT-4471/,
+    /**
+     * A field only a real alert carries, not just the id.
+     *
+     * Matching the id alone passed on a *failed* call: a not-found payload lists the ids it knows,
+     * so `get_alert("nonsense")` came back containing ALRT-4471 and the case reported that firing
+     * alerts had been listed. The assertion has to be something only a successful read produces.
+     */
+    expect: /"first_seen"[\s\S]*ALRT-4471|ALRT-4471[\s\S]*"first_seen"/,
   },
   {
     agent: 'desk-assistant',
     what: 'reads the front desk',
     prompt: 'List the projects on the front desk and tell me the key of the checkout project.',
-    expect: /CHK/,
+    // Likewise: `convention` appears on a real project and never in a not-found payload's id list.
+    expect: /"convention"[\s\S]*CHK|CHK[\s\S]*"convention"/,
   },
 ];
 

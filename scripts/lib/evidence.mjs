@@ -824,6 +824,7 @@ export function resultOf(toolResponse, command = null) {
     candidates.find((c) => c != null);
   let output = '';
   let understood = true;
+  let structured = false;
 
   if (typeof value === 'string') {
     output = value;
@@ -846,11 +847,20 @@ export function resultOf(toolResponse, command = null) {
      * before any of this counts as a test run - a list of alerts is not a suite.
      */
     output = JSON.stringify(parsed);
+    /**
+     * Marked, because this text was assembled here rather than printed by anything.
+     *
+     * A response with no command is classified on its output alone, so serialising an arbitrary
+     * payload made `{"summary":"3 passed"}` from any connector look like a passing suite. That is
+     * a fabrication path this change opened, and the fix is not to stop reading the payload - the
+     * report needs it - but to refuse to treat text nobody printed as evidence that something ran.
+     */
+    structured = true;
   } else {
     understood = false;
   }
 
-  return { exitCode, output, command, understood, errored };
+  return { exitCode, output, command, understood, errored, structured };
 }
 
 /**
@@ -903,7 +913,12 @@ export function testRuns(toolResponses) {
     // When the command is known it must be a test invocation AND the output must look like one.
     // Either alone is forgeable: the command by naming a log file, the output by writing it.
     if (r.command != null) return looksLikeTestCommand(r.command) && RAN_TESTS.test(r.output);
-    return RAN_TESTS.test(r.output);
+    /**
+     * With no command, only text something actually printed can stand in for one. A structured
+     * payload was serialised here, so a field reading "3 passed" is a string in somebody's JSON -
+     * not a suite reporting its result.
+     */
+    return !r.structured && RAN_TESTS.test(r.output);
   });
 }
 

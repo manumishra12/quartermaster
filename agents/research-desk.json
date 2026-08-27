@@ -19,7 +19,7 @@
           "@write",
           "@destructive"
         ],
-        "preload": false
+        "preload": true
       }
     ],
     "skills": [
