@@ -403,10 +403,20 @@ for (let hop = 0; hop < 24; hop++) {
        *
        * --answer is still honoured, because that is somebody deciding in advance and saying so.
        */
-      const supplied = flag('answer', null);
+      /**
+       * --deny-all outranks --answer, and outranks it here too.
+       *
+       * Passing both used to hand the supplied text straight to the agent without prompting, so
+       * `--deny-all --answer yes` produced an affirmative from the flag whose entire purpose is
+       * that this session approves nothing. The flag that refuses has to win, or it is not a flag
+       * that refuses.
+       */
+      const supplied = denyAll ? null : flag('answer', null);
       const fallback =
         supplied ??
-        'No. Nobody is available to answer this. Do not proceed on an assumption - report what you needed to know and stop.';
+        (denyAll
+          ? 'No. Do not proceed. This session cannot approve or answer anything.'
+          : 'No. Nobody is available to answer this. Do not proceed on an assumption - report what you needed to know and stop.');
       const answer = denyAll ? fallback : await ask('  > ', fallback);
       resume.push({ type: 'user.tool_response', threadId: event.threadId, toolCallId: ref.id, content: answer });
     }
