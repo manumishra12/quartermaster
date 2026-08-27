@@ -81,9 +81,17 @@ In the TrueForge UI:
 ```bash
 npm install
 cp .env.example .env            # set TRUEFORGE_MODEL to a configured model FQN
+
+npm run ops-desk &              # the incident responder investigates this
+npm run front-desk &            # the desk assistant files into this
+
 npm run agents:apply
 npm run preflight               # tells you exactly what is still missing
 ```
+
+The two servers in the middle ship in this repository and need no accounts. Without them running,
+`incident-responder` and `desk-assistant` have nothing to reach - `preflight` says so, and names the
+command that starts each one.
 
 `preflight` reports on the server, model, sandbox, skills, connectors and agents, and names the fix
 for each thing it cannot find.
@@ -91,8 +99,15 @@ for each thing it cannot find.
 ### 4. Point it at something broken
 
 ```bash
-npm run agent -- "Fix the failing test in fixtures/ledger. Run it first and show me what breaks."
+npm run agent -- "Clone https://github.com/manumishra12/ledger-fixture into the sandbox, run its \
+tests, show me the failure, then fix the root cause and re-run to prove it passes. Do not edit the test."
 ```
+
+The clone URL matters. `fixtures/ledger` in this repository is the same code, but it is a path on
+**your** machine and the agent works inside a sandbox that cannot see it - so pointing at the local
+path gives you a confusing failure on the very first thing you run. The fixture is published as its
+own repository precisely so the agent has somewhere real to clone from, and so it cannot solve the
+problem by reading this repository's notes about it.
 
 Or open the interface:
 
