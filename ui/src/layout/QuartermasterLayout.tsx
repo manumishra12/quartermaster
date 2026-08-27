@@ -71,7 +71,10 @@ export function QuartermasterLayout({ className }: { className?: string }) {
           onDoubleClick={() => sidebar.set(256)}
           title="Drag to resize. Double-click to reset."
           className={[
-            'absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize',
+            // touch-action tells the browser this gesture is ours. Without it a touchscreen drag
+            // is claimed as a scroll and arrives as pointercancel, ending the resize instead of
+            // performing it - pointer capture and preventDefault do not substitute for it.
+            'absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize touch-none',
             'after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2',
             'after:bg-transparent hover:after:bg-accent focus-visible:after:bg-accent',
             'focus-visible:outline-none',

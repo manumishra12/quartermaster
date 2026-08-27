@@ -90,7 +90,17 @@ export function useSidebarWidth() {
         if (frame.current !== null) cancelAnimationFrame(frame.current);
         frame.current = null;
         setDragging(false);
-        setWidth((current) => {
+
+        /**
+         * The release coordinate is the answer, not whatever the last frame happened to apply.
+         *
+         * Cancelling the pending frame and persisting the current React state discarded the final
+         * movement, so letting go quickly after a fast drag left - and stored - the column at an
+         * earlier position than the pointer. A `pointercancel` carries no meaningful coordinate,
+         * so that case keeps what was already applied.
+         */
+        if (upEvent.type === 'pointerup') set(upEvent.clientX);
+        else setWidth((current) => {
           persist(current);
           return current;
         });
@@ -102,7 +112,7 @@ export function useSidebarWidth() {
       // column follows the cursor forever with no button held.
       handle.addEventListener('pointercancel', up);
     },
-    [persist],
+    [persist, set],
   );
 
   /** The same control from the keyboard, because a drag handle nobody can reach is not a control. */
