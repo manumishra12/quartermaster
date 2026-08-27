@@ -5,7 +5,7 @@ import { PHASES, isGreen, progress, testRuns, unexecutedToolCalls } from '@evide
 // @ts-expect-error - shared JS module, aliased in vite.config.ts
 import { renderUnexecutedCalls } from '@render-call';
 import { useAgentState } from './useAgentState';
-import { CheckIcon, ClockIcon, CloseIcon, CrossIcon, DotIcon, ExpandIcon, SpinnerIcon } from './icons';
+import { CheckIcon, ClockIcon, CloseIcon, CrossIcon, DotIcon, ExpandIcon, SpinnerIcon, iconForTool } from './icons';
 
 /**
  * The three questions a person actually has while an agent is running: what is it doing, what is
@@ -310,6 +310,7 @@ function ApprovalPrompt({
   respond?: (r: { approvalId: string; approved: boolean; reason?: string }) => void;
 }) {
   const [pending] = approvals;
+  const ToolIcon = iconForTool(pending?.toolName);
   const [sent, setSent] = useState<'allow' | 'deny' | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
 
@@ -385,7 +386,19 @@ function ApprovalPrompt({
       </p>
 
       <p className="mt-3 mb-2 text-sm text-muted">
-        It wants to run <code className="font-mono text-ink">{pending.toolName}</code>
+        It wants to run{' '}
+        {/*
+          * The icon says what kind of thing is about to happen, which is most of what the one
+          * glance before a decision is for: a shell command, a write to a repository, a message
+          * somebody receives, an irreversible remediation. Decorative - the tool name beside it
+          * carries the same fact for anyone who cannot see it.
+          */}
+        <span className="inline-flex items-center gap-1.5 align-middle">
+          <span aria-hidden className="text-accent">
+            <ToolIcon />
+          </span>
+          <code className="font-mono text-ink">{pending.toolName}</code>
+        </span>
         {approvals.length > 1 && ` and ${approvals.length - 1} more`}. Nothing happens until you choose.
       </p>
 

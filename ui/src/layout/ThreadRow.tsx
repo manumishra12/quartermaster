@@ -150,9 +150,17 @@ export function ThreadRow({
           closeSheet();
         }}
         aria-current={active ? 'true' : undefined}
+        aria-label={shown}
         className="min-w-0 flex-1 cursor-pointer text-left"
       >
+        {/*
+          * The full title is reachable three ways, because a truncated one is unreadable and the
+          * title is the only thing distinguishing two conversations: the native tooltip on hover,
+          * the accessible name for a screen reader, and the rename field, which shows the whole
+          * string in an input you can scroll through.
+          */}
         <span
+          title={shown}
           className={[
             'block truncate text-xs leading-snug',
             active ? 'font-medium text-ink' : 'text-ink',
@@ -178,14 +186,21 @@ export function ThreadRow({
         * row, always visible, would compete with the titles it is there to serve. focus-within
         * keeps it reachable by keyboard, where hover never happens.
         */}
-      <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+      {/*
+        * Visible on hover and on focus, and always visible where there is no hover at all.
+        *
+        * `opacity-0` with only a hover rule meant that on a touch screen the rename control was
+        * permanently invisible while still occupying space and accepting taps - a feature nobody
+        * could find on the devices least able to guess it was there.
+        */}
+      <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
         {canRename && (
           <button
             type="button"
             onClick={startEditing}
             aria-label={`Rename ${shown}`}
             title="Rename"
-            className="cursor-pointer rounded p-1 text-muted hover:bg-surface hover:text-ink"
+            className="grid size-8 cursor-pointer place-items-center rounded text-muted hover:bg-surface hover:text-ink"
           >
             <PencilIcon />
           </button>

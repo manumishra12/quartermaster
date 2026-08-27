@@ -5,6 +5,7 @@ import { QuickActions } from './QuickActions';
 import { SheetContext } from './SheetContext';
 import { Topbar } from './Topbar';
 import { useCallback, useState } from 'react';
+import { useSidebarWidth, MIN_WIDTH, MAX_WIDTH } from './useSidebarWidth';
 import { useThemeControl } from './ThemeContext';
 
 /**
@@ -20,6 +21,7 @@ import { useThemeControl } from './ThemeContext';
 export function QuartermasterLayout({ className }: { className?: string }) {
   const { mode, resolved, onThemeChange, agentName } = useThemeControl();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const sidebar = useSidebarWidth();
   const closeSheet = useCallback(() => setSheetOpen(false), []);
 
   /**
@@ -36,9 +38,46 @@ export function QuartermasterLayout({ className }: { className?: string }) {
     <div className={['flex h-full flex-col bg-bg text-ink lg:flex-row', className].filter(Boolean).join(' ')}>
       <nav
         aria-label="Conversations and agent reach"
-        className="hidden w-64 shrink-0 border-r border-line-soft lg:block"
+        className="relative hidden shrink-0 border-r border-line-soft lg:block"
+        style={{ width: sidebar.width }}
       >
         <Sidebar mode={mode} resolved={resolved} onThemeChange={onThemeChange} />
+
+        {/*
+          * A drag handle for the one column whose contents are arbitrarily long.
+          *
+          * Conversation titles come from whatever somebody typed first, so a fixed column truncated
+          * most of them with no way to read the rest. It is a separator by role, operable by
+          * pointer and by keyboard, and it reports its bounds so a screen reader can say where the
+          * edge currently sits.
+          */}
+        {/*
+          * A focusable separator carrying aria-valuenow is the ARIA window-splitter pattern, which
+          * this rule does not model: it sees an interactive element given a "non-interactive" role
+          * and objects, and objects the other way round if the same thing is built from a div. A
+          * button is the better base - focusable and keyboard-operable without being told to be.
+          */}
+        <button
+          type="button"
+          // eslint-disable-next-line jsx-a11y/no-interactive-element-to-noninteractive-role
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize the conversation list"
+          aria-valuenow={sidebar.width}
+          aria-valuemin={MIN_WIDTH}
+          aria-valuemax={MAX_WIDTH}
+          onPointerDown={sidebar.onPointerDown}
+          onKeyDown={sidebar.onKeyDown}
+          onDoubleClick={() => sidebar.set(256)}
+          title="Drag to resize. Double-click to reset."
+          className={[
+            'absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize',
+            'after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2',
+            'after:bg-transparent hover:after:bg-accent focus-visible:after:bg-accent',
+            'focus-visible:outline-none',
+            sidebar.dragging ? 'after:bg-accent' : '',
+          ].join(' ')}
+        />
       </nav>
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
