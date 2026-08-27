@@ -197,3 +197,30 @@ that did not apply to them. They no longer attach it.
 
 The harness accepts only `type: git`, so a local source is not an option; the fix is to depend on
 the network only where the skill is actually the right one.
+
+## When every agent suddenly cannot reach its sandbox
+
+The symptom is agents failing at once, with `fork/exec /usr/bin/bash: no such file or directory` or
+an empty tool response. bash is not missing; the sandbox was never built. There are two causes and
+they look identical from outside:
+
+**The skill fetch was reset.** Any agent attaching a `type: git` skill does a git fetch of this
+repository before it can start. See the section above - four agents no longer carry a skill they
+never used, which removes most of this exposure.
+
+**The sandbox quota is full.** This one is invisible until something reads the harness's error
+envelope:
+
+```
+Sandbox initialization failed: Total disk limit exceeded. Maximum allowed: 30GiB.
+Consider archiving your unused Sandboxes to free up available storage.
+```
+
+Every run creates a sandbox, and the provider here keeps them for
+`auto_delete_interval_in_minutes: 7200` - five days. A day of development is enough to fill the
+allowance, and then everything fails at once for a reason that has nothing to do with the agents.
+
+Fix it in **Settings - Sandbox providers**: archive the unused sandboxes, and shorten the delete
+interval. For a repository where every smoke run creates one, five days is far too long; a couple
+of hours is plenty. `npm run preflight` reports the provider as configured either way - it does not
+know how much room is left.
