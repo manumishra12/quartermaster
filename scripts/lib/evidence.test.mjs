@@ -985,3 +985,22 @@ test('a call shown inside wrapper data is not a call the model made', () => {
   assert.equal(unexecutedToolCalls('Config: {"ok":true}. Run: {"name":"exec","arguments":{"command":"ls"}}').length, 1);
   assert.equal(unexecutedToolCalls('{"name":"exec","arguments":{"command":"ls"}}').length, 1);
 });
+
+test('braces that are only prose do not hide a real call', () => {
+  /**
+   * Skipping a whole balanced group before knowing it was JSON meant a call sitting inside
+   * prose braces was stepped over, and an unmatched opener stopped the search entirely - so
+   * everything after it was invisible.
+   *
+   * Valid JSON is one value and is stepped over, which is what keeps wrapper data from being read
+   * from the inside. Text that merely looks bracketed is stepped through.
+   */
+  const inProse = 'Template { use {"name":"exec","arguments":{"command":"ls"}} } or something';
+  assert.equal(unexecutedToolCalls(inProse).length, 1);
+
+  const afterUnmatched = '{placeholder ... Run: {"name":"exec","arguments":{"command":"ls"}}';
+  assert.equal(unexecutedToolCalls(afterUnmatched).length, 1);
+
+  // And the wrapper case still must not fire, which is the constraint pulling the other way.
+  assert.equal(unexecutedToolCalls('{"example":{"name":"exec","arguments":{"command":"ls"}}}').length, 0);
+});

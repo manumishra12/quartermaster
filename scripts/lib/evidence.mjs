@@ -713,9 +713,12 @@ export function unexecutedToolCalls(text = '') {
      */
     for (let at = 0; at < trimmed.length; at += 1) {
     if (trimmed[at] !== '{' && trimmed[at] !== '[') continue;
+
     const value = balancedFrom(trimmed, at);
-    if (value == null) break;
-    at += value.length - 1;
+    // An opener that never closes is prose, not the end of the search: a later brace may still
+    // begin a real value, and stopping here lost every call after an unmatched one.
+    if (value == null) continue;
+
     try {
       /**
        * Take the balanced value, not everything to the end of the message.
@@ -736,8 +739,15 @@ export function unexecutedToolCalls(text = '') {
       if (calls.length > 0) {
         return calls.map((c) => ({ name: c.name, arguments: c.arguments ?? c.parameters ?? {} }));
       }
+      /**
+       * Valid JSON is one value, so step over it - that is what stops wrapper data being read
+       * from the inside. Text that merely looks bracketed is not, so step by one and keep
+       * looking: `Template { use {"name":"exec",...} }` is prose containing a real call, and
+       * skipping the whole group would have hidden it.
+       */
+      at += value.length - 1;
     } catch {
-      // Not JSON here; try the next opening brace, then the next candidate.
+      // Not JSON here. Advance one character so anything nested inside is still examined.
     }
     }
   }
