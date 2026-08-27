@@ -89,9 +89,20 @@ npm run agents:apply
 npm run preflight               # tells you exactly what is still missing
 ```
 
-The two servers in the middle ship in this repository and need no accounts. Without them running,
-`incident-responder` and `desk-assistant` have nothing to reach - `preflight` says so, and names the
-command that starts each one.
+The two servers in the middle ship in this repository and need no accounts. Starting them is not
+enough on a fresh harness - it also has to be told they exist, once:
+
+```bash
+for s in ops-desk:8795 front-desk:8796; do
+  curl -sS -X POST http://localhost:8790/api/v1/settings/mcp-servers \
+    -H 'content-type: application/json' \
+    -d "{\"manifest\":{\"type\":\"remote\",\"name\":\"${s%%:*}\",\"url\":\"http://localhost:${s##*:}/mcp\",\"description\":\"Ships with this repository; no account needed.\"}}"
+done
+```
+
+Without both steps `agents:apply` skips `incident-responder` and `desk-assistant` as unknown
+servers. `preflight` names whichever half is missing: it says `start it: npm run ops-desk` when the
+process is down, and the connector is absent from its list entirely when it was never registered.
 
 `preflight` reports on the server, model, sandbox, skills, connectors and agents, and names the fix
 for each thing it cannot find.
