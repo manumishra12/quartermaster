@@ -243,18 +243,74 @@ function decodeAnsiEscape(line, at) {
 function shadowedNames(code) {
   const names = new Set();
 
-  for (const [, name] of code.matchAll(/(?:^|[;&|\n{(]\s*)(?:function\s+)?([A-Za-z_][\w.-]*)\s*\(\s*\)/g)) {
-    names.add(name);
-  }
-  for (const [, name] of code.matchAll(/(?:^|[;&|\n]\s*)alias\s+([A-Za-z_][\w.-]*)=/g)) {
-    names.add(name);
-  }
-  // `function foo {` without parentheses is also valid bash.
-  for (const [, name] of code.matchAll(/(?:^|[;&|\n]\s*)function\s+([A-Za-z_][\w.-]*)\s*\{/g)) {
-    names.add(name);
+  /**
+   * Definitions are read from masked text, and from inside `eval` only.
+   *
+   * Scanning the raw command treated quoted *data* as syntax, so
+   * `printf '{ pytest() { fake; }'; pytest -q` marked pytest as redefined and threw away a real
+   * passing run - the guard against a fabricated pass producing a false accusation instead.
+   *
+   * Masking fixes that and creates the opposite gap, because `eval 'pytest() { ... }'` hides a
+   * genuine definition inside a quoted string. An eval argument is not data, it is code the shell
+   * is about to run, so it is scanned as such.
+   */
+  const masked = maskQuoted(code);
+  const evalled = evalArguments(code);
+
+  /**
+   * A definition inside a subshell does not survive it.
+   *
+   * `(pytest() { echo fake; }; true); pytest -q` really does run pytest afterwards - the function
+   * died with the subshell - so treating the outer call as shadowed rejected honest work.
+   */
+  const scoped = maskParenthesised(masked);
+
+  for (const source of [scoped, ...evalled]) {
+    // A leading position, a separator, or a reserved word: `if true; then pytest() { ... }; fi`.
+    const lead = String.raw`(?:^|[;&|\n{(]|\b(?:then|do|else|elif)\b)\s*`;
+
+    for (const [, name] of source.matchAll(new RegExp(`${lead}(?:function\\s+)?([A-Za-z_][\\w.-]*)\\s*\\(\\s*\\)`, 'g'))) {
+      names.add(name);
+    }
+    for (const [, name] of source.matchAll(new RegExp(`${lead}function\\s+([A-Za-z_][\\w.-]*)\\s*\\{`, 'g'))) {
+      names.add(name);
+    }
+    /**
+     * `alias` takes several assignments at once: `alias harmless=true pytest=echo`. Reading only
+     * the first left every later name trusted.
+     */
+    for (const [, assignments] of source.matchAll(new RegExp(`${lead}alias\\s+((?:[A-Za-z_][\\w.-]*=\\S*\\s*)+)`, 'g'))) {
+      for (const [, name] of assignments.matchAll(/([A-Za-z_][\w.-]*)=/g)) names.add(name);
+    }
   }
 
   return names;
+}
+
+/** What `eval` was handed, which is code rather than data however it was quoted. */
+function evalArguments(code) {
+  return [...code.matchAll(/\beval\s+(?:"([^"]*)"|'([^']*)'|(\S+))/g)].map((m) => m[1] ?? m[2] ?? m[3] ?? '');
+}
+
+/** Blank the contents of parenthesised groups, keeping length so offsets still line up. */
+function maskParenthesised(text) {
+  const out = [...text];
+  let depth = 0;
+
+  for (let i = 0; i < out.length; i += 1) {
+    if (out[i] === '(') {
+      depth += 1;
+      continue;
+    }
+    if (out[i] === ')') {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    // `name()` is a definition, not a subshell - its parentheses are empty and adjacent.
+    if (depth > 0) out[i] = ' ';
+  }
+
+  return out.join('');
 }
 
 function withoutComments(text) {
@@ -730,7 +786,25 @@ export function looksLikeTestCommand(command = '') {
 
     // A heredoc body is data being written, not commands being run.
     const { code: written, expandingBodies } = splitHeredocs(part);
-    const code = reachableBranches(withoutComments(written));
+    const uncomment = withoutComments(written);
+    const code = reachableBranches(uncomment);
+
+    /**
+     * Shadowing is read from the text *before* branch analysis unwraps subshell groups.
+     *
+     * `reachableBranches` recurses into `( ... )` and returns its contents at the top level, so by
+     * then a definition that died with its subshell looks like one that survived - and
+     * `(pytest() { echo fake; }; true); pytest -q`, which really does run pytest afterwards, was
+     * rejected as forged.
+     */
+    for (const name of shadowedNames(uncomment)) shadowed.add(name);
+
+    /**
+     * What `eval` is given is code, so it joins the worklist as a part in its own right. Otherwise
+     * the quoted argument collapses to a placeholder and `eval "pytest -q"` - an ordinary way to
+     * run a suite - stops looking like a run at all.
+     */
+    queue.push(...evalArguments(uncomment));
 
     // An unquoted delimiter still expands `$(...)` inside the body; a quoted one expands nothing.
     for (const body of expandingBodies) queue.push(...expandedSubstitutions(body));
@@ -750,7 +824,6 @@ export function looksLikeTestCommand(command = '') {
       .replace(/'[^']*'|"[^"]*"/g, 'Q');
 
     // Any segment of a compound command can be the real invocation: `cd repo && pytest -q`.
-    for (const name of shadowedNames(code)) shadowed.add(name);
     segments.push(...collapsed.split(/&&|\|\||;|\||\n/));
   }
 
