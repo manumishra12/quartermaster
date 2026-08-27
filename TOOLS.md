@@ -174,3 +174,26 @@ here so nobody flips one back on the reasonable assumption that it is only an op
 Worth knowing how this was found: the error above was invisible until `resultOf` learned to read
 the harness's error envelope. Before that, a connector that could not be reached produced an empty
 result, and an empty result reads exactly like a call that ran and printed nothing.
+
+## Why most agents carry no skills
+
+Both skills are `type: git`, which means every sandbox start for an agent that attaches one does a
+git fetch of this repository before the agent can do anything. When that fetch is reset the sandbox
+never comes up, and the agent fails entirely:
+
+```
+Sandbox initialization failed: (exit code 1): git ls-remote failed (exit 128): fatal: unable to
+access 'https://github.com/manumishra12/quartermaster/': Recv failure: Connection reset by peer
+(skill: evidence-report)
+```
+
+That is the cause of the intermittent `fork/exec /usr/bin/bash: no such file or directory`
+failures: the shell is missing because the sandbox was never built.
+
+`evidence-report` describes how to present the verdict of a fix - a diff, and the before and after
+test runs side by side. It was attached to seven agents, four of which never run a test. So four
+agents were paying a network round trip, and a single point of failure, at every start for a skill
+that did not apply to them. They no longer attach it.
+
+The harness accepts only `type: git`, so a local source is not an option; the fix is to depend on
+the network only where the skill is actually the right one.

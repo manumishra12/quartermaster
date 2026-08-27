@@ -9,7 +9,7 @@
  *   npm run smoke -- --agent analytics
  */
 import { TrueForge, isEventDelta } from '@truefoundry/trueforge-sdk';
-import { resultOf } from './lib/evidence.mjs';
+import { resultOf, unexecutedToolCalls } from './lib/evidence.mjs';
 import { loadEnv } from './lib/env.mjs';
 
 loadEnv();
@@ -150,6 +150,8 @@ async function runCase(testCase) {
   }
 
   const recorded = [];
+  /** What the model said, so a call it printed instead of making can be named as such. */
+  let said = '';
   let status;
   let timedOut = false;
 
@@ -160,6 +162,7 @@ async function runCase(testCase) {
     for await (const { data: event } of stream.withMetadata()) {
       if (isEventDelta(event)) continue;
       if (event.type === 'tool.response') recorded.push(resultOf(event));
+      if (event.type === 'model.message') said += event.content ?? '';
       if (event.type === 'turn.done') status = event.state?.status;
     }
   };
@@ -199,6 +202,24 @@ async function runCase(testCase) {
       why: `no tool response within ${BUDGET_MS / 1000}s - turn cancelled. The call may never have been made, or may have been waiting on something`,
     };
   }
+  /**
+   * The model wrote the call out instead of making it.
+   *
+   * This is a specific, diagnosable thing and not the same as "nothing happened": the command is
+   * usually correct, and what failed is the emission. Saying "no tool response was recorded" sends
+   * somebody to check the wiring, which is fine. It is the model.
+   */
+  const printed = unexecutedToolCalls(said);
+  if (recorded.length === 0 && printed.length > 0) {
+    return {
+      ...testCase,
+      ok: false,
+      seconds,
+      printedCall: true,
+      why: `the model printed the ${printed.map((c) => c.name).join(', ')} call as text instead of making it - the wiring is fine, the emission is not`,
+    };
+  }
+
   if (recorded.length === 0) {
     return { ...testCase, ok: false, seconds, why: 'no tool response was recorded - nothing the agent did produced a result' };
   }
@@ -276,8 +297,15 @@ for (const testCase of selected) {
    * suite that tells you nothing, and the number of retries is itself a fact about the harness
    * worth seeing.
    */
-  if (!result.ok && result.sandbox) {
-    console.log('sandbox not ready, retrying once');
+  /**
+   * Retried for two causes, both announced: a sandbox that was not ready, and a model that printed
+   * the call instead of making it. Neither is an answer to "can this agent reach its tools", and
+   * both are known to pass on a second attempt with a small local model.
+   *
+   * Never retried for a wrong answer. A suite that re-runs until it agrees with itself is worthless.
+   */
+  if (!result.ok && (result.sandbox || result.printedCall)) {
+    console.log(result.sandbox ? 'sandbox not ready, retrying once' : 'call printed as text, retrying once');
     process.stdout.write(`  ${testCase.agent.padEnd(20)} ${testCase.what} ... `);
     result = await runCase(testCase);
     result.retried = true;
@@ -294,7 +322,7 @@ if (failed.length) {
   console.log('  A failure here is one of three things:');
   console.log('    - the agent is not applied      -> npm run agents:apply');
   console.log('    - its connector is unconfigured -> npm run preflight');
-  console.log('    - the model cannot call tools   -> a small local model will print tool calls as text');
+  console.log('    - the model printed the call    -> named as such above; the wiring is fine, the model is not');
   console.log('    - the sandbox was not ready     -> named as such above; it is the harness, not the agent');
   console.log('    - the machine is loaded         -> empty tool responses; raise --budget or free the machine\n');
   process.exit(1);
