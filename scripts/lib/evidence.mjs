@@ -265,7 +265,15 @@ function shadowedNames(code) {
    */
   const scoped = maskParenthesised(masked);
 
-  for (const source of [scoped, ...evalled]) {
+  /**
+   * An eval body gets the same treatment as the command around it: quotes are data, and a
+   * definition inside a subshell dies with it. Scanning them raw meant
+   * `eval '(pytest() { echo fake; }; true); pytest -q'` marked pytest as shadowed when the
+   * function had already died, and discarded the real run that followed.
+   */
+  const scopedEvals = evalled.map((body) => maskParenthesised(maskQuoted(body)));
+
+  for (const source of [scoped, ...scopedEvals]) {
     // A leading position, a separator, or a reserved word: `if true; then pytest() { ... }; fi`.
     const lead = String.raw`(?:^|[;&|\n{(]|\b(?:then|do|else|elif)\b)\s*`;
 
@@ -287,9 +295,27 @@ function shadowedNames(code) {
   return names;
 }
 
-/** What `eval` was handed, which is code rather than data however it was quoted. */
+/**
+ * What `eval` was handed, which is code however it was quoted - but only where `eval` is a command.
+ *
+ * Matching the word anywhere meant `echo "eval 'pytest -q'"` queued a pytest run that no shell
+ * would ever perform: the eval there is a character in a string being printed. The word is located
+ * in the masked text, where anything inside quotes has been blanked, and the argument is then
+ * sliced out of the original at the same offset - `maskQuoted` preserves length exactly so the two
+ * line up.
+ */
 function evalArguments(code) {
-  return [...code.matchAll(/\beval\s+(?:"([^"]*)"|'([^']*)'|(\S+))/g)].map((m) => m[1] ?? m[2] ?? m[3] ?? '');
+  const masked = maskQuoted(code);
+  const args = [];
+
+  for (const match of masked.matchAll(/\beval\s+/g)) {
+    const from = match.index + match[0].length;
+    const rest = code.slice(from);
+    const quoted = /^(?:"([^"]*)"|'([^']*)'|(\S+))/.exec(rest);
+    if (quoted) args.push(quoted[1] ?? quoted[2] ?? quoted[3] ?? '');
+  }
+
+  return args;
 }
 
 /** Blank the contents of parenthesised groups, keeping length so offsets still line up. */
@@ -804,7 +830,13 @@ export function looksLikeTestCommand(command = '') {
      * the quoted argument collapses to a placeholder and `eval "pytest -q"` - an ordinary way to
      * run a suite - stops looking like a run at all.
      */
-    queue.push(...evalArguments(uncomment));
+    /**
+     * From `code`, not from the text before branch analysis: `false && eval "pytest -q"` is a
+     * branch the shell skips, and queueing its payload invented a run out of a command that
+     * never executes. Shadowing still reads the earlier text, because that is where subshell
+     * scoping is still visible - two sources, for two different questions.
+     */
+    queue.push(...evalArguments(code));
 
     // An unquoted delimiter still expands `$(...)` inside the body; a quoted one expands nothing.
     for (const body of expandingBodies) queue.push(...expandedSubstitutions(body));
