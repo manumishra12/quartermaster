@@ -94,6 +94,21 @@ const CASES = [
     // "reaches the web through Exa" without establishing that it had reached anything.
     expect: /https?:\/\/[^\s"']+/,
   },
+  {
+    agent: 'incident-responder',
+    what: 'reads the ops desk',
+    // The read path only. What happens when it proposes a remediation is the approval gate, and
+    // that is a pause rather than an execution - a smoke runner that streams to completion would
+    // sit on it until the budget ran out and call the gate a failure.
+    prompt: 'List the firing alerts on the ops desk and tell me the id of the one on checkout-api.',
+    expect: /ALRT-4471/,
+  },
+  {
+    agent: 'desk-assistant',
+    what: 'reads the front desk',
+    prompt: 'List the projects on the front desk and tell me the key of the checkout project.',
+    expect: /CHK/,
+  },
 ];
 
 const client = new TrueForge({ baseUrl: BASE, timeoutInSeconds: 900 });

@@ -859,3 +859,59 @@ test('a citation stops being unsupported as soon as anything actually ran', () =
   const cited = 'According to https://trueforge.dev/, the harness handles the approval gate.';
   assert.notEqual(judge({ finalText: cited, toolResponses: searched }).verdict, UNSUBSTANTIATED);
 });
+
+test('a failed call is read as a failure, not as silence', () => {
+  /**
+   * The harness reports a failed call as {"error":[{"type":"text","text":"..."}]}. Nothing read
+   * that field, so a call that failed came back with empty output and no exit code -
+   * indistinguishable from one that ran and printed nothing. A sandbox that failed to start
+   * appeared, to every rule downstream, as silence.
+   *
+   * This is the defect the project keeps finding elsewhere, sitting in the parser the whole
+   * verifier is built on. It was found by the smoke runner reporting an envelope it could not
+   * read, which is why that diagnosis was worth adding.
+   */
+  const failed = {
+    content: JSON.stringify({
+      error: [{ type: 'text', text: "Sandbox initialization failed: (exit code 1): git ls-remote failed (skill: evidence-report)" }],
+    }),
+  };
+
+  const parsed = resultOf(failed, 'exec');
+  assert.equal(parsed.understood, true);
+  assert.match(parsed.output, /Sandbox initialization failed/);
+  assert.match(parsed.output, /evidence-report/, 'the reason has to survive, not just the fact');
+});
+
+test('an error envelope does not become a passing test run', () => {
+  // The output mentions no failure markers, so the danger is the opposite one: text that looks
+  // benign being counted. It is not a test run either way, because nothing ran.
+  const failed = {
+    content: JSON.stringify({ error: [{ type: 'text', text: 'Sandbox initialization failed' }] }),
+  };
+  assert.equal(testRuns([resultOf(failed, 'npm test')]).length, 0);
+});
+
+test('a structured MCP payload is its own result', () => {
+  /**
+   * An MCP tool answering with structured data has no wrapper: the payload *is* the result.
+   * Looking only for result/output/stdout/text meant every such response read as empty, so for a
+   * connector returning JSON the evidence layer saw nothing at all - which is how the incident
+   * responder could make three real calls and have none of them count.
+   */
+  const alerts = { content: JSON.stringify({ now: '2026-08-26', count: 2, alerts: [{ id: 'ALRT-4471' }] }) };
+  const parsed = resultOf(alerts, 'list_alerts');
+
+  assert.equal(parsed.understood, true);
+  assert.match(parsed.output, /ALRT-4471/);
+});
+
+test('reading a payload does not turn a list into a test run', () => {
+  // The command still has to look like a test invocation. A list of alerts is not a suite.
+  const alerts = { content: JSON.stringify({ count: 2, alerts: [{ id: 'ALRT-4471', status: 'firing' }] }) };
+  assert.equal(testRuns([resultOf(alerts, 'list_alerts')]).length, 0);
+
+  // And a real run still counts, which is the half that must not break.
+  const green = { content: JSON.stringify({ exitCode: 0, result: 'Ran 5 tests in 0.001s\n\nOK\n' }) };
+  assert.equal(testRuns([resultOf(green, 'npm test')]).length, 1);
+});
