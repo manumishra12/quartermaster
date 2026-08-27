@@ -156,3 +156,21 @@ argued with; an absent tool cannot.
 The five it does have are named in `require_approval_for_tools` as well as covered by `@write` and
 `@destructive`. That is redundant today, because GitHub annotates correctly. It is not redundant
 against the day it stops, and the spec outlives the annotation.
+
+## Why every connector is preloaded
+
+`preload: false` asks TrueForge to defer a connector's tool schemas and let the model load them on
+demand. It is the right idea - schemas are expensive and most turns need few of them - and on this
+harness it does not work. The deferred path resolves to a server the instance does not provide:
+
+```
+{"error":"MCP server 'deferred-tools' not found"}
+```
+
+Every connector set to `preload: false` failed to be reached at all, and every one set to `true`
+worked. The correlation was exact across six agents. So they are all preloaded, and this note is
+here so nobody flips one back on the reasonable assumption that it is only an optimisation.
+
+Worth knowing how this was found: the error above was invisible until `resultOf` learned to read
+the harness's error envelope. Before that, a connector that could not be reached produced an empty
+result, and an empty result reads exactly like a call that ran and printed nothing.

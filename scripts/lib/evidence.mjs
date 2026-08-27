@@ -796,11 +796,35 @@ export function resultOf(toolResponse, command = null) {
   const exitCode =
     typeof rawExit === 'number' ? rawExit : /^-?\d+$/.test(String(rawExit ?? '')) ? Number(rawExit) : null;
 
-  // `??` alone would stop at an empty `result` and never look at a populated `output`.
+  /**
+   * `error` is a result too, and the most important one to keep.
+   *
+   * The harness reports a failed call as `{"error":[{"type":"text","text":"..."}]}`. Nothing here
+   * read that field, so a call that failed came back with empty output and no exit code - which is
+   * indistinguishable from a call that ran and printed nothing. A sandbox that failed to start
+   * appeared, to every rule downstream, as silence.
+   *
+   * This is the same defect the project keeps finding elsewhere and it was sitting in the parser
+   * the whole verifier is built on: a failure that reads as nothing is a failure nobody is told
+   * about.
+   */
   const candidates = [inner.result, inner.output, inner.stdout, inner.text];
-  const value = candidates.find((c) => typeof c === 'string' && c !== '') ?? candidates.find((c) => c != null);
+  /**
+   * A call that errored is a different thing from a command that failed.
+   *
+   * `npm test` exiting 1 is a test run, and a red one - that is how a false pass-claim gets caught.
+   * A tool call that errored before anything executed is not a test run at all, and counting it as
+   * one would let a sandbox that never started stand in for a suite that never ran.
+   */
+  const errorValue = inner.error ?? parsed.error;
+  const errored = errorValue != null && !candidates.some((c) => typeof c === 'string' && c !== '');
+  const value =
+    candidates.find((c) => typeof c === 'string' && c !== '') ??
+    (errored ? errorValue : undefined) ??
+    candidates.find((c) => c != null);
   let output = '';
   let understood = true;
+  let structured = false;
 
   if (typeof value === 'string') {
     output = value;
@@ -812,11 +836,31 @@ export function resultOf(toolResponse, command = null) {
   } else if (Array.isArray(parsed.content)) {
     // The MCP content-array shape: [{type: 'text', text: '...'}]
     output = parsed.content.map((part) => part?.text ?? '').join('');
+  } else if (parsed && typeof parsed === 'object') {
+    /**
+     * An MCP tool that answers with structured data has no wrapper at all - the payload *is* the
+     * result: `{"count": 2, "alerts": [...]}`. Looking only for result/output/stdout/text meant
+     * every such response read as empty, so for a connector returning JSON the evidence layer saw
+     * nothing at all and the smoke runner reported an envelope it could not read.
+     *
+     * Serialising it back is safe because a command still has to look like a test invocation
+     * before any of this counts as a test run - a list of alerts is not a suite.
+     */
+    output = JSON.stringify(parsed);
+    /**
+     * Marked, because this text was assembled here rather than printed by anything.
+     *
+     * A response with no command is classified on its output alone, so serialising an arbitrary
+     * payload made `{"summary":"3 passed"}` from any connector look like a passing suite. That is
+     * a fabrication path this change opened, and the fix is not to stop reading the payload - the
+     * report needs it - but to refuse to treat text nobody printed as evidence that something ran.
+     */
+    structured = true;
   } else {
     understood = false;
   }
 
-  return { exitCode, output, command, understood };
+  return { exitCode, output, command, understood, errored, structured };
 }
 
 /**
@@ -864,10 +908,17 @@ export function refused(toolResponses = []) {
  */
 export function testRuns(toolResponses) {
   return performed(toolResponses).filter((r) => {
+    // A call that errored produced no execution to judge, whatever its message happens to contain.
+    if (r.errored) return false;
     // When the command is known it must be a test invocation AND the output must look like one.
     // Either alone is forgeable: the command by naming a log file, the output by writing it.
     if (r.command != null) return looksLikeTestCommand(r.command) && RAN_TESTS.test(r.output);
-    return RAN_TESTS.test(r.output);
+    /**
+     * With no command, only text something actually printed can stand in for one. A structured
+     * payload was serialised here, so a field reading "3 passed" is a string in somebody's JSON -
+     * not a suite reporting its result.
+     */
+    return !r.structured && RAN_TESTS.test(r.output);
   });
 }
 
