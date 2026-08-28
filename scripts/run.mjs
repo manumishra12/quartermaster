@@ -26,6 +26,7 @@ import { unexecutedToolCalls } from './lib/evidence.mjs';
 import { renderUnexecutedCalls } from './lib/render-call.mjs';
 import { positionals, readFlag } from './lib/flags.mjs';
 import { advance, blankCheckpoint, parseCheckpoint, sessionDirName, writeCheckpoint } from './lib/checkpoint.mjs';
+import { decideApproval } from './lib/approval.mjs';
 
 const argv = process.argv.slice(2);
 /** The flags that take a value, named once so the prompt and the readers agree on them. */
@@ -350,58 +351,38 @@ for (let hop = 0; hop < 24; hop++) {
       const call = describe(ref);
       console.log('\n  ── APPROVAL REQUIRED ──────────────────────────────');
 
+      let answer = null;
       if (!call) {
-        // The call cannot be displayed, so it cannot be consented to. Asking somebody to approve
-        // a blank is worse than not asking: it produces the appearance of oversight without any.
+        // The call cannot be displayed, so nobody is asked about it. Asking somebody to approve a
+        // blank is worse than not asking: it produces the appearance of oversight without any.
         console.log('  This call could not be read, so it cannot be shown to you. Denying.');
-        resume.push({
-          type: 'user.tool_approval',
-          threadId: event.threadId,
-          toolCallId: ref.id,
-          approval: { status: 'deny', reason: 'The call could not be displayed for approval' },
-        });
-        continue;
+      } else {
+        // What it will change, not eight hundred characters of the JSON it will send.
+        for (const line of describeCall(call.toolInfo?.name, call.function?.arguments)) {
+          console.log(line);
+        }
+        if (!denyAll) answer = await ask('  allow / deny > ', 'deny');
       }
 
-      // What it will change, not eight hundred characters of the JSON it will send.
-      for (const line of describeCall(call.toolInfo?.name, call.function?.arguments)) {
-        console.log(line);
-      }
-      const answer = denyAll ? 'deny' : (await ask('  allow / deny > ', 'deny')).toLowerCase().trim();
       /**
-       * A pipe can refuse but it cannot approve.
-       *
-       * Reading piped answers made the documented denial real, and it made an unattended `echo
-       * allow` real at the same time - a script authorising an irreversible write with no person
-       * present at the moment of the decision. This agent's argument is that the unattended path
-       * must be the safe one, and a token in a file is not somebody deciding. Denials are taken
-       * from anywhere, because being refused by a script is still being refused.
+       * One decision, one record. The undisplayable call used to be denied by its own early
+       * return, which skipped the bookkeeping below - so the gate stopped it and the report
+       * counted it as an execution anyway.
        */
-      const approvable = !piped;
-      /**
-       * Exact words only. This used to accept anything starting with "a", so `abort` - the word an
-       * operator reaches for when they have just realised they do not want this - approved the
-       * call. Anything unrecognised is a denial.
-       */
-      const wantedAllow = ['allow', 'yes', 'y', 'approve'].includes(answer);
-      const allowed = !denyAll && approvable && wantedAllow;
-      if (wantedAllow && !approvable) {
-        console.log('  refused: approval has to come from a person at a terminal, not from a pipe');
-      }
-      resume.push({
-        type: 'user.tool_approval',
-        threadId: event.threadId,
-        toolCallId: ref.id,
-        approval: allowed
-          ? { status: 'allow' }
-          : { status: 'deny', reason: denyAll ? 'denied by --deny-all' : 'denied by the operator' },
+      const { approval, refused: wasRefused, note } = decideApproval({
+        displayable: Boolean(call),
+        denyAll,
+        piped,
+        answer,
       });
-      if (!allowed) {
+      if (note) console.log(`  ${note}`);
+      resume.push({ type: 'user.tool_approval', threadId: event.threadId, toolCallId: ref.id, approval });
+      if (wasRefused) {
         denied.add(ref.id);
         checkpoint.denied = [...denied];
         save();
       }
-      console.log(`  -> ${allowed ? 'allowed' : 'denied'}\n`);
+      console.log(`  -> ${wasRefused ? 'denied' : 'allowed'}\n`);
     }
   }
 
