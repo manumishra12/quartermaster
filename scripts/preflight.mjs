@@ -192,6 +192,30 @@ try {
       }
     }
   }
+
+  /**
+   * A connector nothing reaches is credentials sitting there for nothing.
+   *
+   * It is not a failure - somebody may be halfway through wiring one up - but it is worth saying
+   * out loud every run, because the reason to notice is security rather than tidiness: a configured
+   * server is reachable by anything that can reach the harness, and one no agent uses is blast
+   * radius bought and never spent. It is also how a connector ends up connected under a name no
+   * spec matches, which reads as configured and is not.
+   */
+  const reached = new Set(
+    specFiles().flatMap(({ path }) =>
+      (JSON.parse(readFileSync(path, 'utf8'))?.manifest?.mcp_servers ?? []).map((srv) => srv?.name).filter(Boolean),
+    ),
+  );
+  const idle = servers.map((srv) => srv.manifest?.name ?? srv.name).filter((name) => name && !reached.has(name));
+  if (idle.length) {
+    record(
+      true,
+      'Connectors nothing reaches',
+      `${idle.join(', ')} - configured, and no agent spec names them`,
+      'either point an agent at it or remove it: a connector no agent uses is reachable for nothing',
+    );
+  }
 } catch {
   record(false, 'MCP connectors', 'could not list servers');
 }
