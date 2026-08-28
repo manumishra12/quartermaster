@@ -1,5 +1,21 @@
 {
   "name": "research-desk",
+  "routing": {
+    "handles": [
+      "research",
+      "find out",
+      "search the web",
+      "look up",
+      "compare vendors",
+      "sources",
+      "cite",
+      "what is the state of"
+    ],
+    "avoid": [
+      "sql",
+      "incident"
+    ]
+  },
   "manifest": {
     "model": {
       "name": "${TRUEFORGE_MODEL}",
@@ -37,6 +53,9 @@
     "skills": [
       {
         "name": "source-citation"
+      },
+      {
+        "name": "handing-off"
       },
       {
         "name": "untrusted-input"

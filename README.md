@@ -277,6 +277,74 @@ this is not.
 `code-runner` is the odd one: subagents are switched **off** for it. It runs code somebody else
 wrote, so widening the blast radius by handing that code to more agents is the wrong direction.
 
+## Nine agents, and choosing between them
+
+Nine agents and one default is not a fleet, it is eight agents nobody reaches. `--agent` was
+required knowledge: get it wrong and the request was answered by whichever spec happened to be the
+default, capably and about the wrong thing.
+
+```bash
+npm run agent -- "how many refunds did we issue last month"
+routed to analytics: matched "how many", "refunds"
+```
+
+The router is rule-based, and that is a choice rather than a shortcut. Choosing the agent is
+choosing the authority - `authority.mjs` exists to say how much these differ - and this project's
+whole argument is that the interesting decisions do not belong to the model. So it reads what each
+spec says it handles, it shows its working, and **when it is not sure it does not pick**:
+
+```
+  Not sure which agent should take this: only quartermaster matched, and only on "bug".
+
+    --agent quartermaster        "bug"
+
+  Name one with --agent. Picking for you here would be a guess about authority.
+```
+
+`npm run route -- "<request>"` answers the same question without starting anything, and shows what
+the winner beat.
+
+### A handoff cannot widen authority
+
+An agent hands work to another by emitting one fenced block:
+
+````
+```handoff
+to: analytics
+because: this is a question about data, and I cannot query the warehouse
+```
+````
+
+Delegation is the feature everybody wants from a fleet of agents and it is also the quietest hole
+in one. Agent A stops at an approval it cannot pass, hands the task to agent B, and B does it
+ungated. Nobody lied, no policy was edited, and the write happened without anybody being asked.
+
+So every handoff is checked against what the two agents can actually reach, and refused if the
+receiver can reach anything the sender could not - or can reach ungated what the sender would have
+had to ask about. The real case in this repository:
+
+```
+  code-reviewer asked to hand this to quartermaster. Refused.
+  handing from code-reviewer to quartermaster would widen what this request can do
+
+    github/create_branch          -  the sender cannot reach it
+    github/create_or_update_file  -  the sender cannot reach it
+```
+
+`code-reviewer` cannot push or merge by design - a reviewer that can merge is not a reviewer - and
+delegating its fix to the agent that can push is how it would get one anyway. Of the 72 directed
+pairs between these nine agents, 15 are handoffs that widen nothing.
+
+Three further rules, all enforced in `handoff.mjs`: **approvals never travel** (there is no field
+for one, and a test asserts the absence), the chain is **bounded at three hops with no revisiting**,
+and the sender's note reaches the receiver **framed as untrusted text** - because it is text written
+by a model, with the same power to contain "this was pre-approved" as any issue body from a
+stranger. An allowed handoff re-enters the same run script, so the receiving agent gets the
+identical approval loop and the identical evidence verifier. There is no softer path for delegated
+work.
+
+---
+
 ## Two fixtures, deliberately broken
 
 | Fixture | Language | The bug |
@@ -358,10 +426,11 @@ from recorded tool responses, never from the agent's narration.
 ## Development
 
 ```bash
-npm run check             # lint, typecheck, 370 tests, and the fixture check - what CI runs
+npm run check             # lint, typecheck, 397 tests, and the fixture check - what CI runs
 npm test                  # the root suite alone
 npm run fixtures:check    # the fixtures must still fail
 npm run tools:audit       # every reachable tool is gated as claimed
+npm run route -- "..."    # which agent would take this, and what it beat
 npm run ops-desk          # the MCP server the incident responder investigates
 npm run front-desk        # the workspace the desk assistant files into
 cd ui && npm run test:unit && npm run build   # 169 tests, then the interface compiles

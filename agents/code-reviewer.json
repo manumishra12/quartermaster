@@ -1,5 +1,19 @@
 {
   "name": "code-reviewer",
+  "routing": {
+    "handles": [
+      "review",
+      "review this",
+      "code review",
+      "look at this pull request",
+      "critique",
+      "what is wrong with"
+    ],
+    "avoid": [
+      "fix it",
+      "open a pull request"
+    ]
+  },
   "manifest": {
     "model": {
       "name": "${TRUEFORGE_MODEL}",
@@ -40,6 +54,9 @@
       },
       {
         "name": "evidence-report"
+      },
+      {
+        "name": "handing-off"
       },
       {
         "name": "untrusted-input"

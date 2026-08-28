@@ -1,5 +1,28 @@
 {
   "name": "analytics",
+  "routing": {
+    "handles": [
+      "sql",
+      "query",
+      "how many",
+      "database",
+      "report",
+      "chart",
+      "dataset",
+      "revenue",
+      "orders",
+      "refunds",
+      "totals",
+      "average",
+      "breakdown",
+      "table"
+    ],
+    "avoid": [
+      "incident",
+      "deploy",
+      "pull request"
+    ]
+  },
   "manifest": {
     "model": {
       "name": "${TRUEFORGE_MODEL}",
@@ -40,6 +63,9 @@
       },
       {
         "name": "data-report"
+      },
+      {
+        "name": "handing-off"
       },
       {
         "name": "untrusted-input"

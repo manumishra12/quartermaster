@@ -1,5 +1,19 @@
 {
   "name": "code-runner",
+  "routing": {
+    "handles": [
+      "run this",
+      "run the script",
+      "execute",
+      "reproduce",
+      "does this work",
+      "run it"
+    ],
+    "avoid": [
+      "review",
+      "pull request"
+    ]
+  },
   "manifest": {
     "model": {
       "name": "${TRUEFORGE_MODEL}",
@@ -37,6 +51,9 @@
     "skills": [
       {
         "name": "evidence-report"
+      },
+      {
+        "name": "handing-off"
       },
       {
         "name": "untrusted-input"

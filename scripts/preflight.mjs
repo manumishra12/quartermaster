@@ -13,7 +13,8 @@ import { describeConnectorFailure } from './lib/connector-advice.mjs';
 import { join } from 'node:path';
 import { classify, ungatedRisks } from './lib/annotations.mjs';
 import { loadEnv } from './lib/env.mjs';
-import { specFiles } from './lib/spec.mjs';
+import { routingConflicts, specFiles } from './lib/spec.mjs';
+import { loadAgents } from './lib/route.mjs';
 import { fromModule } from './lib/paths.mjs';
 
 loadEnv();
@@ -235,6 +236,29 @@ try {
   );
 } catch (err) {
   record(false, 'Agents applied', err.message, 'npm run agents:apply');
+}
+
+/**
+ * Whether an unnamed request can be routed anywhere, and whether two agents fight over it.
+ *
+ * The router refuses to guess, which means a routing gap shows up as a question to the person
+ * rather than as a wrong answer - good, but only if somebody is told before the demo rather than
+ * during it. A conflict is the sharper one: it is invisible in either spec read alone.
+ */
+{
+  const agents = loadAgents(AGENTS_DIR);
+  const routable = agents.filter((a) => a.routing?.handles?.length);
+  const conflicts = routingConflicts(agents);
+  const silent = agents.filter((a) => !a.routing?.handles?.length).map((a) => a.name);
+
+  record(
+    conflicts.length === 0,
+    'Routing',
+    conflicts.length
+      ? conflicts.join('; ')
+      : `${routable.length} of ${agents.length} agents routable${silent.length ? ` - ${silent.join(', ')} need --agent` : ''}`,
+    conflicts.length ? 'two agents claim the same phrase; narrow one of them in its routing block' : null,
+  );
 }
 
 report();

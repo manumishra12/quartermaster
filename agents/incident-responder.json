@@ -1,5 +1,25 @@
 {
   "name": "incident-responder",
+  "routing": {
+    "handles": [
+      "incident",
+      "outage",
+      "alert",
+      "paging",
+      "service is down",
+      "error rate",
+      "latency",
+      "rollback",
+      "deploy",
+      "on call",
+      "p1",
+      "p2"
+    ],
+    "avoid": [
+      "sql",
+      "pull request"
+    ]
+  },
   "manifest": {
     "model": {
       "name": "${TRUEFORGE_MODEL}",
@@ -37,6 +57,9 @@
     "skills": [
       {
         "name": "incident-triage"
+      },
+      {
+        "name": "handing-off"
       },
       {
         "name": "untrusted-input"

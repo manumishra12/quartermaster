@@ -1,5 +1,12 @@
 {
   "name": "gate-demo",
+  "routing": {
+    "handles": [
+      "demonstrate the gate",
+      "approval demo"
+    ],
+    "avoid": []
+  },
   "manifest": {
     "model": {
       "name": "${TRUEFORGE_MODEL}",

@@ -1,5 +1,26 @@
 {
   "name": "quartermaster",
+  "routing": {
+    "handles": [
+      "failing test",
+      "fix the test",
+      "test is failing",
+      "open a pull request",
+      "pull request",
+      "bug",
+      "stack trace",
+      "traceback",
+      "regression",
+      "make the tests pass"
+    ],
+    "avoid": [
+      "review",
+      "sql",
+      "query",
+      "incident",
+      "deploy"
+    ]
+  },
   "manifest": {
     "model": {
       "name": "${TRUEFORGE_MODEL}",
@@ -43,6 +64,9 @@
       },
       {
         "name": "evidence-report"
+      },
+      {
+        "name": "handing-off"
       },
       {
         "name": "untrusted-input"

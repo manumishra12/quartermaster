@@ -22,7 +22,8 @@
     "ops-desk": "node mcp/ops-desk/server.mjs",
     "front-desk": "node mcp/front-desk/server.mjs",
     "demo": "node scripts/demo.mjs",
-    "approvals": "node scripts/approvals.mjs"
+    "approvals": "node scripts/approvals.mjs",
+    "route": "node scripts/route.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

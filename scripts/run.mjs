@@ -14,6 +14,8 @@
 import { createInterface } from 'node:readline/promises';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { stdin, stdout } from 'node:process';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { TrueForge, isEventDelta, mergeEventDelta } from '@truefoundry/trueforge-sdk';
 import { loadEnv } from './lib/env.mjs';
 
@@ -30,10 +32,12 @@ import { positionals, readFlag } from './lib/flags.mjs';
 import { advance, blankCheckpoint, parseCheckpoint, sessionDirName, writeCheckpoint } from './lib/checkpoint.mjs';
 import { decideApproval } from './lib/approval.mjs';
 import { record as recordDecision } from './lib/ledger.mjs';
+import { loadAgents, route } from './lib/route.mjs';
+import { handoff, renderHandoff, requestedHandoff } from './lib/handoff.mjs';
 
 const argv = process.argv.slice(2);
 /** The flags that take a value, named once so the prompt and the readers agree on them. */
-const VALUE_FLAGS = ['agent', 'answer'];
+const VALUE_FLAGS = ['agent', 'answer', 'chain'];
 const flag = (name, fallback) => {
   const { value, problem } = readFlag(argv, name, fallback);
   // A flag given without a value is the operator asking for something and not saying what. There
@@ -47,13 +51,45 @@ const flag = (name, fallback) => {
 };
 const denyAll = argv.includes('--deny-all');
 const resuming = argv.includes('--resume');
-const agentName = flag('agent', 'quartermaster-local');
+const requested = flag('agent', null);
 const prompt = positionals(argv, VALUE_FLAGS).join(' ');
 
 if (!prompt && !resuming) {
   console.error('usage: node scripts/run.mjs [--agent <name>] [--deny-all] "<prompt>"\n       node scripts/run.mjs --resume');
   process.exit(2);
 }
+
+/**
+ * With no `--agent`, choose one and say why.
+ *
+ * The default used to be `quartermaster-local` whatever was asked, so eight of the nine agents
+ * were reachable only by somebody who already knew they existed - and a database question was
+ * answered, capably and at length, by the agent that fixes failing tests. Choosing the agent is
+ * choosing which tools the request can touch, so the choice is printed rather than assumed, and
+ * an unclear one stops here instead of being resolved by whichever spec sorts first.
+ */
+function chooseAgent() {
+  const decision = route(prompt, loadAgents());
+  if (decision.decided) {
+    console.log(`routed to ${decision.agent}: ${decision.why}`);
+    if (decision.runnerUp) console.log(`  (${decision.runnerUp} also matched; --agent overrides)\n`);
+    else console.log();
+    return decision.agent;
+  }
+
+  console.error(`\n  Not sure which agent should take this: ${decision.why}.\n`);
+  for (const candidate of decision.candidates) {
+    console.error(`    --agent ${candidate.name.padEnd(20)} ${candidate.matched.map((m) => `"${m}"`).join(', ')}`);
+  }
+  if (decision.candidates.length === 0) {
+    console.error('    npm run route -- "<request>"   to see what each agent says it handles');
+  }
+  console.error('\n  Name one with --agent. Picking for you here would be a guess about authority.\n');
+  process.exit(2);
+}
+
+/** On `--resume` the agent comes from the checkpoint, so this placeholder is overwritten. */
+const agentName = requested ?? (resuming ? 'quartermaster-local' : chooseAgent());
 
 const client = new TrueForge({
   baseUrl: process.env.TRUEFORGE_BASE_URL ?? 'http://localhost:8790',
@@ -623,6 +659,70 @@ if (artifacts.length > 0 && reportWritten) {
 
 if (blockedOnAuth) {
   console.log('  This run stopped waiting for a connector to be authorized. It did not finish.\n');
+}
+
+/**
+ * The agent asking for another agent.
+ *
+ * It is executed by re-entering this same script rather than by anything bespoke, which is the
+ * point: the receiving run gets the identical approval loop, the identical verifier and its own
+ * report. A delegation path with its own softer plumbing is how the gate gets walked around by
+ * accident, and this project has already found one of those at the network layer.
+ *
+ * It is not itself gated, and that is a claim `authority.mjs` has to earn: a handoff is refused
+ * unless the receiver can reach nothing the sender could not, so an allowed one cannot do anything
+ * the agent standing here was not already trusted to do. What it changes is who does it, which is
+ * why it is printed and recorded rather than silent.
+ */
+const asked = requestedHandoff(finalText);
+if (asked) {
+  const chain = (flag('chain', '') || checkpoint.agentName).split(',').filter(Boolean);
+
+  if (asked.malformed) {
+    console.log(`  The agent asked to hand off and the request could not be read: ${asked.malformed}\n`);
+  } else if (denyAll) {
+    // --deny-all means refuse everything. Moving the work to another agent is not an exception.
+    console.log(`  The agent asked to hand off to ${asked.to}. Refused: --deny-all.\n`);
+  } else {
+    const specs = Object.fromEntries(
+      loadAgents().map((a) => {
+        try {
+          return [a.name, JSON.parse(readFileSync(new URL(`../agents/${a.name}.json`, import.meta.url), 'utf8'))];
+        } catch {
+          return [a.name, null];
+        }
+      }),
+    );
+
+    const decision = handoff({ from: checkpoint.agentName, to: asked.to, request: prompt, because: asked.because, chain, specs });
+
+    recordDecision({
+      session: checkpoint.sessionId,
+      agent: checkpoint.agentName,
+      tool: `handoff:${asked.to}`,
+      args: asked.because,
+      refused: !decision.ok,
+      reason: decision.refusal ?? null,
+    });
+
+    if (!decision.ok) {
+      console.log(`\n  ${checkpoint.agentName} asked to hand this to ${asked.to}. Refused.`);
+      console.log(`  ${decision.refusal}\n`);
+      for (const w of decision.widened ?? []) {
+        console.log(`    ${w.server ? `${w.server}/` : ''}${w.capability}  -  ${w.detail}`);
+      }
+      console.log();
+    } else {
+      console.log(`\n  ${checkpoint.agentName} -> ${asked.to}: ${asked.because}`);
+      console.log(`  Nothing ${asked.to} can reach is beyond what ${checkpoint.agentName} could already reach.\n`);
+      const child = spawnSync(
+        process.execPath,
+        [fileURLToPath(import.meta.url), '--agent', asked.to, '--chain', decision.envelope.chain.join(','), renderHandoff(decision.envelope)],
+        { stdio: 'inherit' },
+      );
+      process.exit(child.status ?? 1);
+    }
+  }
 }
 
 /**

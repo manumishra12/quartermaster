@@ -284,3 +284,25 @@ export function validateSpec(spec, filename = 'spec') {
 
   return problems;
 }
+
+/**
+ * Routing conflicts, which are the one thing a single spec cannot see about itself.
+ *
+ * `validateSpec` reads one file. Two agents both claiming "pull request" is not wrong in either
+ * file and is wrong in the pair: every request containing that phrase becomes a tie, the router
+ * declines to choose, and the person is asked a question that a config change could have answered.
+ * A tie built at config time is worse than a tie in the wording, because it never improves.
+ */
+export function routingConflicts(agents) {
+  const claimed = new Map();
+  for (const agent of agents) {
+    for (const phrase of agent.routing?.handles ?? []) {
+      const key = phrase.trim().toLowerCase();
+      claimed.set(key, [...(claimed.get(key) ?? []), agent.name]);
+    }
+  }
+
+  return [...claimed.entries()]
+    .filter(([, names]) => names.length > 1)
+    .map(([phrase, names]) => `"${phrase}" is claimed by ${names.join(' and ')}; every request containing it is a tie`);
+}

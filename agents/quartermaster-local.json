@@ -1,5 +1,13 @@
 {
   "name": "quartermaster-local",
+  "routing": {
+    "handles": [
+      "fix locally",
+      "without github",
+      "local fix"
+    ],
+    "avoid": []
+  },
   "manifest": {
     "model": {
       "name": "${TRUEFORGE_MODEL}",
@@ -40,6 +48,9 @@
       },
       {
         "name": "evidence-report"
+      },
+      {
+        "name": "handing-off"
       },
       {
         "name": "untrusted-input"
