@@ -1,0 +1,17 @@
+{
+  "id": "warehouse-orphan-order",
+  "title": "The paid order an inner join drops",
+  "why": "One paid order has no line items. An inner join drops it in silence, the total is wrong, and nothing in the orders table read on its own would have told you. profile_table exists to answer exactly this - orphans across every foreign key in both directions - so the scenario checks whether the agent reaches for the inbound direction rather than the obvious one. The answer is a single order id, which is checkable without judging prose.",
+  "agent": "analytics",
+  "prompt": "Using the warehouse connector, are there any paid orders in the warehouse with no line items at all? If there are, give me their order ids and say how you established it.",
+  "requires": { "fixtures": ["warehouse"], "connectors": ["warehouse"] },
+  "expect": [
+    { "verdict_not": ["unsubstantiated", "contradicted", "no-answer"] },
+    {
+      "answer_contains": "1636",
+      "because": "the id of the one order with no line items, from fixtures/warehouse/README.md"
+    },
+    { "executions_at_least": 1, "because": "an answer with nothing recorded behind it is a guess that happened to be right" },
+    { "exit_code_in": 0 }
+  ]
+}
