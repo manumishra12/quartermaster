@@ -35,6 +35,7 @@ import { record as recordDecision } from './lib/ledger.mjs';
 import { loadAgents, route } from './lib/route.mjs';
 import { handoff, renderHandoff, requestedHandoff } from './lib/handoff.mjs';
 import { retryDecision } from './lib/retry.mjs';
+import { createTracer } from './lib/otel.mjs';
 
 const argv = process.argv.slice(2);
 /** The flags that take a value, named once so the prompt and the readers agree on them. */
@@ -96,6 +97,16 @@ const client = new TrueForge({
   baseUrl: process.env.TRUEFORGE_BASE_URL ?? 'http://localhost:8790',
   timeoutInSeconds: 900,
 });
+
+/**
+ * Traces, if anybody asked for them.
+ *
+ * Off unless `QUARTERMASTER_OTEL=1`, and off is the whole tracer rather than a flag checked at
+ * each call site: every method below is a no-op that returns undefined when tracing is off, so
+ * there is no second path through this file. Nothing here can throw and nothing here reaches a
+ * network. `otel.mjs` explains why this exists and why it is not a dependency.
+ */
+const tracer = createTracer();
 
 /**
  * The checkpoint is the whole resilience story: session id, the turn in flight, and how far we
@@ -218,7 +229,12 @@ function absorb(event, sequenceId) {
   checkpoint.lastSequenceNumber = advance(checkpoint.lastSequenceNumber, sequenceId);
   if (isEventDelta(event)) {
     const base = events.get(event.id);
-    if (base) mergeEventDelta(base, event);
+    if (base) {
+      mergeEventDelta(base, event);
+      // A call can arrive by delta rather than whole, so the span has to start from here too or a
+      // streamed turn traces none of its tool calls at all.
+      traceCalls(base);
+    }
     if (event.type === 'model.message.delta') {
       stdout.write(event.content ?? '');
       finalText += event.content ?? '';
@@ -226,6 +242,7 @@ function absorb(event, sequenceId) {
     return null;
   }
   events.set(event.id, event);
+  traceCalls(event);
 
   // Not every path streams deltas - a replayed log delivers whole messages. Capturing only deltas
   // meant a resumed run had no answer text at all, and an empty answer used to read as success.
@@ -238,6 +255,17 @@ function absorb(event, sequenceId) {
       checkpoint.turnId = event.turnId;
       save();
       break;
+    /**
+     * The gate opening is the moment a tool span stops measuring a tool and starts measuring a
+     * person. It is recorded here rather than where the approvals are answered, because both the
+     * live stream and the replay path go through `absorb` and only one of them goes through the
+     * loop below.
+     */
+    case 'tool.approval_required':
+      // `describe` finds the call by the event that made it, which is a lookup rather than the
+      // scan `callFor` does. The gate is not a place to be doing needless work.
+      for (const ref of event.toolCalls ?? []) tracer.gated(ref?.id, { tool: describe(ref)?.toolInfo?.name ?? null });
+      break;
     case 'sandbox.created':
       console.log('\n  [sandbox provisioned]');
       break;
@@ -247,14 +275,31 @@ function absorb(event, sequenceId) {
     case 'tool.response': {
       // Attach the command that produced this output. Without it the evidence rules can only
       // classify a test run by how its text looks, and `echo ok` looks like a passing test.
-      const command = commandFor(event.toolCallId);
+      const call = callFor(event.toolCallId);
+      const command = commandOf(call);
       /**
        * A refused call arrives here like any other, with no output and no exit code. Recorded
        * plainly it is indistinguishable from a command that ran and printed nothing, and the
        * evidence then counts the thing the gate stopped as a thing that happened.
        */
       const wasDenied = denied.has(event.toolCallId);
-      toolResponses.push({ ...resultOf(event, command), denied: wasDenied });
+      const result = resultOf(event, command);
+      toolResponses.push({ ...result, denied: wasDenied });
+      /**
+       * The span closes on the same parse the evidence uses, so the two records cannot disagree
+       * about whether a call errored. The output goes no further than its length: `createdAt` is
+       * the server's own timestamp for the response, which is a better end than reading a clock
+       * here after the event loop got round to us.
+       */
+      tracer.finishedCall(event.toolCallId, {
+        tool: call?.toolInfo?.name ?? null,
+        exitCode: result.exitCode,
+        errored: result.errored === true,
+        denied: wasDenied,
+        outputBytes: result.output?.length ?? 0,
+        command,
+        at: event.createdAt,
+      });
       console.log(`\n  [tool] ${wasDenied ? 'refused' : 'recorded'}${command ? `: ${command.slice(0, 70)}` : ''}`);
       break;
     }
@@ -286,6 +331,13 @@ async function consume(stream) {
       // kind of silent, unhelpful tooling this project exists to argue against. It cost me an
       // afternoon of guessing at a message the server had been sending all along.
       failure = endedBecause(settled.state);
+      /**
+       * What the turn cost, which the harness has been reporting on every terminal state and this
+       * runner has been discarding since it was written: tokens in and out, cache reads and
+       * writes, and the provider's own estimate in dollars. It goes on the trace and nowhere else
+       * for now - the report is a document about evidence, and a dollar figure is not evidence.
+       */
+      tracer.turnUsage(settled.state?.metrics);
     }
   }
   save();
@@ -319,6 +371,9 @@ async function reattach() {
   for (const id of checkpoint.denied) denied.add(id);
   const { sessionId, turnId, lastSequenceNumber } = checkpoint;
   console.log(`reattaching to session ${sessionId}, turn ${turnId}, after event ${lastSequenceNumber}\n`);
+  // A resumed run gets its own trace, opened before anything is absorbed, because a tool span
+  // needs a root to hang from and the replay starts producing them immediately.
+  tracer.startTurn({ agent: checkpoint.agentName, session: sessionId, model: process.env.TRUEFORGE_MODEL ?? null, prompt });
 
   const { data: turn } = await client.sessions.getTurn(sessionId, turnId);
   if (turn.state?.status === 'running') {
@@ -343,26 +398,53 @@ async function reattach() {
 }
 
 /**
- * Find the command behind a recorded response.
+ * Find the call behind a recorded response.
  *
- * The response event carries only a toolCallId; the command lives on the model.message that made
- * the call. Correlating them is what lets the verifier ask "was this actually a test command?"
- * rather than only "did the output look test-shaped?".
+ * The response event carries only a toolCallId; the call itself lives on the model.message that
+ * made it. Correlating them is what lets the verifier ask "was this actually a test command?"
+ * rather than only "did the output look test-shaped?", and it is now also how a span learns the
+ * name of the tool it is timing.
  */
-function commandFor(toolCallId) {
+function callFor(toolCallId) {
   if (!toolCallId) return null;
   for (const event of events.values()) {
     if (event?.type !== 'model.message') continue;
     const call = event.toolCalls?.find((tc) => tc.id === toolCallId);
-    if (!call) continue;
-    try {
-      const args = JSON.parse(call.function?.arguments || '{}');
-      return args.command ?? args.cmd ?? args.script ?? call.toolInfo?.name ?? null;
-    } catch {
-      return call.toolInfo?.name ?? null;
-    }
+    if (call) return call;
   }
   return null;
+}
+
+/** The command a call will run, or its tool name when the arguments do not name one. */
+function commandOf(call) {
+  if (!call) return null;
+  try {
+    const args = JSON.parse(call.function?.arguments || '{}');
+    return args.command ?? args.cmd ?? args.script ?? call.toolInfo?.name ?? null;
+  } catch {
+    return call.toolInfo?.name ?? null;
+  }
+}
+
+/**
+ * Start a span for every call a message asks for.
+ *
+ * `sawCall` is idempotent per call id, so this can be handed the same message repeatedly as its
+ * deltas merge. The event's `createdAt` is the harness's own timestamp for the moment the call was
+ * issued, which is the only honest start for a span measuring something that happens elsewhere -
+ * the SDK puts one on every event and the runner discarded all of them until now.
+ */
+function traceCalls(message) {
+  if (message?.type !== 'model.message') return;
+  for (const call of message.toolCalls ?? []) {
+    tracer.sawCall(call?.id, {
+      tool: call?.toolInfo?.name ?? null,
+      // The arguments go in as text and come out as a digest. Nothing in this file ever hands a
+      // span the arguments themselves; see the note on `sawCall`.
+      args: call?.function?.arguments ?? null,
+      at: message.createdAt,
+    });
+  }
 }
 
 /** Look up the call that triggered a pause, so we can show the human what they are approving. */
@@ -399,6 +481,13 @@ try {
     checkpoint.agentName = agentName;
     save();
     console.log(`agent: ${agentName}\nsession: ${session.id}\n`);
+    /**
+     * The root span opens here, the moment there is a session id to name it by. The model is the
+     * FQN this machine is configured with: creating a session by agent name gets back a reference
+     * with no model on it, so the resolved one would take a second request to the harness, and a
+     * trace is not worth an extra call on the path a run has to take anyway.
+     */
+    tracer.startTurn({ agent: agentName, session: session.id, model: process.env.TRUEFORGE_MODEL ?? null, prompt });
     first = await consume(await client.sessions.createTurnStream(session.id, { input: [{ type: 'user.message', content: prompt }] }));
   }
 
@@ -455,15 +544,22 @@ try {
          * a pipe may refuse and may never approve, so `allowed` beside anything but `terminal`
          * would be a broken invariant rather than a statistic.
          */
+        const by = denyAll ? 'deny-all' : piped ? 'pipe' : 'terminal';
         recordDecision({
           session: checkpoint.sessionId,
           agent: checkpoint.agentName,
           tool: call?.toolInfo?.name ?? null,
           args: call?.function?.arguments,
           refused: wasRefused,
-          by: denyAll ? 'deny-all' : piped ? 'pipe' : 'terminal',
+          by,
           reason: approval.reason ?? null,
         });
+        /**
+         * The same decision, on the trace, from the same variables the ledger gets. Two records of
+         * one decision is fine as long as they cannot disagree, which is why they are written side
+         * by side out of one set of values rather than each deriving its own.
+         */
+        tracer.decided(ref.id, { tool: call?.toolInfo?.name ?? null, refused: wasRefused, by, reason: approval.reason ?? null });
 
         if (!wasRefused) approvalsGranted += 1;
         console.log(`  -> ${wasRefused ? 'denied' : 'allowed'}\n`);
@@ -657,6 +753,44 @@ try {
 }
 
 /**
+ * The exit code, decided here rather than at the last line of the file.
+ *
+ * It used to be computed inside the `process.exit` call at the bottom, which meant the handoff
+ * path exited on the child's code without this ever being worked out - and now that a trace
+ * records the exit code, a number computed after the trace was written would be a number the
+ * trace could not carry. Working it out once means the process, the report and the span all say
+ * the same thing about how the run ended, which is the only version worth recording.
+ */
+const exitCode = runExitCode({
+  proved: verdict === SUBSTANTIATED || verdict === NO_CLAIM,
+  crashed: Boolean(crash) || !reportWritten,
+  unfinished: ranOutOfHops,
+  blockedOnAuth,
+  status: lastStatus,
+  failure: turnFailure,
+});
+
+/**
+ * The trace, written before the artifacts are fetched and before any handoff, so a run that dies
+ * in either still has one. It returns the path when it wrote and null otherwise; a tracer that is
+ * off, or broken, returns nothing at all and the line below is not printed. Nothing about this can
+ * change the exit code above.
+ */
+const traced = tracer.endTurn({
+  verdict,
+  status: lastStatus,
+  failure: turnFailure,
+  exit: exitCode,
+  executions: ran.length,
+  testRuns: runs.length,
+  answer: finalText,
+  crashed: Boolean(crash) || !reportWritten,
+  unfinished: ranOutOfHops,
+  blockedOnAuth,
+});
+if (traced) console.log(`  traced: ${traced}\n`);
+
+/**
  * Anything the agent announced it wrote, fetched out of the sandbox and filed beside the report.
  *
  * The sandbox is disposable, and everything in it goes when it does. A report the agent spent a
@@ -750,10 +884,18 @@ if (asked) {
     } else {
       console.log(`\n  ${checkpoint.agentName} -> ${asked.to}: ${asked.because}`);
       console.log(`  Nothing ${asked.to} can reach is beyond what ${checkpoint.agentName} could already reach.\n`);
+      /**
+       * The delegated run inherits this run's trace, so a handoff is one trace with two roots
+       * rather than two traces nothing connects. Without it the most interesting thing this
+       * project does - moving work between agents under an authority check - is the one thing a
+       * trace cannot show. `traceparent` is null when tracing is off, and the child then sees no
+       * variable at all rather than an empty one.
+       */
+      const carried = tracer.traceparent();
       const child = spawnSync(
         process.execPath,
         [fileURLToPath(import.meta.url), '--agent', asked.to, '--chain', decision.envelope.chain.join(','), renderHandoff(decision.envelope)],
-        { stdio: 'inherit' },
+        { stdio: 'inherit', env: carried ? { ...process.env, TRACEPARENT: carried } : process.env },
       );
       process.exit(child.status ?? 1);
     }
@@ -763,15 +905,7 @@ if (asked) {
 /**
  * Whether the run finished comes before whether its answer was any good. A turn killed on a
  * provider quota produces no answer and therefore no claim, and NO CLAIM used to exit 0 - so
- * every plumbing failure reported success to whatever was watching.
+ * every plumbing failure reported success to whatever was watching. Worked out above, so that the
+ * report, the trace and this line cannot disagree about it.
  */
-process.exit(
-  runExitCode({
-    proved: verdict === SUBSTANTIATED || verdict === NO_CLAIM,
-    crashed: Boolean(crash) || !reportWritten,
-    unfinished: ranOutOfHops,
-    blockedOnAuth,
-    status: lastStatus,
-    failure: turnFailure,
-  }),
-);
+process.exit(exitCode);
