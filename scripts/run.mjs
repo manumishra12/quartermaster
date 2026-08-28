@@ -25,6 +25,7 @@ import { endedBecause } from './lib/turn-state.mjs';
 import { unexecutedToolCalls } from './lib/evidence.mjs';
 import { renderUnexecutedCalls } from './lib/render-call.mjs';
 import { positionals, readFlag } from './lib/flags.mjs';
+import { advance, blankCheckpoint, parseCheckpoint, sessionDirName, writeCheckpoint } from './lib/checkpoint.mjs';
 
 const argv = process.argv.slice(2);
 /** The flags that take a value, named once so the prompt and the readers agree on them. */
@@ -61,11 +62,10 @@ const client = new TrueForge({
  * server. This process is disposable by design.
  */
 const CHECKPOINT = '.quartermaster/run.json';
-let checkpoint = { sessionId: null, turnId: null, lastSequenceNumber: 0, agentName, denied: [] };
-const save = () => {
-  mkdirSync('.quartermaster', { recursive: true });
-  writeFileSync(CHECKPOINT, JSON.stringify(checkpoint, null, 2));
-};
+let checkpoint = blankCheckpoint(agentName);
+// Whole file or nothing. The save runs every twenty events, so a kill lands mid-write often enough
+// to matter, and --resume - the one command used after exactly that - was reading half a document.
+const save = () => writeCheckpoint(CHECKPOINT, checkpoint);
 
 const events = new Map();
 const toolResponses = [];
@@ -166,10 +166,10 @@ async function ask(question, fallback) {
 
 /** Fold one event into local state. Shared by the live stream and the replay path. */
 function absorb(event, sequenceId) {
-  // A non-numeric id would write NaN, which JSON.stringify stores as null and resume then sends
-  // as afterSequenceNumber. Corrupt, and invisible in the checkpoint file.
-  const sequence = Number(sequenceId);
-  if (sequenceId != null && Number.isFinite(sequence)) checkpoint.lastSequenceNumber = sequence;
+  // Only ever forward, and only ever a number. A sequence id that went backwards made the next
+  // --resume replay events it had already recorded, and a non-numeric one wrote NaN, which
+  // JSON.stringify stores as null and resume then sends as afterSequenceNumber.
+  checkpoint.lastSequenceNumber = advance(checkpoint.lastSequenceNumber, sequenceId);
   if (isEventDelta(event)) {
     const base = events.get(event.id);
     if (base) mergeEventDelta(base, event);
@@ -248,13 +248,29 @@ async function consume(stream) {
 
 /** Reattach to whatever this machine was last doing, without replaying what we already saw. */
 async function reattach() {
+  /**
+   * The checkpoint is read as if somebody else wrote it, because after a crash somebody else
+   * effectively did. Spreading a parsed file straight over the live state meant whatever it said
+   * became what the run believed: a `denied` that is not a list threw here and took the report with
+   * it, and a sessionId that is not a string went into a request URL.
+   */
+  let stored;
   try {
-    checkpoint = { ...checkpoint, ...JSON.parse(readFileSync(CHECKPOINT, 'utf8')) };
-  for (const id of checkpoint.denied ?? []) denied.add(id);
+    stored = readFileSync(CHECKPOINT, 'utf8');
   } catch {
     console.error(`No checkpoint at ${CHECKPOINT}. Start a run first.`);
     process.exit(2);
   }
+  try {
+    checkpoint = { ...checkpoint, ...parseCheckpoint(stored) };
+  } catch (err) {
+    // Naming what is wrong with it, because the alternative is a stack trace from three layers
+    // down about a field nobody knew was being read.
+    console.error(`The checkpoint at ${CHECKPOINT} cannot be used: ${err.message}.`);
+    console.error('Start a fresh run rather than resuming into a state this cannot vouch for.');
+    process.exit(2);
+  }
+  for (const id of checkpoint.denied) denied.add(id);
   const { sessionId, turnId, lastSequenceNumber } = checkpoint;
   console.log(`reattaching to session ${sessionId}, turn ${turnId}, after event ${lastSequenceNumber}\n`);
 
@@ -505,7 +521,10 @@ const report = buildReport({
   failure: turnFailure,
   at: new Date().toISOString(),
 });
-const dir = `evidence/${checkpoint.sessionId}`;
+// The session id names the directory; it does not get to choose where that directory is. It
+// arrives from the server on a fresh run and from the checkpoint file on a resume, and `../..` in
+// it would decide where the artifact a reviewer reads ends up.
+const dir = `evidence/${sessionDirName(checkpoint.sessionId)}`;
 mkdirSync(dir, { recursive: true });
 writeFileSync(`${dir}/report.json`, JSON.stringify(report.json, null, 2));
 writeFileSync(`${dir}/report.md`, report.markdown);
