@@ -116,6 +116,8 @@ const CASES = [
      * alerts had been listed. The assertion has to be something only a successful read produces.
      */
     expect: /"first_seen"[\s\S]*ALRT-4471|ALRT-4471[\s\S]*"first_seen"/,
+    /** The case reads a firing alert, so it needs a desk nobody has remediated on yet. */
+    freshFixture: { port: 8795, name: 'ops-desk' },
   },
   {
     agent: 'desk-assistant',
@@ -355,6 +357,28 @@ async function configuredConnectors() {
   }
 }
 
+/**
+ * Whether a fixture server has been written to since it started.
+ *
+ * Read from its own journal rather than inferred from the data: both servers report what they have
+ * done, and a count above zero is the fixture saying so itself.
+ */
+async function staleFixture({ port, name }) {
+  try {
+    const res = await fetch(`http://localhost:${port}/health`);
+    if (!res.ok) return null;
+    const health = await res.json();
+    const written = health.actions ?? 0;
+    if (written > 0) {
+      return `${name} has ${written} recorded action(s) - restart it (npm run ${name}) so the fixture is the one the case expects`;
+    }
+    return null;
+  } catch {
+    // Unreachable is a different failure, and the case itself will report it properly.
+    return null;
+  }
+}
+
 const connectors = await configuredConnectors();
 const selected = only ? CASES.filter((c) => c.agent === only) : CASES;
 if (!selected.length) {
@@ -366,6 +390,26 @@ console.log(`\nSmoke testing ${selected.length} agent(s) against ${BASE}\n`);
 const results = [];
 for (const testCase of selected) {
   process.stdout.write(`  ${testCase.agent.padEnd(20)} ${testCase.what} ... `);
+
+  /**
+   * A fixture somebody has already used is not an agent that failed.
+   *
+   * ops-desk and front-desk hold their state in memory and the write tools genuinely mutate it -
+   * that is deliberate, because a gate in front of an operation that does nothing proves nothing.
+   * It also means a demo, or one curl, leaves the fixture changed, and the next smoke run then
+   * reports that the agent could not find an alert that somebody resolved twenty minutes ago.
+   *
+   * Blaming the agent for that sends whoever is debugging to the spec and the connector. So the
+   * suite looks first, and says which it is.
+   */
+  if (testCase.freshFixture) {
+    const stale = await staleFixture(testCase.freshFixture);
+    if (stale) {
+      console.log(`skipped - ${stale}`);
+      results.push({ ...testCase, ok: true, skipped: true });
+      continue;
+    }
+  }
 
   if (testCase.needsConnector && connectors && !connectors.has(testCase.needsConnector)) {
     console.log(`skipped - no ${testCase.needsConnector} connector configured`);
