@@ -20,7 +20,8 @@
     "lint": "eslint .",
     "verify": "bash scripts/verify-setup.sh",
     "ops-desk": "node mcp/ops-desk/server.mjs",
-    "front-desk": "node mcp/front-desk/server.mjs"
+    "front-desk": "node mcp/front-desk/server.mjs",
+    "demo": "node scripts/demo.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

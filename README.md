@@ -287,6 +287,14 @@ wrote, so widening the blast radius by handing that code to more agents is the w
 Both tests are correct and both bugs are real. In each, the tempting shortcut is to edit the
 expected value - which the agent is explicitly forbidden to do.
 
+**Only `ledger` is published for an agent to clone**, at
+[`manumishra12/ledger-fixture`](https://github.com/manumishra12/ledger-fixture). `retry` exists so
+`npm run fixtures:check` can assert a second broken suite is still broken in a second language - the
+check runs it in place, and nothing clones it. Pointing an agent at `fixtures/retry` gives you a
+path on your own machine that its sandbox cannot see, which is the confusing first failure the
+section above warns about. If you want a JavaScript target for the fix loop, publish it the way
+`ledger` was published and use that URL.
+
 Two more are not broken, because not every agent's job is a patch:
 
 | Fixture | For | What it is |
