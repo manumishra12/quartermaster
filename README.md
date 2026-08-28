@@ -124,11 +124,20 @@ path gives you a confusing failure on the very first thing you run. The fixture 
 own repository precisely so the agent has somewhere real to clone from, and so it cannot solve the
 problem by reading this repository's notes about it.
 
-Or open the interface:
+### The interface is on 5173, not 8790
 
 ```bash
 cd ui && npm install && npm run dev      # http://localhost:5173
 ```
+
+**`localhost:8790` is TrueForge's own UI, not this one.** Starting the harness serves an interface
+at that address, so it is the first thing anybody sees and it looks like the answer. It is not:
+Quartermaster's interface is a separate Vite app on **5173**, which proxies `/api` back to the
+harness on 8790. The rail showing what the agent is doing, what it is waiting on and what it did -
+and the approval prompt - are only there.
+
+Both need to be running. The harness alone gives you TrueForge's chat; this one alone has nothing
+to talk to.
 
 ---
 

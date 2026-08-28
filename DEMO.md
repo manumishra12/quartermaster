@@ -12,7 +12,7 @@ npm run forge          # the harness, :8790
 npm run ops-desk       # :8795
 npm run front-desk     # :8796
 npm run agents:apply   # preflight should report every agent applied
-cd ui && npm run dev   # :5173
+cd ui && npm run dev   # :5173  <- the interface. 8790 is TrueForge's own UI, not this one.
 ```
 
 Everything below runs on a **local Ollama model with no API key**, against MCP servers that ship in
