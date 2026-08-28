@@ -2,6 +2,9 @@
 
 *Building Quartermaster on TrueForge, for the Agent Harness Hackathon.*
 
+> The day-one draft, kept for the record. The published post is [`BLOG.md`](../BLOG.md) at the
+> repository root, written from the whole build rather than the first two days of it.
+
 The agent had one rule. It was the first line of its instructions, repeated in its skill pack, and
 stated twice more in its procedure: **never report a result you did not execute.**
 
