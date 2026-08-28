@@ -20,6 +20,9 @@
       "ask_user_questions": {
         "enabled": true
       },
+      "generative_ui": {
+        "enabled": true
+      },
       "context_management": {
         "compaction": {
           "enabled": true,

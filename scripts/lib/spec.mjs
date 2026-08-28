@@ -113,6 +113,22 @@ export function validateSpec(spec, filename = 'spec') {
     );
   }
 
+  /**
+   * The third promise-versus-policy check, and the one a table of every agent's config exposed.
+   *
+   * `evidence-report` teaches an agent to render its verdict as a Generative UI card, against real
+   * OpenUI component signatures. `code-reviewer` carried that skill with `generative_ui` switched
+   * off, so it had been taught to use a surface it did not have - the fetch succeeds, the model
+   * reads the pack, and the components it is told to emit go nowhere.
+   */
+  const carries = (name) => (m.skills ?? []).some((skill) => skill?.name === name);
+  if (carries('evidence-report') && m.config?.generative_ui?.enabled !== true) {
+    say(
+      'attaches the evidence-report skill, which renders a Generative UI card, but ' +
+        'config.generative_ui.enabled is not true - the skill teaches a surface this agent does not have',
+    );
+  }
+
   const seenServers = new Set();
 
   for (const server of m.mcp_servers ?? []) {

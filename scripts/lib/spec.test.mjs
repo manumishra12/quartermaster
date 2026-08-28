@@ -304,3 +304,25 @@ test('the UI build and its test runner resolve the same shared modules', () => {
     'vite.config.ts and vitest.config.ts must alias the same shared modules to the same files',
   );
 });
+
+test('a skill that teaches a disabled surface is caught', () => {
+  /**
+   * Found by tabulating every agent's config side by side, which is the only way this was ever
+   * going to show up: each spec reads fine on its own. `code-reviewer` carried `evidence-report` -
+   * which teaches an agent to render its verdict as a Generative UI card - with generative_ui off.
+   * The fetch succeeds, the model reads the pack, and the components it is told to emit go nowhere.
+   */
+  const taught = sound({
+    manifest: { skills: [{ name: 'evidence-report' }, { name: 'untrusted-input' }] },
+  });
+  assert.match(validateSpec(taught).join(), /generative_ui\.enabled is not true/);
+
+  const enabled = sound({
+    config: { generative_ui: { enabled: true } },
+    manifest: { skills: [{ name: 'evidence-report' }, { name: 'untrusted-input' }] },
+  });
+  assert.doesNotMatch(validateSpec(enabled).join(), /generative_ui/);
+
+  // And an agent that does not carry the skill is not asked for the surface.
+  assert.doesNotMatch(validateSpec(sound()).join(), /generative_ui/);
+});
