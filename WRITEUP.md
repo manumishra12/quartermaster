@@ -47,9 +47,9 @@ Not a wrapper around a chat endpoint. Nine harness capabilities are load-bearing
 carry the argument.
 
 **The recorded event stream** is the foundation. TrueForge records every tool call and response
-independently of the model's narration, and `scripts/lib/evidence.mjs` judges the answer against
-that record, correlating each `tool.response` through its `toolCallId` to the command on the model
-message. The model cannot write to it. Without it the guard rail goes back in the prompt, where it
+independently of the model's narration. `scripts/run.mjs` correlates each `tool.response` back to
+the command that produced it through its `toolCallId`, and `scripts/lib/evidence.mjs` judges the
+answer against what that record contains. The model cannot write to it. Without it the guard rail goes back in the prompt, where it
 already failed.
 
 **`require_approval_for_tools`, holding the turn server-side.** The harness emits
@@ -183,7 +183,7 @@ shipped from here six times.
 - **Deferred tool loading does not work on this harness.** `preload: false` resolves to
   `{"error":"MCP server 'deferred-tools' not found"}` - every connector that set it, none that did
   not. So all of them are preloaded, and a check fails a spec that flips one back.
-- **The local model prints tool calls instead of making them.** `qwen3:4b` proves the pipeline -
+- **The local model prints tool calls instead of making them.** `ollama/qwen3-4b` proves the pipeline -
   session, streaming turn, sandbox, real command, real output - then loops on anything multi-step.
   Neither the gate nor the verifier depends on the model reasoning well, which is why the demo can
   run on it.
