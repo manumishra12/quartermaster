@@ -66,6 +66,32 @@ The spec belts and braces anyway — tags *and* literal names:
 "require_approval_for_tools": ["@write", "@destructive", "rollback_deploy", "restart_service"]
 ```
 
+## What it refuses
+
+Every remediation refuses what it cannot honestly do, and records nothing when it refuses. A person
+approved the action **believing the description they were shown**, so a tool that reports success
+for work it did not do has laundered a false record through a human decision.
+
+| Attempt | Answer |
+| --- | --- |
+| Roll back a deploy that is not what the service is running | `not_current`, naming what is |
+| Roll back the oldest deploy there is | `unknown_previous` — it would leave the service on a version this desk cannot describe |
+| Roll back or restart with a reason of spaces | `missing_reason` — whitespace is not an explanation |
+| Restart a service the desk does not know | `not_found`, naming the ones it does |
+| Send more text than anyone will read | refused by the schema, before the handler is reached |
+
+The second row is worth its own note, because the fixture used to make it unreachable and the test
+suite agreed with the bug. Rolling back `4c21` reverts to `9ab7`; rolling back `9ab7` then reported
+`ok: true, to: "77f0"` — a deploy that appeared nowhere in the fixture — and left the timeline
+empty. A responder reading that would have believed checkout-api was serving 77f0. Nothing was
+serving anything. Two rollbacks is not an exotic path; it is what happens when the first one does
+not help. `77f0` exists now, so the honest chain is testable, and the deploy at the end of it is
+the one that refuses.
+
+The desk's clock also advances a minute per action. It used to be a constant, so a rollback, a
+restart and another rollback all carried the same timestamp — and the order in which somebody did
+things to a production service is most of what a timeline is for.
+
 ## What the fixture describes
 
 A story with a right answer and two distractors, so an investigation can be wrong in an
