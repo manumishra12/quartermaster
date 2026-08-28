@@ -43,7 +43,8 @@ action in the demo needs no account and no key.
 
 ## How it uses TrueForge
 
-Not a wrapper around a chat endpoint. Seven harness capabilities are load-bearing.
+Not a wrapper around a chat endpoint. Nine harness capabilities are load-bearing, and three of them
+carry the argument.
 
 **The recorded event stream** is the foundation. TrueForge records every tool call and response
 independently of the model's narration, and `scripts/lib/evidence.mjs` judges the answer against
