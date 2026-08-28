@@ -19,7 +19,6 @@
 import { classify, ungatedRisks, UNANNOTATED } from './lib/annotations.mjs';
 import { policiesFor } from './lib/policies.mjs';
 import { loadEnv } from './lib/env.mjs';
-import { fromModule } from './lib/paths.mjs';
 import { httpProblem } from './lib/http.mjs';
 
 loadEnv();

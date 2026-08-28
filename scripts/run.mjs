@@ -22,6 +22,7 @@ import { judge, performed, refused, resultOf, SUBSTANTIATED, NO_CLAIM } from './
 import { buildReport } from './lib/report.mjs';
 import { describeCall } from './lib/describe-call.mjs';
 import { endedBecause, runExitCode } from './lib/turn-state.mjs';
+import { explainFailure } from './lib/model-advice.mjs';
 import { unexecutedToolCalls } from './lib/evidence.mjs';
 import { renderUnexecutedCalls } from './lib/render-call.mjs';
 import { positionals, readFlag } from './lib/flags.mjs';
@@ -469,7 +470,9 @@ try {
 
     if (!resume.length) {
       console.log(`\n\n[${status ?? 'ended'}]`);
-      if (failure) console.log(`  ${failure}`);
+      // The provider's own words, and what to do about them where that can be said with any
+      // confidence. explainFailure hands the message back unchanged when it cannot.
+      if (failure) console.log(`  ${explainFailure(failure)}`);
       break;
     }
     finalText = ''; // only the answer that ends the run is judged
