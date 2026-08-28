@@ -64,6 +64,8 @@ export function Answer({ content, ...rest }: { content: string; isStreaming?: bo
         </summary>
         <pre
           tabIndex={0}
+          role="region"
+          aria-label="What the model emitted"
           className="mt-1.5 max-h-48 overflow-auto rounded border border-line bg-bg/60 p-2 font-mono text-2xs whitespace-pre-wrap break-words text-muted focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
         >
           {content}
