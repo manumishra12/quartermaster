@@ -909,12 +909,15 @@ export function looksLikeTestCommand(command = '') {
 }
 
 /**
- * Stdout going to /dev/null, in the forms a shell accepts: `>`, `1>`, `&>`, `>&`, `>>`.
+ * Stdout sent somewhere, in the forms a shell accepts: `>`, `1>`, `&>`, `>&`, `>>`.
  *
  * `2>/dev/null` is deliberately not matched. Silencing warnings while leaving stdout alone is
  * ordinary, and a runner whose stdout still reaches the recording can still be read.
  */
-const DISCARDS_STDOUT = /(?:^|\s)(?:&|1)?>>?\s*(?:&\s*)?\/dev\/null(?:\s|$)/;
+const REDIRECTS_STDOUT = /(?:^|\s)(?:&|1)?>>?\s*(?:&\s*)?(\S+)/;
+
+/** Reading a file back out, which is how a redirected run legitimately reaches the recording. */
+const REPLAYS_A_FILE = /\b(?:cat|head|tail|less|more|tee|type)\b/;
 
 /**
  * Whether every runner in this command sent its output somewhere nothing can read it.
@@ -926,10 +929,18 @@ const DISCARDS_STDOUT = /(?:^|\s)(?:&|1)?>>?\s*(?:&\s*)?\/dev\/null(?:\s|$)/;
  * thing the two-signal design exists to prevent, and this was the shape that did it without any
  * shell trickery at all.
  *
- * So the output half is only credited to a run that could have printed it. A discard is required
- * rather than any redirection, because `pytest > out.log; cat out.log` is honest - the runner
- * wrote that text and the command is showing it back. /dev/null is the case where the recorded
- * text definitionally came from something else.
+ * So the output half is only credited to a run that could have printed it.
+ *
+ * Any sink counts, not only /dev/null. The first version of this checked for /dev/null by name and
+ * a security review pointed out the obvious way round it: `pytest -q >/tmp/out.log || echo
+ * '1 passed'` launders exactly as well, and so does `>&2`, since stderr is not part of the
+ * recording either. The property being tested is "the recorded text could have come from this
+ * runner", and where the output went matters less than that it did not come back.
+ *
+ * Came back is the exception that has to survive, because `pytest > out.log; cat out.log` is
+ * honest: the runner wrote that text and the command is showing it to you. So a redirect to a file
+ * is only a discard when nothing later in the command reads that file. /dev/null is a discard
+ * unconditionally - there is nothing to read back.
  *
  * Every runner has to discard, not any: `pytest -q >/dev/null; npm test` still has a run whose
  * output reached the recording.
@@ -940,7 +951,24 @@ const DISCARDS_STDOUT = /(?:^|\s)(?:&|1)?>>?\s*(?:&\s*)?\/dev\/null(?:\s|$)/;
  */
 export function discardsRunnerOutput(command = '') {
   const runners = runnerSegments(command);
-  return runners.length > 0 && runners.every((segment) => DISCARDS_STDOUT.test(segment));
+  if (runners.length === 0) return false;
+
+  return runners.every((segment) => {
+    const redirect = REDIRECTS_STDOUT.exec(segment);
+    if (!redirect) return false;
+
+    const target = redirect[1];
+    // Nothing to read back from either of these.
+    if (/^\/dev\/null$/.test(target) || /^&?[12]$/.test(target)) return true;
+
+    /**
+     * A file is a discard only if the command does not read it again. Checked against the whole
+     * command rather than this segment, because the run and the `cat` are different segments -
+     * that is what makes it two steps rather than one.
+     */
+    const after = command.slice(command.indexOf(segment) + segment.length);
+    return !(after.includes(target) && REPLAYS_A_FILE.test(after));
+  });
 }
 
 /** Pull the executed command output out of a tool.response event. */
@@ -1272,7 +1300,16 @@ export function testRuns(toolResponses) {
        * echo '1 passed'` cleared both halves of this line while the run behind it was red: the
        * report went to /dev/null and `||` handed the exit status to the echo.
        */
-      return r.exitCode !== 0 || (RAN_TESTS.test(r.output) && !discardsRunnerOutput(r.command));
+      /**
+       * `typeof` matters here, and its absence was a hole a security review found in this very
+       * guard. `resultOf` records `exitCode: null` whenever the envelope carried no numeric status,
+       * which is most of them from some servers - and `null !== 0` is true, so the whole
+       * right-hand side, including the laundering check directly above, was never evaluated. A run
+       * whose status nobody recorded is not a run that failed; it is a run that has to prove itself
+       * on its output like any other.
+       */
+      const failed = typeof r.exitCode === 'number' && r.exitCode !== 0;
+      return failed || (RAN_TESTS.test(r.output) && !discardsRunnerOutput(r.command));
     }
     /**
      * With no command, only text something actually printed can stand in for one. A structured
