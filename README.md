@@ -8,6 +8,9 @@ Built on [TrueForge](https://trueforge.dev), the open-source agent harness.
 [`WRITEUP.md`](WRITEUP.md) is the short version: what the agent does, how it uses TrueForge, what
 was found while building it, and what it does not do.
 
+[`BLOG.md`](BLOG.md) is the write-up of the build itself: the agent fabricating test output, the
+fail-open gate in the shipped catalog, and the guards that turned out not to be reached.
+
 ---
 
 ## The problem
