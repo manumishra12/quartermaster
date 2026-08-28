@@ -2,7 +2,7 @@
  * What to tell somebody when a connector cannot be reached.
  *
  * Every failure here used to advise authenticating the connector. For a local server that is
- * simply not running - the usual case, since three of them ship in this repo and have to be
+ * simply not running - the usual case, since four of them ship in this repo and have to be
  * started - that is advice which cannot possibly work, sending someone to look for credentials for
  * a process they only needed to start.
  *
@@ -21,6 +21,7 @@ export const LOCAL_SERVERS = {
   'ops-desk': { command: 'npm run ops-desk', port: 8795, portEnv: 'OPS_DESK_PORT' },
   'front-desk': { command: 'npm run front-desk', port: 8796, portEnv: 'FRONT_DESK_PORT' },
   warehouse: { command: 'npm run warehouse', port: 8797, portEnv: 'WAREHOUSE_PORT' },
+  observability: { command: 'npm run observability', port: 8798, portEnv: 'OBSERVABILITY_PORT' },
 };
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);

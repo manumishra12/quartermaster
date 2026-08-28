@@ -17,8 +17,10 @@ Four reads answer most of this job:
 1. **The alert** — what broke, on which service, and when it started firing.
 2. **The health of that service** — the error rate and latency either side of that time. The number
    before matters as much as the number after; a rate that was already climbing is a different
-   incident from one that stepped.
-3. **What shipped near it** — deploys, config changes, feature flags, for that service.
+   incident from one that stepped. Where a metrics connector is available, read the series rather
+   than a summary of it: five readings ten minutes apart cannot tell a step change from a slope.
+3. **What shipped near it** — deploys, config changes, feature flags, and the annotations on the
+   timeline, for that service.
 4. **The logs for that service**, in a window around the time it started — what it was actually
    doing, in its own words.
 
@@ -30,8 +32,10 @@ usually admits **two** explanations, and they ask for opposite actions:
 >
 > **The timeout was cut below what the upstream has always taken** — roll back.
 
-The metrics cannot tell those apart. The logs can, because they carry the upstream's own numbers on
-both sides of the change. Read them before you pick a team to page.
+A summary of the metrics cannot tell those apart. Two things can. The logs can, because they carry
+the upstream's own numbers on both sides of the change. And the upstream's **own series** can, read
+over a window that starts before the incident: if it did not move, it did not cause anything.
+Whichever you have, use it before you pick a team to page.
 
 **An empty log result is two different findings.** A search that returns nothing because the service
 was quiet, and one that returns nothing because the filter was too narrow, look identical unless the
@@ -64,6 +68,11 @@ a decision on your sentence.
 
 Say your confidence as confidence: *consistent with*, *strongly suggests*, *confirmed by*. If two
 explanations fit, give both and what would separate them.
+
+**`metric-correlation` is the longer version of this step**, and it is worth reading before you name
+a cause off a graph: how to find a control, why a coarse query step can move a step change onto the
+wrong side of the deploy that caused it, and why the annotation nearest the alert is usually a
+reaction to it.
 
 ## Step 3 — Reproduce it, before you propose anything
 
@@ -121,11 +130,17 @@ looking at it: the page stops and the rotation moves on. There is no undo for at
 
 So resolving is never proposed in the same breath as a fix. After the fix is approved and applied:
 
-1. Re-read the health series.
+1. Re-read the series — and compare it against a **pre-incident** baseline, not against the
+   incident. Against the incident, anything is an improvement.
 2. Confirm the error rate actually came down, and say what it came down to.
 3. Run the reproduction again, against the configuration the fix left the service in. The half that
    passed in step 3 is the half that has to pass now, and for the same reason.
 4. Only then propose resolving, quoting that number.
+
+A metric store has nothing after its last scrape, so immediately after a fix the honest answer is
+often that the reading has not been taken yet. That is a fact about the evidence, not an obstacle,
+and it is not a result you may round up to recovery. Say what you expect and why, and say that it is
+an expectation.
 
 A desk that refuses to resolve while the service is still failing is telling you something true.
 Read the refusal as a fact about the service, not an obstacle.

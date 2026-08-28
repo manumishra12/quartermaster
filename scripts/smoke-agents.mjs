@@ -120,6 +120,29 @@ const CASES = [
     freshFixture: { port: 8795, name: 'ops-desk' },
   },
   {
+    agent: 'incident-responder',
+    what: 'reads the metrics store',
+    /**
+     * The second connector, checked on its own, because the case above passes with it absent.
+     *
+     * There is no fixture staleness to guard against here - nothing on this server writes - and no
+     * gate to sit on, so the whole case is one read with a number in it.
+     */
+    prompt:
+      'Using the observability connector, run query_range for latency_p99_ms on checkout-api from ' +
+      '2026-08-26T13:50:00Z to 2026-08-26T14:05:00Z and tell me the value at 14:00. Do not remediate anything.',
+    /**
+     * The value and a field only a successful query_range reply carries.
+     *
+     * 1980 alone would match a model reciting it out of the alert's own text, and `truncated`
+     * appears in no refusal on that tool - so the pair is a read that happened rather than a
+     * number that was recalled. Same lesson as the alert case above, where matching the id alone
+     * passed on a call that had failed.
+     */
+    expect: /"truncated"[\s\S]*1980|1980[\s\S]*"truncated"/,
+    needsConnector: 'observability',
+  },
+  {
     agent: 'desk-assistant',
     what: 'reads the front desk',
     prompt: 'List the projects on the front desk and tell me the key of the checkout project.',

@@ -91,18 +91,19 @@ cp .env.example .env            # set TRUEFORGE_MODEL to a configured model FQN
 npm run ops-desk &              # the incident responder investigates this
 npm run front-desk &            # the desk assistant files into this
 npm run warehouse &             # the analytics agent queries this, read-only
+npm run observability &         # the metrics the incident responder correlates against
 
 npm run agents:apply
 npm run preflight               # tells you exactly what is still missing
 ```
 
-The three servers in the middle ship in this repository and need no accounts. `warehouse` wants its
+The four servers in the middle ship in this repository and need no accounts. `warehouse` wants its
 fixture built first - `cd fixtures/warehouse && sqlite3 warehouse.db < seed.sql`, and it says so and
 refuses to start if you have not. Starting them is not enough on a fresh harness either; it also has
 to be told they exist, once:
 
 ```bash
-for s in ops-desk:8795 front-desk:8796 warehouse:8797; do
+for s in ops-desk:8795 front-desk:8796 warehouse:8797 observability:8798; do
   curl -sS --fail-with-body -X POST http://localhost:8790/api/v1/settings/mcp-servers \
     -H 'content-type: application/json' \
     -d "{\"manifest\":{\"type\":\"remote\",\"name\":\"${s%%:*}\",\"url\":\"http://localhost:${s##*:}/mcp\",\"description\":\"Ships with this repository; no account needed.\"}}" \
@@ -163,7 +164,7 @@ event stream rather than the transcript - turns out to generalise, and each is o
 | `code-runner` | sandbox | nothing leaves it | **yes** |
 | `analytics` | `warehouse` (ships here) + the sandbox | reads by construction, see below | **yes** |
 | `research-desk` | Exa web search | read-only throughout | **yes** |
-| `incident-responder` | `ops-desk` (ships here) | every remediation | **yes** |
+| `incident-responder` | `ops-desk` + `observability` (both ship here) | every remediation | **yes** |
 | `desk-assistant` | `front-desk` (ships here) | every create, edit, close and send | **yes** |
 | `code-reviewer` | GitHub, read-only + comments | every comment it posts | needs a PAT |
 | `gate-demo` | + GitHub | its one tool | needs the GitHub connector |
@@ -247,11 +248,62 @@ refuses any agent that promises a gate without either declaring one or admitting
 `incident-responder` is the hackathon's hero project, and it used to be the one nobody could run:
 it was written against Sentry, so without a Sentry account it could not even be applied to the
 harness. It now reaches [`ops-desk`](mcp/ops-desk/README.md), a small MCP server that ships in this
-repo - alerts to read, deploys to correlate them against, and two remediations behind the gate.
-No account, no key.
+repo - alerts to read, deploys to correlate them against, and three remediations behind the gate -
+and [`observability`](mcp/observability/README.md), a metrics store that ships beside it. No
+account, no key.
+
+The second connector is what makes an investigation conclusive rather than plausible. `ops-desk`
+returns five health readings ten minutes apart, so the strongest thing the agent could say about a
+latency regression was that a log line had mentioned it. `observability` returns 141 readings a
+minute apart with deploy markers on the same timeline, which is a different kind of sentence: a p99
+that steps from 305ms to 2000ms between 13:58 and 14:00, and an annotation at 13:58 reading "deploy
+4c21 - reduce payment-gateway client timeout from 5000ms to 2000ms". Neither half says anything on
+its own.
+
+```mermaid
+flowchart TD
+  A["alert<br/>ALRT-4471 firing"] --> B["get_alert<br/>what, where, since when"]
+
+  B --> P{{"investigate in parallel<br/>subagents, reads only"}}
+  P --> M["metrics<br/>query_range, list_alert_rules"]
+  P --> D["deploys and annotations<br/>list_deploys, list_annotations"]
+  P --> L["logs<br/>search_logs"]
+
+  M --> C["correlate<br/>step change against deploy marker"]
+  D --> C
+  L --> C
+
+  C --> K["find a control<br/>what would have moved<br/>under the other explanation, and did not"]
+  K --> R["reproduce in the sandbox<br/>repro.py --deploy 4c21 must fail<br/>repro.py --deploy 9ab7 must pass"]
+  R --> RC["root cause, with stated confidence"]
+
+  RC ==> ASK{{"ASK A PERSON<br/>the harness stops the turn"}}
+  ASK -->|deny| STOP["report the denial<br/>propose nothing else, stop"]
+  ASK -->|allow| RB["rollback_deploy 4c21<br/>parent agent only, never delegated"]
+
+  RB --> V["verify recovery<br/>compare_windows against a<br/>pre-incident baseline"]
+  V -->|"no readings yet"| UNV["say so: unverified<br/>an expectation is not an observation"]
+  V -->|"series recovered"| RES["propose resolve_alert<br/>which is gated too"]
+```
+
+Two things about that picture are the argument rather than the drawing. **The gated actions are not
+on any subagent's branch.** Subagents do the reading; rollback, restart and resolve are the parent
+agent's alone, because whether a dynamic subagent inherits this agent's approval policy is not
+established - the SDK documents `dynamic_sub_agents.enabled` as a lone boolean and says nothing
+about it. An unverified gate is not a gate, and if it does not travel then nobody is asked, the
+rollback happens, and the transcript still reads as though somebody approved it. Reads are safe to
+delegate because the worst case of an unverified gate on a read is a read.
+
+And **verify recovery has two exits.** Immediately after a rollback the honest answer is the left
+one: a metric store has nothing after its last scrape, so `compare_windows` refuses to compute a
+change and says the reading has not been taken yet. That is a fact about the evidence, not an
+obstacle, and it is not a result that may be rounded up to recovery. `resolve_alert` on the ops desk
+refuses on the same grounds - `still_unhealthy` while the rate is up, `no_readings` when a restart
+has cleared the series it would have read.
 
 ```bash
-npm run ops-desk    # in one terminal
+npm run ops-desk         # in one terminal
+npm run observability    # in another
 npm run agents:apply
 npm run agent -- --agent incident-responder "Alert ALRT-4471 is firing on checkout-api. Investigate it, and if a deploy caused it, roll that deploy back."
 ```
@@ -462,7 +514,7 @@ from recorded tool responses, never from the agent's narration.
 ## Development
 
 ```bash
-npm run check             # lint, typecheck, 437 tests, and the fixture check - what CI runs
+npm run check             # lint, typecheck, 464 tests, and the fixture check - what CI runs
 npm test                  # the root suite alone
 npm run fixtures:check    # the fixtures must still fail
 npm run tools:audit       # every reachable tool is gated as claimed
@@ -470,6 +522,7 @@ npm run route -- "..."    # which agent would take this, and what it beat
 npm run ops-desk          # the MCP server the incident responder investigates
 npm run front-desk        # the workspace the desk assistant files into
 npm run warehouse         # the read-only SQL surface the analytics agent queries
+npm run observability     # the metrics store the incident responder correlates against
 cd ui && npm run test:unit && npm run build   # 174 tests, then the interface compiles
 ```
 

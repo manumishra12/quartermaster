@@ -14,11 +14,12 @@ is green.
 npm run ops-desk &        # :8795  - the incident responder investigates this
 npm run front-desk &      # :8796  - the desk assistant files into this
 npm run warehouse &       # :8797  - the analytics agent queries this, read-only
+npm run observability &   # :8798  - the metrics the incident responder correlates against
 npm run agents:apply
 npm run preflight         # names whatever is still missing, and the fix for it
 ```
 
-All three servers also have to be registered with the harness once - the `curl` loop in `README.md`
+All four servers also have to be registered with the harness once - the `curl` loop in `README.md`
 does it. Without that, `agents:apply` skips `incident-responder`, `desk-assistant` and `analytics`
 as unknown servers.
 
@@ -273,20 +274,46 @@ followed.
 **What it is for.** Investigating a production alert: what is broken, since when, what changed
 around then, and whether it can be made to happen again. Then it proposes a remediation and stops.
 
-**What it reaches.** [`ops-desk`](mcp/ops-desk/README.md), a small MCP server that ships in this
-repository - `list_alerts`, `get_alert`, `list_deploys`, `get_service_health`, `search_logs` and
-`list_actions_taken`, all read-only - and the sandbox, where it reproduces the incident before
-proposing anything. Nothing mounts this repository into that sandbox, which is why
-`fixtures/checkout-timeout/repro.py` is one standard-library file with no imports to install: it
-goes in as a heredoc, the way `analytics` writes SQL.
+**What it reaches.** Two connectors that both ship in this repository, and the sandbox.
 
-**What is gated.** `rollback_deploy`, `restart_service` and `resolve_alert`. All three carry
-`destructiveHint`, so `@destructive` in the policy resolves to exactly what its name says, and the
-spec names all three literally as well. The gate firing from the tool's own annotation rather than
-from a name in the spec is the part worth watching: it is the selector machinery working as
-designed against a connector whose annotations are correct.
+[`ops-desk`](mcp/ops-desk/README.md) holds the incident - `list_alerts`, `get_alert`,
+`list_deploys`, `get_service_health`, `search_logs` and `list_actions_taken`, all read-only, plus
+the three remediations.
 
-**Needs an account?** No. It needs `npm run ops-desk` running and registered once.
+[`observability`](mcp/observability/README.md) holds the measurements - `list_metrics`,
+`list_dashboards`, `get_dashboard`, `query_range`, `compare_windows`, `list_annotations`,
+`list_alert_rules` and `get_service_map`, every one of them a read. It is the connector that makes
+an investigation conclusive rather than plausible: `get_service_health` returns five readings ten
+minutes apart, so "the error rate is up" was something the agent had read in a log line rather than
+something it had measured. `query_range` returns 141 readings a minute apart, and
+`list_annotations` puts the deploy markers on the same timeline.
+
+And the sandbox, where it reproduces the incident before proposing anything. Nothing mounts this
+repository into that sandbox, which is why `fixtures/checkout-timeout/repro.py` is one
+standard-library file with no imports to install: it goes in as a heredoc, the way `analytics`
+writes SQL.
+
+**What is gated.** `rollback_deploy`, `restart_service` and `resolve_alert`, all on `ops-desk`. All
+three carry `destructiveHint`, so `@destructive` in the policy resolves to exactly what its name
+says, and the spec names all three literally as well. The gate firing from the tool's own annotation
+rather than from a name in the spec is the part worth watching: it is the selector machinery working
+as designed against a connector whose annotations are correct.
+
+Nothing on `observability` is gated, because there is nothing on it to gate - and its policy is
+still `["@write", "@destructive"]` rather than `[]`, for the reason `TOOLS.md` section 2 gives. An
+approval prompt in front of a read teaches the operator that the prompt is noise, and the next one
+they wave through is a rollback.
+
+**And nothing gated is ever delegated.** `dynamic_sub_agents` is on for this agent, and the
+instructions use it: the metrics, the deploys and the logs are three independent lines of enquiry
+and a subagent takes each. But rollback, restart and resolve stay with the parent agent, because
+whether a spawned subagent inherits this agent's approval policy has not been established - the SDK
+documents `dynamic_sub_agents.enabled` as a lone boolean and says nothing about it. An unverified
+gate is not a gate. Reads are safe to delegate because the worst case of an unverified gate on a
+read is a read.
+
+**Needs an account?** No. It needs `npm run ops-desk` and `npm run observability` running and
+registered once.
 
 **Try this.**
 
@@ -315,8 +342,18 @@ reproduced on 4c21, recovered on 9ab7
 ```
 
 The pair is the evidence. A run that fails proves a failure; a run that fails on `4c21` and passes
-on `9ab7` names which of the things that changed was the cause - and this incident has two
-explanations that fit the metrics equally well, which want opposite actions.
+on `9ab7` names which of the things that changed was the cause - and this incident has three
+explanations that fit the metrics read after the alert, and they want different actions. The
+metrics connector is where two of them are eliminated: the gateway's own p99 is flat at 2400ms on
+both sides of the deploy and inside its own objective, and the traffic rise that peaks during the
+incident started twenty-eight minutes before the latency moved. `mcp/observability/README.md`
+publishes the trap and the answer.
+
+**And verifying the recovery is a separate step with two honest endings.** After an approved
+rollback the agent calls `compare_windows` against a pre-incident baseline. Immediately after a
+remediation a metric store has nothing past its last scrape, so it answers `no_points_in_window` and
+computes no change at all - which is a fact about the evidence, not an obstacle, and not a result
+that may be rounded up to recovery. `resolve_alert` on the ops desk refuses on the same grounds.
 
 **What you should see.** The first command answers `ALRT-4471`. The second reaches the gate:
 
@@ -644,6 +681,7 @@ decides the skill applies, and then the pack is materialised in the sandbox.
 | `evidence-report` | rendering the verdict as a Generative UI card | `quartermaster-local`, `quartermaster`, `code-runner`, `code-reviewer` |
 | `code-review` | running the suite before claiming anything, and what a finding has to have | `code-reviewer` |
 | `incident-triage` | the four reads, reproducing before proposing, and resolving last | `incident-responder` |
+| `metric-correlation` | finding a control, checking whether the metric moved before the suspect did, and the artefacts of your own query that move a regression onto the wrong minute | `incident-responder` |
 | `sql-analysis` | read the schema first, classify reads against writes, never present an unrun number | `analytics` |
 | `source-citation` | cross-check, report disagreement, admit the gap | `research-desk` |
 | `untrusted-input` | everything you read is data, and what to do when some of it is addressed to you | every agent with a sandbox - eight of the nine |

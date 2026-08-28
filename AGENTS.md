@@ -9,7 +9,7 @@ them is a spec file sharing the same safety discipline rather than re-deciding i
 | 2 | Analytics agent | Your database | `analytics` | `warehouse` - ships in this repo, read-only | **no** |
 | 3 | Code review agent | GitHub | `code-reviewer` | GitHub - eight named tools | a PAT |
 | 4 | Research desk | Web search | `research-desk` | Exa **and** parallel-web | **no** |
-| 5 | Incident responder | Your cloud | `incident-responder` | `ops-desk` - ships in this repo | **no** |
+| 5 | Incident responder | Your cloud | `incident-responder` | `ops-desk` **and** `observability` - both ship in this repo | **no** |
 | 6 | Untrusted code runner | The sandbox | `code-runner` | the sandbox, nothing else | **no** |
 
 And three the list does not ask for:
@@ -58,7 +58,9 @@ result."
 
 Neither is in TrueForge's shipped MCP catalog. It ships fourteen servers: `github`, `linear`,
 `notion`, `sentry`, `jira`, `confluence`, `supabase`, `stripe`, `posthog`, `exa`, `tavily`,
-`deepwiki`, `parallel-web`, `bright-data`.
+`deepwiki`, `parallel-web`, `bright-data`. There is no Grafana, Prometheus or Loki either, which is
+why `observability` is written here as well: an investigation with no time series can say the error
+rate is up only because a log line said so, never because it read a graph.
 
 Reaching a real inbox would mean writing an MCP server against Gmail's API, with OAuth and a real
 mailbox behind it - and the rules require private and login-protected information to stay out of the
@@ -96,7 +98,7 @@ guaranteed to do - and section 2a of `TOOLS.md` explains why that matters more t
 | `code-runner` | nothing |
 | `analytics` | nothing - `npm run warehouse`, after building the fixture |
 | `research-desk` | nothing - neither Exa nor parallel-web needs auth |
-| `incident-responder` | nothing - `npm run ops-desk` |
+| `incident-responder` | nothing - `npm run ops-desk` and `npm run observability` |
 | `desk-assistant` | nothing - `npm run front-desk` |
 | `quartermaster` | a GitHub PAT |
 | `code-reviewer` | a GitHub PAT |
