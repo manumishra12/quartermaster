@@ -13,6 +13,7 @@ import { describeConnectorFailure } from './lib/connector-advice.mjs';
 import { join } from 'node:path';
 import { classify, ungatedRisks } from './lib/annotations.mjs';
 import { loadEnv } from './lib/env.mjs';
+import { specFiles } from './lib/spec.mjs';
 import { fromModule } from './lib/paths.mjs';
 
 loadEnv();
@@ -87,9 +88,23 @@ try {
 try {
   const skills = asList(await get('/api/v1/settings/skills'));
   const names = skills.map((s) => s.name ?? s.manifest?.name);
-  // Every spec references both. Checking only one meant a missing evidence-report read as fine
-  // right up until agents:apply rejected every agent that needs it.
-  for (const required of ['verified-fix', 'evidence-report']) {
+
+  /**
+   * Every skill any spec attaches, read from the specs rather than listed here.
+   *
+   * The hardcoded pair drifted the moment the library grew: five skills were added, four agents
+   * were pointed at them, and preflight went on reporting that the two it knew about were fine.
+   */
+  const attached = [
+    ...new Set(
+      specFiles()
+        .flatMap(({ path }) => JSON.parse(readFileSync(path, 'utf8'))?.manifest?.skills ?? [])
+        .map((skill) => skill?.name)
+        .filter(Boolean),
+    ),
+  ].sort();
+
+  for (const required of attached) {
     record(
       names.includes(required),
       `Skill: ${required}`,
@@ -97,10 +112,28 @@ try {
       `open ${BASE} -> Settings -> Skills -> Import from GitHub, pointing at skills/${required}`,
     );
   }
-} catch {
-  for (const required of ['verified-fix', 'evidence-report']) {
-    record(false, `Skill: ${required}`, 'could not list skills', `open ${BASE} -> Settings -> Skills`);
+
+  /**
+   * A skill fetched from a branch works until the branch is gone.
+   *
+   * This is not a failure - pointing at a branch is how you use a skill before it is merged, and
+   * every skill added on a branch has to. But it is a fact that expires, and it expires silently:
+   * the branch is deleted on merge, the fetch fails at sandbox init, and the agent reports that it
+   * could not reach its tools. So it is stated every run rather than remembered.
+   */
+  const offMain = skills
+    .filter((s) => (s.manifest?.ref ?? 'main') !== 'main')
+    .map((s) => `${s.name ?? s.manifest?.name}@${s.manifest?.ref}`);
+  if (offMain.length) {
+    record(
+      true,
+      'Skills on a branch',
+      `${offMain.join(', ')} - fine until it is merged and the branch is deleted`,
+      're-point these at main once the branch lands, or the fetch fails at sandbox init',
+    );
   }
+} catch {
+  record(false, 'Skills', 'could not list skills', `open ${BASE} -> Settings -> Skills`);
 }
 
 // 5. Connectors, and whether their approval gate is real.
