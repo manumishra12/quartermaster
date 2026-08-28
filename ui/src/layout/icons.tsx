@@ -193,6 +193,31 @@ export const SendIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
+/** Dictation. A capsule on a stand, which is the one shape everybody already reads as a mic. */
+export const MicIcon = ({ className }: { className?: string }) => (
+  <svg {...base} className={className}>
+    <rect x="6" y="1.75" width="4" height="7.5" rx="2" />
+    <path d="M3.5 7.5a4.5 4.5 0 0 0 9 0" />
+    <path d="M8 12v2.25" />
+  </svg>
+);
+
+/**
+ * Dictation that is not available here.
+ *
+ * A struck-through mic rather than a hidden control: the difference between "this browser cannot
+ * do it" and "this product has no such feature" is worth a person being able to see.
+ */
+export const MicOffIcon = ({ className }: { className?: string }) => (
+  <svg {...base} className={className}>
+    <path d="M6 6.5V3.75a2 2 0 0 1 4 0v3" />
+    <path d="M3.5 7.5a4.5 4.5 0 0 0 7.6 3.2" />
+    <path d="M12.5 7.5v.4" />
+    <path d="M8 12v2.25" />
+    <path d="M2.75 2.75l10.5 10.5" />
+  </svg>
+);
+
 /**
  * The icon for a tool, chosen from what the tool does rather than from which server it came from.
  *

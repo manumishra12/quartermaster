@@ -3,6 +3,7 @@ import { TrueForgeUI } from '@truefoundry/trueforge-ui';
 import { QuartermasterLayout } from './layout/QuartermasterLayout';
 import { ThemeContext } from './layout/ThemeContext';
 import { Welcome } from './layout/Welcome';
+import { Dictation } from './layout/Dictation';
 import { Code } from './layout/Code';
 import { Answer } from './layout/Answer';
 import { ThreadList, ThreadRow } from './layout/ThreadRow';
@@ -51,6 +52,11 @@ const OVERRIDES = {
   // A printed tool call arrives in the transcript as a wall of braces that reads as a question
   // nobody is listening to. The rail already named it; the thing people actually read did not.
   Markdown: Answer,
+  // The composer's own right-hand slot, which the SDK ships returning null and renders immediately
+  // left of the send button. Dictation goes in there rather than beside the composer, so it takes
+  // the composer's layout instead of fighting it, and so an SDK that restyles the box takes the
+  // microphone with it.
+  ComposerRightSection: Dictation,
 } as const;
 const BRAND = { name: 'Quartermaster', logo: { src: '/mark.svg' } } as const;
 

@@ -509,6 +509,30 @@ What the agent is **doing** (which of five phases), what it is **waiting on** (y
 and what it **did** - the last real test run, its exit code and its output. All three are derived
 from recorded tool responses, never from the agent's narration.
 
+### Dictation, and where the audio goes
+
+There is a microphone in the composer. Press it, speak, and the words appear in the box as they are
+recognised - added to whatever you had already typed, never in place of it.
+
+**The audio does not stay on this machine.** It uses the browser's Web Speech API, and Chrome's
+implementation does not recognise speech locally: it opens a connection to a Google speech service,
+sends the microphone audio, and streams text back. That is the one part of Quartermaster where
+something leaves the machine without a flag being set for it, so it is said on the button's tooltip,
+in its accessible description, and again on the badge while the microphone is live. Do not dictate
+anything you would not paste into a search box.
+
+Two other things worth knowing:
+
+- **It is Chrome and Edge only.** Firefox and Safari do not implement `SpeechRecognition` at all. In
+  those browsers the control is present but disabled and says why, rather than looking live and
+  doing nothing.
+- **It never sends.** Dictation fills the composer; you still press send. Voice is an input method,
+  not an instruction to act - the same reason allow and deny are not bound to keys here. The
+  microphone is also released on send, on leaving the page, and when the composer unmounts.
+
+It was chosen over a hosted transcription API for one reason: no dependency, no account, no key. A
+demo that has to run on a stranger's laptop cannot have a microphone that first wants credentials.
+
 ---
 
 ## Development
@@ -523,7 +547,7 @@ npm run ops-desk          # the MCP server the incident responder investigates
 npm run front-desk        # the workspace the desk assistant files into
 npm run warehouse         # the read-only SQL surface the analytics agent queries
 npm run observability     # the metrics store the incident responder correlates against
-cd ui && npm run test:unit && npm run build   # 183 tests, then the interface compiles
+cd ui && npm run test:unit && npm run build   # 191 tests, then the interface compiles
 ```
 
 CI runs all of it on every pull request. [`TESTING.md`](TESTING.md) covers how the suites are
