@@ -40,7 +40,26 @@ export function Mermaid({ code }: { code: string }) {
            * as a broken diagram rather than an off-brand one.
            */
           theme: resolved === 'dark' ? 'dark' : 'neutral',
-          securityLevel: 'strict',
+          /**
+           * Sandboxed, not merely sanitised.
+           *
+           * This renders text the model wrote into the page through `dangerouslySetInnerHTML`, and
+           * the model reads issue bodies, repository files and web pages - which this project
+           * spends a whole fixture demonstrating can persuade it. So the chain
+           * "injection -> model emits a crafted diagram -> it executes in the operator's browser"
+           * is not hypothetical here; it is the attack this repository is about, pointed at the
+           * interface instead of the gate.
+           *
+           * `strict` would rely on mermaid's DOMPurify, which resolves to 3.4.8 and carries four
+           * open advisories, one of them an XSS through a detached subtree. Depending on a
+           * sanitiser to be perfect against input an attacker helped write is the wrong shape of
+           * bet. `sandbox` renders into an iframe instead, so a bypass executes somewhere that
+           * cannot reach this page.
+           *
+           * It costs the diagram its inherited fonts and some layout control. That is a fair price
+           * for not having to be right about DOMPurify.
+           */
+          securityLevel: 'sandbox',
           fontFamily: 'inherit',
         });
         const { svg: rendered } = await mermaid.render(`m${id}`, code);
@@ -94,7 +113,7 @@ export function Mermaid({ code }: { code: string }) {
       tabIndex={0}
       role="region"
       aria-label="Diagram"
-      className="qm-enter overflow-auto rounded-lg border border-line bg-surface p-3 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full"
+      className="qm-enter overflow-auto rounded-lg border border-line bg-surface p-3 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent [&_iframe]:w-full [&_iframe]:min-h-64 [&_iframe]:border-0 [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full"
       // Mermaid's own output, rendered with securityLevel 'strict', which strips script and
       // event handlers. The alternative is not rendering diagrams at all.
       dangerouslySetInnerHTML={{ __html: svg }}
