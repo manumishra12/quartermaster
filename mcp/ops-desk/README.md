@@ -110,8 +110,8 @@ things to a production service is most of what a timeline is for.
 
 ## What the fixture describes
 
-A story with a right answer and two distractors, so an investigation can be wrong in an
-interesting way rather than only right:
+A story with a right answer, two distracting alerts and a red herring in the logs, so an
+investigation can be wrong in an interesting way rather than only right:
 
 ```mermaid
 timeline
