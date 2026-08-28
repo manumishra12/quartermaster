@@ -23,7 +23,6 @@ loadEnv();
 import { judge, performed, refused, resultOf, SUBSTANTIATED, NO_CLAIM } from './lib/evidence.mjs';
 import { buildReport } from './lib/report.mjs';
 import { announcedArtifacts, artifactName } from './lib/artifacts.mjs';
-import { describeCall } from './lib/describe-call.mjs';
 import { endedBecause, runExitCode } from './lib/turn-state.mjs';
 import { explainFailure } from './lib/model-advice.mjs';
 import { unexecutedToolCalls } from './lib/evidence.mjs';
@@ -35,6 +34,10 @@ import { record as recordDecision } from './lib/ledger.mjs';
 import { loadAgents, route } from './lib/route.mjs';
 import { handoff, renderHandoff, requestedHandoff } from './lib/handoff.mjs';
 import { retryDecision } from './lib/retry.mjs';
+import { plan, renderPlan } from './lib/dry-run.mjs';
+import { callSignature, checkBudget, detectLoop } from './lib/limits.mjs';
+import { REASONS, escalate, renderEscalation, runOutcome } from './lib/escalation.mjs';
+import { keyFor, noteCall } from './lib/idempotency.mjs';
 import { createTracer } from './lib/otel.mjs';
 
 const argv = process.argv.slice(2);
@@ -134,6 +137,10 @@ let turnFailure = null;
  * the call went out, the failure came back, and nothing here can tell whether the write landed.
  */
 let approvalsGranted = 0;
+/** When the run began, what it has called, and why it gave up, for the ceilings and the loop check. */
+const startedAt = Date.now();
+const callHistory = [];
+let escalation = null;
 /**
  * Tool call ids the operator refused, so the record can tell a refusal from a silent success.
  *
@@ -299,6 +306,21 @@ function absorb(event, sequenceId) {
         outputBytes: result.output?.length ?? 0,
         command,
         at: event.createdAt,
+      });
+      /**
+       * What was called, for the loop check, and whether it landed, for the idempotency record.
+       *
+       * Both are written here rather than where the approval was answered, because this is the
+       * first point at which the answer is known. An approval that was granted and then failed on
+       * the way out is exactly the case both of these exist for, and at the gate it looks identical
+       * to one that succeeded.
+       */
+      callHistory.push(callSignature({ tool: call?.toolInfo?.name, args: call?.function?.arguments }));
+      noteCall({
+        key: keyFor({ session: checkpoint.sessionId, tool: call?.toolInfo?.name, args: call?.function?.arguments }),
+        state: wasDenied ? 'not-executed' : 'executed',
+        tool: call?.toolInfo?.name ?? null,
+        session: checkpoint.sessionId,
       });
       console.log(`\n  [tool] ${wasDenied ? 'refused' : 'recorded'}${command ? `: ${command.slice(0, 70)}` : ''}`);
       break;
@@ -499,6 +521,32 @@ try {
     if (failure) turnFailure = failure;
     const resume = [];
 
+    /**
+     * Two ways a run stops being worth continuing, checked before it asks for anything else.
+     *
+     * A loop is the same call three times with nothing different in between - an agent that has
+     * stopped learning and will not stop on its own. A ceiling is the budget for tool calls,
+     * approvals or wall-clock. Either one escalates rather than failing quietly: a run that ran out
+     * of room has not finished, and reporting it as finished is the same class of lie as reporting
+     * a test that never ran.
+     */
+    const loop = detectLoop(callHistory);
+    const budget = checkBudget({
+      toolCalls: toolResponses.length,
+      approvals: approvalsGranted,
+      wallClockMs: Date.now() - startedAt,
+    });
+    if (loop.looping || budget.escalate) {
+      escalation = escalate({
+        because: loop.looping ? REASONS.LOOP : REASONS.BUDGET,
+        detail: loop.looping ? loop.why : budget.why,
+        established: [`${toolResponses.length} tool call(s) recorded`, `${approvalsGranted} approval(s) granted`],
+        notEstablished: ['whatever the run was asked for; it did not get there'],
+        next: ['read the report, then either raise the ceiling deliberately or give the agent a narrower task'],
+      });
+      break;
+    }
+
     for (const event of pending.approvals) {
       for (const ref of event.toolCalls) {
         const call = describe(ref);
@@ -510,8 +558,15 @@ try {
           // blank is worse than not asking: it produces the appearance of oversight without any.
           console.log('  This call could not be read, so it cannot be shown to you. Denying.');
         } else {
-          // What it will change, not eight hundred characters of the JSON it will send.
-          for (const line of describeCall(call.toolInfo?.name, call.function?.arguments)) {
+          /**
+           * What it would change, stated as a sentence, above the call itself.
+           *
+           * `describeCall` already refused to print eight hundred characters of JSON. This goes one
+           * further and says the thing in English - "would roll back checkout-api from 4c21 to
+           * 9ab7" - because that is the sentence somebody is actually approving, and a person who
+           * has to reconstruct it from arguments is a person who eventually stops trying.
+           */
+          for (const line of renderPlan(plan({ tool: call.toolInfo?.name, args: call.function?.arguments }))) {
             console.log(line);
           }
           if (!denyAll) answer = await ask('  allow / deny > ', 'deny');
@@ -761,6 +816,12 @@ try {
  * trace could not carry. Working it out once means the process, the report and the span all say
  * the same thing about how the run ended, which is the only version worth recording.
  */
+if (escalation) {
+  for (const line of renderEscalation(escalation)) console.log(line);
+  // The report reads the failure, so an escalated run should not look like one that simply ended.
+  turnFailure ??= escalation.detail;
+}
+
 const exitCode = runExitCode({
   proved: verdict === SUBSTANTIATED || verdict === NO_CLAIM,
   crashed: Boolean(crash) || !reportWritten,
@@ -768,6 +829,8 @@ const exitCode = runExitCode({
   blockedOnAuth,
   status: lastStatus,
   failure: turnFailure,
+  // An escalated run has not finished, whatever its partial answer proved.
+  ...runOutcome(escalation),
 });
 
 /**
