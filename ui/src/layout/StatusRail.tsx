@@ -324,7 +324,9 @@ function Verdict({ last, ordinal, of }: { last: Run; ordinal: number; of: number
         role="region"
         aria-label={`Output of run ${ordinal} of ${of}`}
         className={[
-          'mt-3 overflow-auto rounded-md border border-line-soft bg-bg/60 p-2.5 font-mono text-2xs leading-relaxed whitespace-pre-wrap break-words text-ink',
+          // border-line, not border-line-soft: this became focusable, and the boundary of
+          // something you can tab into has to clear 3:1 (WCAG 1.4.11). The soft token is 1.18:1.
+          'mt-3 overflow-auto rounded-md border border-line bg-bg/60 p-2.5 font-mono text-2xs leading-relaxed whitespace-pre-wrap break-words text-ink',
           'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
           expanded ? 'max-h-80' : 'max-h-40',
         ].join(' ')}
