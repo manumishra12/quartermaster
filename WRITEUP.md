@@ -160,7 +160,7 @@ whether a run passed.
 
 ## How it is verified
 
-`npm run check` runs lint, typecheck, **416 tests** in the root suite and the fixture check - the
+`npm run check` runs lint, typecheck, **419 tests** in the root suite and the fixture check - the
 gates CI runs. The interface has **161 tests** across 19 files, plus one mount test of the real
 tree, which exists because the app once served a blank page while every unit test passed.
 `npm run smoke` runs each credential-free agent against the live harness and asserts the harness

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { checkRegistry, readSkill, skillDirs, UNIVERSAL } from './skills.mjs';
+import { checkRegistry, readSkill, skillDirs, skillPathAtRef, UNIVERSAL } from './skills.mjs';
 import { specFiles } from './spec.mjs';
 
 const specs = () => specFiles().map(({ path }) => JSON.parse(readFileSync(path, 'utf8')));
@@ -152,4 +152,29 @@ test('the report skill offers a format for each kind of reader', () => {
   for (const shape of ['rows.csv', 'result.json', 'sandbox_artifacts', 'erdiagram', 'cursor.description']) {
     assert.ok(body.includes(shape), `data-report no longer covers ${shape}`);
   }
+});
+
+test('a skill registered at a ref that does not hold it is not "registered and fine"', () => {
+  /**
+   * preflight said `Skill: handing-off registered` while every agent attaching it failed at sandbox
+   * init: "the required Git skill path /opt/tf/skills/handing-off was not found". Both were true.
+   * Registration is a row in the harness; what the sandbox needs is a path in a tree, and only the
+   * second is worth reporting.
+   */
+  const manifest = { type: 'git', ref: 'integration-check', path: 'skills/handing-off' };
+  assert.deepEqual(skillPathAtRef(manifest, () => 'skills/handing-off\n'), {
+    known: true, present: true, ref: 'origin/integration-check',
+  });
+  assert.equal(skillPathAtRef(manifest, () => '').present, false);
+});
+
+test('a ref that cannot be resolved is unknown, not present', () => {
+  /** The check that could not run is not the check that passed. */
+  const result = skillPathAtRef({ type: 'git', ref: 'gone', path: 'skills/x' }, () => null);
+  assert.equal(result.known, false);
+  assert.match(result.why, /neither origin\/gone nor gone could be resolved/);
+});
+
+test('a non-git skill is not judged by this check at all', () => {
+  assert.equal(skillPathAtRef({ type: 'inline', path: 'x' }, () => null).known, false);
 });

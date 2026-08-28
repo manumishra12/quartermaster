@@ -126,3 +126,33 @@ export function checkRegistry(specs, root = SKILLS_DIR) {
 
   return problems;
 }
+
+/**
+ * Whether a registered skill's path actually exists at the ref it names.
+ *
+ * preflight reported `Skill: handing-off registered` while every agent attaching it failed at
+ * sandbox init with "the required Git skill path /opt/tf/skills/handing-off was not found". Both
+ * statements were true. The skill was registered with the harness; the commit holding it had not
+ * reached the branch the registration points at, because it had been committed to a different one.
+ *
+ * That is the shape of failure this project keeps finding: a check that passes while the thing it
+ * is checking for is broken, because it verifies the nearest fact rather than the one that matters.
+ * Registration is a row in the harness. What the sandbox needs is a path in a tree, and only the
+ * second one is worth reporting.
+ *
+ * Answered from the local clone rather than over the network, so it works with no token and no
+ * connectivity. A ref that cannot be resolved is reported as unknown rather than as present - the
+ * check that could not run is not the check that passed.
+ */
+export function skillPathAtRef(manifest, run) {
+  if (manifest?.type !== 'git' || !manifest?.path || !manifest?.ref) return { known: false, why: 'not a git skill' };
+
+  for (const ref of [`origin/${manifest.ref}`, manifest.ref]) {
+    const found = run(['ls-tree', '--name-only', ref, manifest.path]);
+    if (found === null) continue;
+    if (found.trim() === manifest.path) return { known: true, present: true, ref };
+    return { known: true, present: false, ref };
+  }
+
+  return { known: false, why: `neither origin/${manifest.ref} nor ${manifest.ref} could be resolved here` };
+}

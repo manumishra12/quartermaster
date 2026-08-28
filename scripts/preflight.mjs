@@ -16,6 +16,8 @@ import { loadEnv } from './lib/env.mjs';
 import { routingConflicts, specFiles } from './lib/spec.mjs';
 import { loadAgents } from './lib/route.mjs';
 import { fromModule } from './lib/paths.mjs';
+import { skillPathAtRef } from './lib/skills.mjs';
+import { spawnSync } from 'node:child_process';
 
 loadEnv();
 
@@ -105,13 +107,43 @@ try {
     ),
   ].sort();
 
+  /**
+   * Resolving a ref locally, for the check below. Returns null rather than throwing so an
+   * unresolvable ref is reported as unknown instead of taking preflight down with it.
+   */
+  const gitLsTree = (args) => {
+    const out = spawnSync('git', args, { cwd: fromModule(import.meta.url, '../'), encoding: 'utf8' });
+    return out.status === 0 ? out.stdout : null;
+  };
+
   for (const required of attached) {
-    record(
-      names.includes(required),
-      `Skill: ${required}`,
-      names.includes(required) ? 'registered' : `not registered (found: ${names.join(', ') || 'none'})`,
-      `open ${BASE} -> Settings -> Skills -> Import from GitHub, pointing at skills/${required}`,
-    );
+    const registered = names.includes(required);
+    if (!registered) {
+      record(false, `Skill: ${required}`, `not registered (found: ${names.join(', ') || 'none'})`,
+        `open ${BASE} -> Settings -> Skills -> Import from GitHub, pointing at skills/${required}`);
+      continue;
+    }
+
+    /**
+     * Registered is not the same as fetchable, and reporting the first as though it were the second
+     * is how this said `Skill: handing-off registered` while every agent attaching it failed at
+     * sandbox init on "the required Git skill path /opt/tf/skills/handing-off was not found". Both
+     * statements were true. The commit holding the skill had gone to a different branch than the one
+     * the registration points at. Registration is a row in the harness; what the sandbox needs is a
+     * path in a tree.
+     */
+    const manifest = skills.find((sk) => (sk.name ?? sk.manifest?.name) === required)?.manifest;
+    const at = skillPathAtRef(manifest, gitLsTree);
+
+    if (at.known && !at.present) {
+      record(false, `Skill: ${required}`,
+        `registered at ${manifest.ref}, but ${manifest.path} is not in that ref - every agent attaching it will fail at sandbox init`,
+        `push the commit holding ${manifest.path} to ${manifest.ref}, or repoint the registration at a ref that has it`);
+    } else if (at.known) {
+      record(true, `Skill: ${required}`, `registered, and ${manifest.path} is in ${at.ref}`);
+    } else {
+      record(true, `Skill: ${required}`, `registered (${at.why}, so the path was not verified)`);
+    }
   }
 
   /**
