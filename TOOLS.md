@@ -23,7 +23,7 @@ Everything Quartermaster is allowed to touch, and what is gated. Kept in sync wi
 | **Exa** (shipped catalog) | none | `research-desk` | `@read-only` | `["@write", "@destructive"]` - nothing it exposes is a write |
 | **deepwiki** (shipped catalog) | none | both quartermasters | 3 tools by name | `["@write", "@destructive"]` |
 | **ops-desk** (ours, `mcp/ops-desk`) | none | `incident-responder` | `@read-only` + `rollback_deploy`, `restart_service`, `resolve_alert` | all three by name, plus `["@write", "@destructive"]` |
-| **front-desk** (ours, `mcp/front-desk`) | none | `desk-assistant` | `@read-only` + `create_issue`, `update_issue`, `close_issue`, `send_message` | all four by name, plus `["@write", "@destructive"]` |
+| **front-desk** (ours, `mcp/front-desk`) | none | `desk-assistant` | `@read-only` + `create_issue`, `update_issue`, `close_issue`, `send_message`, `send_email` | all five by name, plus `["@write", "@destructive"]` |
 
 ### Why there is no Gmail or Slack
 
