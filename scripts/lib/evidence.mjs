@@ -774,7 +774,7 @@ function expandedSubstitutions(text) {
 }
 
 /**
- * Whether a recorded command is a test invocation.
+ * The segments of a command that invoke a test runner.
  *
  * The limit worth stating plainly: this reads a command, it does not execute one, and a shell
  * decides at runtime what a reader cannot decide at all. `$GUARD && pytest` may or may not run
@@ -785,10 +785,13 @@ function expandedSubstitutions(text) {
  * What makes that limit tolerable is that this is one of two signals, not the whole of the
  * evidence: `testRuns()` requires the command to look like a test *and* the output to look like
  * one, so neither a fabricated command nor fabricated output is sufficient alone.
+ *
+ * The segments themselves are returned, not just the fact that one exists, because the second
+ * signal has to be attributed to the same command: see `discardsRunnerOutput`.
  */
-export function looksLikeTestCommand(command = '') {
+function runnerSegments(command = '') {
   const text = String(command);
-  if (!text.trim()) return false;
+  if (!text.trim()) return [];
 
   /**
    * Everything the shell would execute, unwrapped until nothing new appears.
@@ -859,7 +862,7 @@ export function looksLikeTestCommand(command = '') {
     segments.push(...collapsed.split(/&&|\|\||;|\||\n/));
   }
 
-  return segments.some((raw) => {
+  return segments.filter((raw) => {
     let bare = raw
       .trim()
       .replace(/^[({\s]+/, '')
@@ -898,6 +901,46 @@ export function looksLikeTestCommand(command = '') {
     if (RUNNERS.some((r) => r.test(segment))) return true;
     return wrapped && WRAPPED_SCRIPT.test(segment);
   });
+}
+
+/** Whether a recorded command is a test invocation. */
+export function looksLikeTestCommand(command = '') {
+  return runnerSegments(command).length > 0;
+}
+
+/**
+ * Stdout going to /dev/null, in the forms a shell accepts: `>`, `1>`, `&>`, `>&`, `>>`.
+ *
+ * `2>/dev/null` is deliberately not matched. Silencing warnings while leaving stdout alone is
+ * ordinary, and a runner whose stdout still reaches the recording can still be read.
+ */
+const DISCARDS_STDOUT = /(?:^|\s)(?:&|1)?>>?\s*(?:&\s*)?\/dev\/null(?:\s|$)/;
+
+/**
+ * Whether every runner in this command sent its output somewhere nothing can read it.
+ *
+ * `pytest -q >/dev/null || echo '1 passed'` was SUBSTANTIATED. Both signals were present - the
+ * command invokes a real runner, the output says a test passed - and neither came from a test.
+ * The runner's report went to /dev/null, `||` replaced its exit status with echo's, and the
+ * passing line was typed by the agent. One command supplying both halves of its own proof is the
+ * thing the two-signal design exists to prevent, and this was the shape that did it without any
+ * shell trickery at all.
+ *
+ * So the output half is only credited to a run that could have printed it. A discard is required
+ * rather than any redirection, because `pytest > out.log; cat out.log` is honest - the runner
+ * wrote that text and the command is showing it back. /dev/null is the case where the recorded
+ * text definitionally came from something else.
+ *
+ * Every runner has to discard, not any: `pytest -q >/dev/null; npm test` still has a run whose
+ * output reached the recording.
+ *
+ * The limit, named rather than papered over: a runner whose output goes into a pipe is not caught
+ * here, because `npm test | tail -20` is how people read a long suite, and refusing it would cost
+ * honest work. What a pipe's consumer chooses to print is beyond what reading a command can settle.
+ */
+export function discardsRunnerOutput(command = '') {
+  const runners = runnerSegments(command);
+  return runners.length > 0 && runners.every((segment) => DISCARDS_STDOUT.test(segment));
 }
 
 /** Pull the executed command output out of a tool.response event. */
@@ -1224,8 +1267,12 @@ export function testRuns(toolResponses) {
        * The output test is kept for a runner that exited 0, because that is where fabrication
        * lives: `npm test` is agent-writable, and a package script printing "hello world" and
        * exiting 0 is not a passing suite however it is named.
+       *
+       * And the output has to be output the runner could have produced. `pytest -q >/dev/null ||
+       * echo '1 passed'` cleared both halves of this line while the run behind it was red: the
+       * report went to /dev/null and `||` handed the exit status to the echo.
        */
-      return r.exitCode !== 0 || RAN_TESTS.test(r.output);
+      return r.exitCode !== 0 || (RAN_TESTS.test(r.output) && !discardsRunnerOutput(r.command));
     }
     /**
      * With no command, only text something actually printed can stand in for one. A structured
