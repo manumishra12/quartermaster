@@ -16,6 +16,7 @@ export default defineConfig({
       // rules, not a stand-in, or they would only prove the interface agrees with a copy of itself.
       '@evidence': fileURLToPath(new URL('../scripts/lib/evidence.mjs', import.meta.url)),
       '@render-call': fileURLToPath(new URL('../scripts/lib/render-call.mjs', import.meta.url)),
+      '@report': fileURLToPath(new URL('../scripts/lib/report.mjs', import.meta.url)),
     },
   },
   test: {

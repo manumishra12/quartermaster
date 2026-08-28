@@ -18,6 +18,9 @@ export default defineConfig({
       // Shared with the CLI on purpose: two renderings of the same fact drift, and this one is a
       // statement about whether something happened.
       '@render-call': fileURLToPath(new URL('../scripts/lib/render-call.mjs', import.meta.url)),
+      // The report the CLI writes to evidence/<session>/report.md, built by the same function.
+      // The panel is not a second rendering of the verdict - it is that file, in the browser.
+      '@report': fileURLToPath(new URL('../scripts/lib/report.mjs', import.meta.url)),
     },
   },
   server: {

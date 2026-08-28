@@ -1,7 +1,8 @@
 import { Children, isValidElement, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNow } from './useNow';
 import { useAuiState } from '@truefoundry/trueforge-ui/assistant-ui';
-import { ChatIcon, PencilIcon } from './icons';
+import { ThreadListPrimitive } from '@assistant-ui/react';
+import { ChatIcon, PencilIcon, PlusIcon } from './icons';
 import { useCloseSheet } from './SheetContext';
 import { useThreadTitle } from './useThreadTitle';
 
@@ -202,7 +203,20 @@ export function ThreadRow({
         * permanently invisible while still occupying space and accepting taps - a feature nobody
         * could find on the devices least able to guess it was there.
         */}
-      <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
+      {/**
+        * The active row keeps its controls on screen.
+        *
+        * Hiding them until hover was right for the other rows - a pencil on every line competes
+        * with the titles it exists to serve - and wrong for the one you are in, which is the only
+        * conversation you are likely to rename and the one whose controls you go looking for.
+        * Faded rather than absent on the rest, so the affordance is still discoverable.
+        */}
+      <span
+        className={[
+          'flex shrink-0 items-center gap-1 transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100',
+          active ? 'opacity-100' : 'opacity-0',
+        ].join(' ')}
+      >
         {canRename && (
           <button
             type="button"
@@ -251,7 +265,27 @@ export function ThreadList({ header, children }: { header: ReactNode; children: 
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-baseline justify-between gap-2 px-5 pb-2 pt-4">
+      {/**
+        * Starting a new conversation was possible and not visible: the SDK exposes it, and nothing
+        * in this layout offered it - so the only route was to finish or abandon the one you were
+        * in. It is the primary action of the column, so it looks like one, and it sits above the
+        * list rather than under it because the list can be long.
+        */}
+      <div className="px-2 pb-1 pt-3">
+        <ThreadListPrimitive.New asChild>
+          <button
+            type="button"
+            className="qm-tap flex min-h-9 w-full cursor-pointer items-center gap-2 rounded-lg border border-line px-2.5 text-sm text-ink transition-colors duration-200 hover:border-accent hover:bg-accent-wash"
+          >
+            <span aria-hidden className="text-accent">
+              <PlusIcon />
+            </span>
+            New conversation
+          </button>
+        </ThreadListPrimitive.New>
+      </div>
+
+      <div className="flex items-baseline justify-between gap-2 px-5 pb-2 pt-3">
         <h2 className="text-2xs font-[550] uppercase tracking-[0.07em] text-muted">Conversations</h2>
         {count > 0 && <span className="qm-nums text-2xs text-muted">{count}</span>}
       </div>

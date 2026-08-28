@@ -126,6 +126,21 @@ export const BrainIcon = ({ className }: { className?: string }) => (
 );
 
 /** Rename. A pencil, because the row it sits on is a name and this edits it. */
+/** Taking a copy. Two sheets, because one sheet is a document and two is the act. */
+export const CopyIcon = ({ className }: { className?: string }) => (
+  <svg {...base} className={className}>
+    <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
+    <path d="M10.5 3.5h-6a1 1 0 0 0-1 1v6" />
+  </svg>
+);
+
+/** Starting something. Deliberately a plain cross rather than a document: what begins is a turn. */
+export const PlusIcon = ({ className }: { className?: string }) => (
+  <svg {...base} className={className}>
+    <path d="M8 3.5v9M3.5 8h9" />
+  </svg>
+);
+
 export const PencilIcon = ({ className }: { className?: string }) => (
   <svg {...base} className={className}>
     <path d="M11.4 2.9a1.4 1.4 0 0 1 2 2L6.2 12.1l-2.7.6.6-2.7Z" />

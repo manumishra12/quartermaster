@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDialog } from './useDialog';
+import { EvidenceReport } from './EvidenceReport';
+import { useThemeControl } from './ThemeContext';
 import { useComposerBusyState } from '@truefoundry/trueforge-ui';
 // @ts-expect-error - shared JS module, aliased in vite.config.ts
 import { PHASES, isGreen, progress, testRuns, unexecutedToolCalls } from '@evidence';
@@ -167,6 +169,10 @@ export function StatusRail() {
    * nothing is listening for an answer, because the call was never made. The rail says so in
    * words, using the same renderer the CLI and the evidence report use.
    */
+  const [reportOpen, setReportOpen] = useState(false);
+  // Only for the report's own header line; the context is already above this component.
+  const { agentName } = useThemeControl();
+
   const printed = useMemo(
     () => renderUnexecutedCalls(unexecutedToolCalls(finalText)) as string[],
     [finalText],
@@ -219,7 +225,24 @@ export function StatusRail() {
         )}
       </Section>
 
-      <Section label="Did" badge={executions.length > 0 ? `${runs.length}/${executions.length} test runs` : undefined}>
+      <Section
+        label="Did"
+        badge={executions.length > 0 ? `${runs.length}/${executions.length} test runs` : undefined}
+      >
+        {executions.length > 0 && (
+          /**
+           * The whole report, not another summary of it. The CLI writes this file at the end of a
+           * run and the interface showed a chip; the panel calls the same builder, so the two
+           * cannot say different things about the same turn.
+           */
+          <button
+            type="button"
+            onClick={() => setReportOpen(true)}
+            className="qm-tap mb-3 inline-flex min-h-8 w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-line text-2xs text-muted transition-colors duration-200 hover:border-accent hover:bg-raised hover:text-ink"
+          >
+            Read the evidence report
+          </button>
+        )}
         {executions.length > 0 && (
           <p className="qm-nums mb-3 text-sm text-muted">
             {executions.length} execution{executions.length === 1 ? '' : 's'} recorded
@@ -267,6 +290,7 @@ export function StatusRail() {
           </Empty>
         )}
       </Section>
+      {reportOpen && <EvidenceReport agent={agentName} onClose={() => setReportOpen(false)} />}
     </aside>
   );
 }

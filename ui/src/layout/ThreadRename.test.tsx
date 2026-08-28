@@ -180,4 +180,17 @@ describe('renaming a conversation', () => {
     expect(screen.getByText('Fix the ledger test')).toBeInTheDocument();
     expect(screen.queryByText(/object Object/)).not.toBeInTheDocument();
   });
+
+  test('the conversation you are in keeps its rename control on screen', () => {
+    /**
+     * Hidden-until-hover is right for the other rows - a pencil on every line competes with the
+     * titles it serves - and wrong for the active one, which is the conversation somebody is most
+     * likely to rename and the one whose controls they go looking for.
+     */
+    const { rerender } = render(<ThreadRow {...base} active={false} />);
+    expect(screen.getByRole('button', { name: /^Rename/ }).parentElement?.className).toMatch(/opacity-0/);
+
+    rerender(<ThreadRow {...base} active />);
+    expect(screen.getByRole('button', { name: /^Rename/ }).parentElement?.className).toMatch(/opacity-100/);
+  });
 });

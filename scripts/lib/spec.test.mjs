@@ -280,3 +280,27 @@ test('the documented test counts are the counts', () => {
   const missing = files.filter((f) => !named.has(f));
   assert.deepEqual(missing, [], `these suites exist and TESTING.md does not mention them: ${missing.join(', ')}`);
 });
+
+test('the UI build and its test runner resolve the same shared modules', () => {
+  /**
+   * Two alias maps, in vite.config.ts and vitest.config.ts, and nothing held them together. They
+   * drifted the moment a third shared module was added: the build resolved `@report` and the test
+   * runner did not, so the suite failed on an import that works in the browser.
+   *
+   * The failure mode that matters is the other direction. An alias present in the test config and
+   * absent from the build passes every test and ships a page that cannot load - and the shared
+   * modules are the evidence rules, which is the worst thing here to have two of.
+   */
+  const read = (file) => {
+    const source = readFileSync(fileURLToPath(new URL(`../../ui/${file}`, import.meta.url)), 'utf8');
+    return [...source.matchAll(/'(@[\w-]+)':\s*fileURLToPath\(new URL\('([^']+)'/g)]
+      .map(([, alias, target]) => `${alias} -> ${target}`)
+      .sort();
+  };
+
+  assert.deepEqual(
+    read('vite.config.ts'),
+    read('vitest.config.ts'),
+    'vite.config.ts and vitest.config.ts must alias the same shared modules to the same files',
+  );
+});
