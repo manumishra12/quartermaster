@@ -24,16 +24,26 @@ import { describeCall } from './lib/describe-call.mjs';
 import { endedBecause } from './lib/turn-state.mjs';
 import { unexecutedToolCalls } from './lib/evidence.mjs';
 import { renderUnexecutedCalls } from './lib/render-call.mjs';
+import { positionals, readFlag } from './lib/flags.mjs';
 
 const argv = process.argv.slice(2);
+/** The flags that take a value, named once so the prompt and the readers agree on them. */
+const VALUE_FLAGS = ['agent', 'answer'];
 const flag = (name, fallback) => {
-  const i = argv.indexOf(`--${name}`);
-  return i === -1 ? fallback : argv[i + 1];
+  const { value, problem } = readFlag(argv, name, fallback);
+  // A flag given without a value is the operator asking for something and not saying what. There
+  // is no safe guess: `--agent --deny-all` used to set the agent name to "--deny-all" and quietly
+  // drop the flag that refuses everything.
+  if (problem) {
+    console.error(problem);
+    process.exit(2);
+  }
+  return value;
 };
 const denyAll = argv.includes('--deny-all');
 const resuming = argv.includes('--resume');
 const agentName = flag('agent', 'quartermaster-local');
-const prompt = argv.filter((a, i) => !a.startsWith('--') && argv[i - 1] !== '--agent' && argv[i - 1] !== '--answer').join(' ');
+const prompt = positionals(argv, VALUE_FLAGS).join(' ');
 
 if (!prompt && !resuming) {
   console.error('usage: node scripts/run.mjs [--agent <name>] [--deny-all] "<prompt>"\n       node scripts/run.mjs --resume');

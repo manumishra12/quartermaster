@@ -11,6 +11,7 @@
 import { TrueForge, isEventDelta } from '@truefoundry/trueforge-sdk';
 import { resultOf, unexecutedToolCalls } from './lib/evidence.mjs';
 import { loadEnv } from './lib/env.mjs';
+import { readFlag } from './lib/flags.mjs';
 
 loadEnv();
 
@@ -18,11 +19,9 @@ const BASE = process.env.TRUEFORGE_BASE_URL ?? 'http://localhost:8790';
 const argv = process.argv.slice(2);
 /** A flag given as the final argument has no value; that must be an error, not a silent NaN. */
 function flagValue(name) {
-  const i = argv.indexOf(`--${name}`);
-  if (i === -1) return null;
-  const value = argv[i + 1];
-  if (value === undefined || value.startsWith('--')) {
-    console.error(`--${name} needs a value`);
+  const { value, problem } = readFlag(argv, name);
+  if (problem) {
+    console.error(problem);
     process.exit(2);
   }
   return value;
