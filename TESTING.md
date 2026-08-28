@@ -1,6 +1,6 @@
 # Testing
 
-437 tests in the root suite, 174 in the UI across 21 files, one mount test, and a fixture check. What follows is
+448 tests in the root suite, 174 in the UI across 21 files, one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
 
@@ -47,6 +47,7 @@ flowchart TD
     SK["skills.test.mjs<br/>14 - the skill registry"]
     AR["artifacts.test.mjs<br/>3 - files fetched out of the sandbox"]
     LG["ledger.test.mjs<br/>5 - every gate decision, in one file"]
+    OT["otel.test.mjs<br/>11 - spans that carry no payload"]
     AU["authority.test.mjs<br/>8 - what an agent may reach"]
     HO["handoff.test.mjs<br/>17 - delegation that cannot widen"]
     RT["route.test.mjs<br/>11 - which agent, and why"]
@@ -84,6 +85,7 @@ flowchart TD
 | `report.test.mjs` | The written report: counts, refusals, fenced output, why a turn failed, and that a model-controlled command cannot forge a section of it. |
 | `approval.test.mjs` | The gate's two invariants, in the one place both can be checked: a pipe may deny but never approve, and every outcome that is not an exact allowing word is recorded as a refusal. |
 | `checkpoint.test.mjs` | The file `--resume` trusts. Read as if somebody else wrote it, written whole or not at all, and never allowed to choose where the report is filed. |
+| `otel.test.mjs` | Tracing, tested mostly by what it refuses to carry. The redaction case asserts against the serialised line rather than the attributes it remembered to name, so an attribute added tomorrow that leaks a prompt, a command or a customer's address fails without anybody editing the test. The rest: the default is off and an ambient `OTEL_EXPORTER_OTLP_ENDPOINT` does not change that, an exporter that throws does not reach the run, and a refused call is recorded as refused and **not** as an error - a dashboard where refusing a rollback lights up red teaches people to stop refusing rollbacks. |
 | `turn-state.test.mjs` | Why a turn ended, and what the process then tells CI - a run that crashed, stalled or died on the plumbing must not exit 0. |
 | `flags.test.mjs`, `paths.test.mjs`, `settle.test.mjs`, `http.test.mjs` | Four one-line mistakes that each cost a real behaviour: a flag consumed as another flag's value, a percent-encoded path, a promise raced and abandoned, and an error page parsed as data. |
 | `mcp/front-desk/server.test.mjs` | The workspace server: every write tool refuses what it cannot honestly do and records nothing when it refuses, and the planted prompt injection is still in the fixture - if it is ever removed, the demonstration that the gate holds against a persuaded model silently stops demonstrating anything. |

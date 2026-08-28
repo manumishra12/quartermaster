@@ -462,7 +462,7 @@ from recorded tool responses, never from the agent's narration.
 ## Development
 
 ```bash
-npm run check             # lint, typecheck, 437 tests, and the fixture check - what CI runs
+npm run check             # lint, typecheck, 448 tests, and the fixture check - what CI runs
 npm test                  # the root suite alone
 npm run fixtures:check    # the fixtures must still fail
 npm run tools:audit       # every reachable tool is gated as claimed
@@ -482,6 +482,36 @@ red suite reads as green. That mistake shipped from here once.
 
 `zustand@^5` is pinned as a direct dependency in `ui/` on purpose. Without it `@openuidev/*` hoists
 zustand 4.5.7 to the root, `@assistant-ui/core` cannot find `useShallow`, and the build fails.
+
+### Tracing, if you want it
+
+```bash
+QUARTERMASTER_OTEL=1 npm run agent -- "fix the failing test in ledger"
+```
+
+Off unless you set that. The default is that nothing leaves the machine, and no other variable
+turns it on - an ambient `OTEL_EXPORTER_OTLP_ENDPOINT` is a neighbouring service's configuration,
+not consent, and nothing here posts to a network at all. `OTEL_SDK_DISABLED=true` wins over it,
+because an operator reaching for the standard kill switch means it.
+
+Each run appends one line to `evidence/traces.jsonl`: an OTLP/JSON `ExportTraceServiceRequest` that
+the OpenTelemetry Collector's `otlpjsonfilereceiver` reads as-is. There is no `@opentelemetry/*`
+dependency and no exporter process. Set `QUARTERMASTER_OTEL_FILE` to put it elsewhere, and
+`OTEL_SERVICE_NAME` to rename the service.
+
+The shape is one `invoke_agent` root span per run, carrying the agent, the session as
+`gen_ai.conversation.id`, the model, the verdict, why the run ended and what it cost in tokens and
+dollars; one `execute_tool` child per tool call, carrying the tool name, whether the gate stopped
+it, whether it was allowed or refused, how long a person took to decide, and the exit code; and a
+`quartermaster.approval.decision` event on each gated call. A handoff passes `traceparent` to the
+delegated run, so the two are one trace.
+
+**No payload reaches a span.** Prompts, tool arguments, commands and answers travel as the same
+digest [`ledger.mjs`](scripts/lib/ledger.mjs) writes, so a span and a ledger entry can be joined
+without either holding the text; tool output is not even digested, only measured. A refused call is
+recorded as refused and **not** as an error, because an alert that fires when somebody refuses a
+rollback is an alert that teaches them to stop refusing rollbacks. `scripts/lib/otel.mjs` says why
+this exists at all, which is not because the hackathon asked for it.
 
 ## Qodo Code Review Evidence
 
