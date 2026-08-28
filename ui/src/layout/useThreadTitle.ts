@@ -3,10 +3,20 @@ import { useCallback, useEffect, useSyncExternalStore } from 'react';
 /**
  * Conversation titles you have renamed yourself.
  *
- * TrueForge derives a session's title from its first message and offers no way to change it: the
- * session update API takes an agent and nothing else. So this is a label kept in the browser, not
- * a write to the harness - it belongs to this machine, and clearing site data clears it. That is
- * worth saying plainly rather than letting a rename look like it went somewhere it did not.
+ * TrueForge derives a session's title from its first message and offers no way to change it. So
+ * this is a label kept in the browser, not a write to the harness - it belongs to this machine, and
+ * clearing site data clears it. That is worth saying plainly rather than letting a rename look like
+ * it went somewhere it did not.
+ *
+ * Checked against a running harness rather than inferred from the SDK, because `Session` does carry
+ * a `title` field documented as "null until set", which reads like an invitation:
+ *
+ *     PATCH /api/v1/sessions/{id}  {"title":"..."}
+ *     400  {"error":{"message":"Unrecognized key: \"title\""}}
+ *
+ * The field is readable and set by the harness from the first message; nothing offers to change it.
+ * `UpdateSessionRequest` takes an agent and nothing else, and the route agrees. If a later version
+ * accepts one, this whole module becomes a write and the note below about it being local can go.
  *
  * Keyed on the session id rather than the title, because two conversations that opened with the
  * same sentence are still two conversations.
