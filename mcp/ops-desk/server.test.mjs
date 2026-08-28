@@ -487,3 +487,30 @@ test('reading the logs changes nothing, which is what read-only has to mean', ()
     const second = await callTool('search_logs', { service: 'checkout-api' });
     assert.deepEqual(first.lines, second.lines);
   }));
+
+test('a restart does not clear the way to resolving', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * Found by security review. restart_service empties the health series - honestly, the readings
+     * really do not survive a restart - and the still-unhealthy guard skipped entirely when there
+     * was nothing to read. So restarting first walked straight through it.
+     *
+     * That is not an exotic order. It is what an agent does when its first remediation is a
+     * restart: two gated calls, both approved, and the second one closing an incident on the
+     * evidence of a series the first one deleted.
+     */
+    assert.equal(
+      (await callTool('resolve_alert', { alert_id: 'ALRT-4471', resolution: 'probe' })).error,
+      'still_unhealthy',
+    );
+
+    assert.equal((await callTool('restart_service', { service: 'checkout-api', reason: 'probe' })).ok, true);
+
+    const after = await callTool('resolve_alert', { alert_id: 'ALRT-4471', resolution: 'probe' });
+    assert.equal(after.error, 'no_readings', 'a desk that cannot see the service cannot say it recovered');
+    assert.match(after.message, /a restart clears them/);
+
+    // And the alert is still firing, because nothing resolved it.
+    const { alerts } = await callTool('list_alerts', { status: 'firing' });
+    assert.ok(alerts.some((a) => a.id === 'ALRT-4471'));
+  }));

@@ -1,6 +1,6 @@
 # Testing
 
-351 tests in the root suite, 167 in the UI across 21 files, one mount test, and a fixture check. What follows is
+353 tests in the root suite, 167 in the UI across 21 files, one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
 
@@ -32,7 +32,7 @@ flowchart TD
   subgraph root["root suite - node --test"]
     EV["evidence.test.mjs<br/>122 - the verifier"]
     DC["describe-call.test.mjs<br/>13 - the approval display"]
-    SP["spec.test.mjs<br/>24 - agent spec rules"]
+    SP["spec.test.mjs<br/>25 - agent spec rules"]
     AN["annotations.test.mjs<br/>17 - tool selectors"]
     RP["report.test.mjs<br/>11 - the written evidence"]
     RC["render-call.test.mjs<br/>8 - a call printed, not made"]
@@ -50,7 +50,7 @@ flowchart TD
     MA["model-advice.test.mjs<br/>6 - what a provider failure means"]
     PO["policies.test.mjs<br/>4 - one reading of each agent policy"]
     SV["lib/serve.test.mjs<br/>5 - the shared HTTP shell"]
-    OD["ops-desk/server.test.mjs<br/>20 - incident fixture server"]
+    OD["ops-desk/server.test.mjs<br/>21 - incident fixture server"]
     FD["front-desk/server.test.mjs<br/>19 - workspace fixture server"]
   end
 

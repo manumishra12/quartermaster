@@ -94,6 +94,7 @@ service that was quiet. An investigation acts on that the same way it acts on a 
 | Restart a service the desk does not know | `not_found`, naming the ones it does |
 | Send more text than anyone will read | refused by the schema, before the handler is reached |
 | Resolve an alert whose service is still failing | `still_unhealthy`, quoting the error rate it is still at |
+| Resolve after a restart, before the series refills | `no_readings` — a restart clears them, and a desk that cannot see the service cannot say it recovered |
 | Resolve an alert already resolved, or with no reason | `already_resolved` / `missing_reason` |
 
 The second row is worth its own note, because the fixture used to make it unreachable and the test

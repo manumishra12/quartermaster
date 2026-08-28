@@ -320,7 +320,11 @@ function buildServer() {
        * investigation reads as "the service was quiet then". Naming the mistake costs a call;
        * hiding it inside an empty list costs the root cause.
        */
-      if (bounds.since !== undefined && bounds.until !== undefined && bounds.since > bounds.until) {
+      if (
+        bounds.since !== undefined &&
+        bounds.until !== undefined &&
+        bounds.since > bounds.until
+      ) {
         return text({
           error: "bad_window",
           message: `since (${since}) is after until (${until}). No line can be in that window, and an empty result would read as a quiet service.`,
@@ -573,7 +577,30 @@ function buildServer() {
         ? state.health[alert.service]
         : [];
       const latest = series[series.length - 1];
-      if (latest && latest.error_rate > 0.01) {
+
+      /**
+       * No readings is not a recovered service.
+       *
+       * `restart_service` empties the health series - which is honest, the readings really do not
+       * survive a restart - and this check used to skip entirely when there was nothing to read.
+       * So restarting first walked straight through it, and that is not an exotic order: it is
+       * exactly what an agent does when its first remediation is a restart. Two gated calls, both
+       * approved, and the second one reporting an incident closed on the evidence of a series that
+       * had been deleted by the first.
+       *
+       * A desk that cannot see the service cannot say it recovered.
+       */
+      if (!latest) {
+        return text({
+          error: "no_readings",
+          message:
+            `There are no health readings for ${alert.service} - a restart clears them - so this desk cannot ` +
+            "see whether it recovered. Wait for the series to refill and read it before resolving.",
+          service: alert.service,
+        });
+      }
+
+      if (latest.error_rate > 0.01) {
         return text({
           error: "still_unhealthy",
           message:

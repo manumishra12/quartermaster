@@ -326,3 +326,30 @@ test('a skill that teaches a disabled surface is caught', () => {
   // And an agent that does not carry the skill is not asked for the surface.
   assert.doesNotMatch(validateSpec(sound()).join(), /generative_ui/);
 });
+
+test('the dev server does not hand the harness to the network', () => {
+  /**
+   * `host: true` binds every interface, and the dev server proxies /api straight to the harness
+   * with no authentication anywhere on the path. Verified from this machine's LAN address before
+   * the fix: the whole interface at 200, every agent spec at 200.
+   *
+   * The reading was not the problem. The interface renders the approval prompt, and Allow POSTs
+   * back through the same proxy - so anybody on the same wifi was a person at a terminal as far as
+   * the gate could tell. The MCP servers were hardened against exactly this while the surface that
+   * reaches them through the harness stayed open.
+   *
+   * Checked in the config rather than over a socket, because a test that needs a running dev
+   * server to prove a security property is a test that gets skipped.
+   */
+  const source = readFileSync(fileURLToPath(new URL('../../ui/vite.config.ts', import.meta.url)), 'utf8');
+  /**
+   * Comments stripped first. The comment beside the setting explains why `host: true` was wrong,
+   * and a check that reads prose as configuration fails on the explanation for the fix - which is
+   * the same mistake the evidence verifier makes when it reads a quoted command as a command.
+   */
+  const config = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+
+  assert.doesNotMatch(config, /host:\s*true/, 'host: true binds every interface, and /api proxies to the harness');
+  assert.doesNotMatch(config, /host:\s*['"]0\.0\.0\.0['"]/, 'same thing, spelled out');
+  assert.match(config, /host:\s*['"]127\.0\.0\.1['"]/, 'the dev server must name loopback explicitly');
+});
