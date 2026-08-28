@@ -31,6 +31,7 @@ flowchart LR
     OPS["ops-desk :8795"]
     FD["front-desk :8796"]
     WH["warehouse :8797<br/>read-only connection"]
+    OBS["observability :8798<br/>read-only"]
   end
 
   EV["evidence verifier<br/>scripts/lib/evidence.mjs"]
@@ -52,6 +53,7 @@ flowchart LR
   GATE -->|"a person pressed allow"| FD
   LOOP -->|"read-only, ungated"| WEB
   LOOP -->|"read-only by the connection, not by a gate"| WH
+  LOOP -->|"read-only, ungated"| OBS
   GATE -.->|"allowed and denied alike"| LED
   LOOP -.->|"recorded event stream"| EV
   EV --> REP

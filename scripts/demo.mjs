@@ -21,6 +21,7 @@ loadEnv();
 const BASE = process.env.TRUEFORGE_BASE_URL ?? 'http://localhost:8790';
 const OPS = Number(process.env.OPS_DESK_PORT ?? 8795);
 const FRONT = Number(process.env.FRONT_DESK_PORT ?? 8796);
+const METRICS = Number(process.env.OBSERVABILITY_PORT ?? 8798);
 
 const bold = (s) => `[1m${s}[0m`;
 const dim = (s) => `[2m${s}[0m`;
@@ -71,6 +72,21 @@ async function preconditions() {
       `front-desk has ${front.filed} issues, expected the fixture's 3`,
       `restart it so SRCH-42 is open again: npm run front-desk`,
     ]);
+  }
+
+  /**
+   * Checked here even though nothing on it is gated and no beat calls it directly.
+   *
+   * `incident-responder` declares it, so an unregistered or unstarted metrics store makes
+   * `agents:apply` skip that agent entirely - and the only symptom is the agent count above coming
+   * back as eight, which sends whoever is reading to re-run `agents:apply` on a machine where
+   * `agents:apply` is not the problem. Naming the missing server is one line and saves a take.
+   *
+   * There is no state to check, because nothing on this server writes. That is the whole
+   * difference between this precondition and the two above it.
+   */
+  if (!(await reachable(`http://localhost:${METRICS}/health`))) {
+    problems.push(['observability is not running', 'npm run observability']);
   }
 
   return problems;

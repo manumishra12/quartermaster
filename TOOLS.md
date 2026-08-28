@@ -25,22 +25,26 @@ Everything Quartermaster is allowed to touch, and what is gated. Kept in sync wi
 | **ops-desk** (ours, `mcp/ops-desk`) | none | `incident-responder` | `@read-only` + `rollback_deploy`, `restart_service`, `resolve_alert` | all three by name, plus `["@write", "@destructive"]` |
 | **front-desk** (ours, `mcp/front-desk`) | none | `desk-assistant` | `@read-only` + `create_issue`, `update_issue`, `close_issue`, `send_message`, `send_email` | all five by name, plus `["@write", "@destructive"]` |
 | **warehouse** (ours, `mcp/warehouse`) | none | `analytics` | all five by name, no tag | `["@write", "@destructive"]`, which today match nothing - see below |
+| **observability** (ours, `mcp/observability`) | none | `incident-responder` | all eight by name, no tag | `["@write", "@destructive"]`, which today match nothing - same argument |
 
 ### An approval policy on a connector where every tool is a read
 
-`warehouse` gates nothing today, and the policy is still `["@write", "@destructive"]` rather than
-`[]`. The two say the same thing about today and opposite things about tomorrow: an empty policy
-means every tool on that server runs ungated forever, including one added next week, and the spec
-validator refuses it for exactly that reason. The tags are a standing instruction that costs nothing
-to keep.
+`warehouse` and `observability` gate nothing today, and both policies are still
+`["@write", "@destructive"]` rather than `[]`. The two say the same thing about today and opposite
+things about tomorrow: an empty policy means every tool on that server runs ungated forever,
+including one added next week, and the spec validator refuses it for exactly that reason. The tags
+are a standing instruction that costs nothing to keep.
 
 An approval prompt in front of a read would be worse than nothing anyway. It teaches the operator
-that the prompt is noise, and the next one they wave through is a rollback.
+that the prompt is noise, and the next one they wave through is a rollback. That is not a
+hypothetical for `incident-responder`: it reaches both a connector where everything is a read and a
+connector with three irreversible actions on it, in the same turn. Eight prompts nobody needed
+before the one that matters is how the one that matters gets waved through.
 
-Where that connector actually fails closed is the admission list: all five tools are named rather
-than reached with `@read-only`, so a tool the server grows later is not enabled at all until
-somebody adds it to the spec on purpose. That is the preference this document argues for in section
-2a, applied to a server that has nothing to gate.
+Where those connectors actually fail closed is the admission list: all five warehouse tools and all
+eight observability tools are named rather than reached with `@read-only`, so a tool either server
+grows later is not enabled at all until somebody adds it to the spec on purpose. That is the
+preference this document argues for in section 2a, applied to servers that have nothing to gate.
 
 ### Why there is no Gmail or Slack
 
@@ -159,9 +163,10 @@ is relevant, then the whole pack is materialized in the sandbox at `/opt/tfy/ski
 | File, edit or close an issue; send a message | front-desk | **approval required** |
 | Read alerts, logs, deploys, health, projects, issues | ops-desk, front-desk | no gate — read-only |
 | Read a schema, profile a table, run a SELECT | warehouse | no gate — the connection is read-only, so there is no write to gate |
+| Query a time series, read a dashboard, list deploy annotations | observability | no gate — every tool on it is a read |
 
 The ops-desk and front-desk rows are the ones that matter for anyone reproducing this, because they
-are the only gated actions that need no account at all. All three servers annotate every tool, so
+are the only gated actions that need no account at all. All four servers annotate every tool, so
 the tags in the policy resolve to what their names say - which, as section 2a explains, is not
 something to assume.
 
@@ -184,8 +189,9 @@ clicked into the UI.
 - [ ] GitHub — a fine-grained PAT pasted into the connector, scoped to one repo (v1)
 - [ ] Qodo — GitHub App installed on the submission repo from the first commit
 
-Only the first is needed to see the gate work. `ops-desk`, `front-desk` and `warehouse` run from
-this repo with `npm run ops-desk`, `npm run front-desk` and `npm run warehouse`, and between them
+Only the first is needed to see the gate work. `ops-desk`, `front-desk`, `warehouse` and
+`observability` run from this repo with `npm run ops-desk`, `npm run front-desk`, `npm run
+warehouse` and `npm run observability`, and between them
 they carry every gated action in the demo script - a rollback, a restart, filing an issue, closing one, sending a message. Nothing in
 `DEMO.md` requires a GitHub token, and the local-model configuration (`quartermaster-local`) does
 not require a provider key either.

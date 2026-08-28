@@ -1,8 +1,8 @@
 /**
- * The HTTP shell both fixture servers sit behind.
+ * The HTTP shell every fixture server in this repo sits behind.
  *
- * It was copied between them, and so were its faults. The worst one was not visible from either
- * file: `listen(PORT)` with no host binds every interface, and these servers were verified
+ * It was copied between the first two, and so were its faults. The worst one was not visible from
+ * either file: `listen(PORT)` with no host binds every interface, and these servers were verified
  * answering on the machine's LAN address -
  *
  *     curl http://192.168.0.120:8795/health   ->  200
@@ -84,10 +84,10 @@ export function routeOf(url) {
 /**
  * Start one of these servers.
  *
- * `tools` is the live list of registered names rather than a number typed into two places. Both
- * servers used to print a hand-written banner and report a hand-written count from /health, and
- * both were already one tool out of date - which is a small lie of exactly the kind this project
- * spends the rest of its time refusing.
+ * `tools` is the live list of registered names rather than a number typed into two places. The
+ * first two servers printed a hand-written banner and reported a hand-written count from /health,
+ * and both were already one tool out of date - which is a small lie of exactly the kind this
+ * project spends the rest of its time refusing.
  */
 export function serve({
   name,

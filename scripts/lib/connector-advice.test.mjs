@@ -1,10 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { describeConnectorFailure, isUnreachable } from './connector-advice.mjs';
+import { describeConnectorFailure, isUnreachable, LOCAL_SERVERS } from './connector-advice.mjs';
 
 const OPS = 'http://localhost:8795/mcp';
 const DESK = 'http://localhost:8796/mcp';
-const WAREHOUSE = 'http://localhost:8797/mcp';
 
 /**
  * Advice that cannot work is worse than no advice: it sends someone looking for credentials for a
@@ -19,10 +18,24 @@ test('a refused connection is the only thing that means nothing is listening', (
   assert.equal(refused.reason, 'nothing is listening at its URL');
   assert.equal(refused.advice, 'start it: npm run ops-desk');
 
-  // Every local server this repo ships has to be in the table, or the advice for the newest one
-  // is the generic sentence about credentials it does not have.
-  const warehouse = describeConnectorFailure('warehouse', 'connect ECONNREFUSED 127.0.0.1:8797', WAREHOUSE);
-  assert.equal(warehouse.advice, 'start it: npm run warehouse');
+  /**
+   * Every local server this repo ships has to be in the table, or the advice for the newest one is
+   * the generic sentence about credentials it does not have.
+   *
+   * Driven from the table rather than from a list typed beside it, because the two versions of this
+   * assertion that name one server each both passed on the day a fourth was added. The table is the
+   * thing that has to be complete, so the table is what this walks.
+   */
+  for (const [name, server] of Object.entries(LOCAL_SERVERS)) {
+    const url = `http://localhost:${server.port}/mcp`;
+    const result = describeConnectorFailure(name, `connect ECONNREFUSED 127.0.0.1:${server.port}`, url);
+    assert.equal(result.advice, `start it: ${server.command}`, name);
+    // And on a port the operator moved, the command carries that port rather than quietly
+    // starting an unrelated process on the default one.
+    const moved = describeConnectorFailure(name, 'connect ECONNREFUSED 127.0.0.1:9999', 'http://localhost:9999/mcp');
+    assert.equal(moved.advice, `start it: ${server.portEnv}=9999 ${server.command}`, name);
+  }
+  assert.ok(Object.hasOwn(LOCAL_SERVERS, 'observability'), 'the metrics store ships here and has to be startable from a failure');
 });
 
 test('a remote server that refuses does not get a command it has no way to run', () => {

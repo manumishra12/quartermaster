@@ -22,6 +22,7 @@ waits; it never runs one for you, and for the approval that is the point rather 
 npm run forge          # the harness, :8790
 npm run ops-desk       # :8795
 npm run front-desk     # :8796
+npm run observability  # :8798  - nothing on it is gated, and incident-responder is skipped without it
 npm run agents:apply   # preflight should report every agent applied
 cd ui && npm run dev   # :5173  <- the interface. 8790 is TrueForge's own UI, not this one.
 ```

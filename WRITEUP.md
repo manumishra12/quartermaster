@@ -38,8 +38,10 @@ exits non-zero on a bad one, so it runs in CI.
 Eight more agents ship in `agents/`, because the same discipline generalises and each is one spec
 file. `code-reviewer` is the sharpest case for the verifier, since its whole output is a claim about
 a test run; it cannot merge, push or delete, because those tools are not enabled for it at all.
-`incident-responder` and `desk-assistant` reach two MCP servers that ship here, so every gated
-action in the demo needs no account and no key.
+`incident-responder` and `desk-assistant` reach MCP servers that ship here - four of them now, and
+none needing an account - so every gated action in the demo needs no key. The newest,
+`observability`, is what turns that agent's investigation from plausible into conclusive: a p99
+series with a step change in it and a deploy marker on the same minute.
 
 ## How it uses TrueForge
 
@@ -160,7 +162,7 @@ whether a run passed.
 
 ## How it is verified
 
-`npm run check` runs lint, typecheck, **457 tests** in the root suite and the fixture check - the
+`npm run check` runs lint, typecheck, **484 tests** in the root suite and the fixture check - the
 gates CI runs. The interface has **161 tests** across 19 files, plus one mount test of the real
 tree, which exists because the app once served a blank page while every unit test passed.
 `npm run smoke` runs each credential-free agent against the live harness and asserts the harness
