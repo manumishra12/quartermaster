@@ -399,8 +399,22 @@ and several of them found defects that go to the heart of what this project clai
 | [#8 - A call the gate refused is not a call that ran](https://github.com/manumishra12/quartermaster/pull/8) | Making the documented `echo deny \|` example real also made an unattended `echo allow \|` real. A pipe can now refuse but not approve: authorising something irreversible needs a person at a terminal. Also caught denials being forgotten across `--resume`, which let a refusal count as evidence. |
 | [#9 - Give the answer the room, and let a conversation be renamed](https://github.com/manumishra12/quartermaster/pull/9) | Six findings on new UI. A rename that storage refused vanished from the screen as well; Escape poisoned the next edit's save; two tabs renaming different conversations erased each other. The first of those had a comment beside it describing the correct behaviour and a test asserting the wrong one. |
 
-Also merged: [#2 - Qodo configuration and this section](https://github.com/manumishra12/quartermaster/pull/2),
-where Qodo caught the branch-protection claim above.
+| [#12 - Give the incident responder somewhere real to investigate](https://github.com/manumishra12/quartermaster/pull/12) and [#13 - Give the desk assistant somewhere to file work](https://github.com/manumishra12/quartermaster/pull/13) | Two agents could not be applied at all without a Sentry and a Linear account, so the hackathon's own hero project and its easiest-start agent were the two nobody could run. Review pushed on the fixtures until every write tool refused what it could not honestly do and recorded nothing when it refused - the argument being that an approval gate in front of an operation that does nothing proves nothing. |
+| [#15 - Catch the fabrication six of the seven agents can actually commit](https://github.com/manumishra12/quartermaster/pull/15) | The verifier only ever judged claims about test runs, which is one agent's job. The other six claim to have queried a database, searched the web, filed a ticket or restarted a service, and none of those claims were checked against anything. |
+| [#16 - Read the results the verifier could not see](https://github.com/manumishra12/quartermaster/pull/16) | Four real envelope shapes - a snake_case exit code, a numeric-string exit code, an empty `result` masking a populated `output`, and an MCP text-part array - were read as empty. The CLI reported FAILED while the interface rendered "Last run passed": the safety surface disagreeing with the verifier, in the direction of reassurance. |
+| [#18 - Make the first thing a stranger runs a thing that works](https://github.com/manumishra12/quartermaster/pull/18) | The README's opening command pointed at a local path the sandbox cannot see, so the first thing anybody tried failed for a reason that had nothing to do with the agent. |
+| [#19 - Close five ways one command supplied both halves of its own proof](https://github.com/manumishra12/quartermaster/pull/19) | Function and alias shadowing, comments, and an apostrophe inside double quotes. The last was the worst: one apostrophe anywhere in a command re-enabled every dead-branch bypass at once. |
+
+Also merged, each reviewed: [#2 - Qodo configuration and this section](https://github.com/manumishra12/quartermaster/pull/2), where Qodo caught the
+branch-protection claim above; [#3](https://github.com/manumishra12/quartermaster/pull/3) and [#4](https://github.com/manumishra12/quartermaster/pull/4); [#10 - Record the rest of the review
+history](https://github.com/manumishra12/quartermaster/pull/10); [#11 - Say why a turn failed instead of printing \[error\]](https://github.com/manumishra12/quartermaster/pull/11);
+[#14 - Stop preflight advising authentication for a server nobody started](https://github.com/manumishra12/quartermaster/pull/14); and
+[#17 - Name the printed call, and stop four agents fetching a skill they never use](https://github.com/manumishra12/quartermaster/pull/17).
+
+Nineteen merged pull requests, every one of them reviewed. The practice did not stop after the
+first few: the reviews above are spread across the whole build, and the defects they caught got
+more serious as the code got better - the last of them was a way to forge the verdict this entire
+project exists to produce.
 
 ### What was dismissed, and why
 
@@ -437,4 +451,4 @@ building, not copied from anywhere.
 
 ## Licence
 
-MIT.
+MIT. The full text is in [LICENSE](LICENSE).
