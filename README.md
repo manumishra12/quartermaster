@@ -87,16 +87,19 @@ cp .env.example .env            # set TRUEFORGE_MODEL to a configured model FQN
 
 npm run ops-desk &              # the incident responder investigates this
 npm run front-desk &            # the desk assistant files into this
+npm run warehouse &             # the analytics agent queries this, read-only
 
 npm run agents:apply
 npm run preflight               # tells you exactly what is still missing
 ```
 
-The two servers in the middle ship in this repository and need no accounts. Starting them is not
-enough on a fresh harness - it also has to be told they exist, once:
+The three servers in the middle ship in this repository and need no accounts. `warehouse` wants its
+fixture built first - `cd fixtures/warehouse && sqlite3 warehouse.db < seed.sql`, and it says so and
+refuses to start if you have not. Starting them is not enough on a fresh harness either; it also has
+to be told they exist, once:
 
 ```bash
-for s in ops-desk:8795 front-desk:8796; do
+for s in ops-desk:8795 front-desk:8796 warehouse:8797; do
   curl -sS --fail-with-body -X POST http://localhost:8790/api/v1/settings/mcp-servers \
     -H 'content-type: application/json' \
     -d "{\"manifest\":{\"type\":\"remote\",\"name\":\"${s%%:*}\",\"url\":\"http://localhost:${s##*:}/mcp\",\"description\":\"Ships with this repository; no account needed.\"}}" \
@@ -107,8 +110,8 @@ done
 `--fail-with-body` matters: without it curl exits 0 on an HTTP 400 or 500, the loop finishes
 quietly, and the first sign that nothing was registered is an agent that cannot reach anything.
 
-Without both steps `agents:apply` skips `incident-responder` and `desk-assistant` as unknown
-servers. `preflight` names whichever half is missing: it says `start it: npm run ops-desk` when the
+Without both steps `agents:apply` skips `incident-responder`, `desk-assistant` and `analytics` as
+unknown servers. `preflight` names whichever half is missing: it says `start it: npm run ops-desk` when the
 process is down, and the connector is absent from its list entirely when it was never registered.
 
 `preflight` reports on the server, model, sandbox, skills, connectors and agents, and names the fix
@@ -155,7 +158,7 @@ event stream rather than the transcript - turns out to generalise, and each is o
 | `quartermaster-local` | sandbox | nothing to gate | **yes** |
 | `quartermaster` | + GitHub | every write | needs a PAT |
 | `code-runner` | sandbox | nothing leaves it | **yes** |
-| `analytics` | sandbox + a SQLite warehouse | instruction-only, see below | **yes** |
+| `analytics` | `warehouse` (ships here) + the sandbox | reads by construction, see below | **yes** |
 | `research-desk` | Exa web search | read-only throughout | **yes** |
 | `incident-responder` | `ops-desk` (ships here) | every remediation | **yes** |
 | `desk-assistant` | `front-desk` (ships here) | every create, edit, close and send | **yes** |
@@ -216,11 +219,27 @@ terminal. Denials are taken from anywhere - being refused by a script is still b
 so is silence: only the exact words `allow`, `yes`, `y` and `approve` approve, `abort` denies, and
 running out of input denies. The unattended path is the safe one.
 
-`analytics` is the honest exception. Its SQL runs through the sandbox shell, which is not an MCP
-tool, so there is no `require_approval_for_tools` entry that could gate it. It does pause before a
-write, using the harness's question mechanism - but that pause is the agent choosing to ask, not
-something outside the agent enforcing it. The spec says so in as many words, and the spec validator
-now refuses any agent that promises a gate without either declaring one or admitting it has none.
+`analytics` used to be the honest exception, and the way it stopped being one is worth a paragraph.
+Its SQL ran through the sandbox shell, which is not an MCP tool, so there was no
+`require_approval_for_tools` entry that could gate it. It paused before a write using the harness's
+question mechanism - but that pause was the agent choosing to ask, not something outside the agent
+enforcing it, and its own skill said so: "the shell is not gated. There is no approval prompt
+between you and a `DELETE`."
+
+It now reaches [`warehouse`](mcp/warehouse/README.md), a third MCP server that ships in this repo.
+The connection underneath it is opened read-only, so SQLite itself refuses the write - not the
+instruction, not the model's care. That is a stronger guarantee than a gate: there is no prompt
+because there is nothing to prompt about.
+
+Read-only turns out not to mean what it sounds like, which is the interesting half. `VACUUM INTO
+'/tmp/z.db'` **succeeds** on a read-only connection: it does not modify the source database, it
+writes a complete copy of it somewhere else. So a second check refuses the handful of statements the
+engine still permits, and the server's README is explicit that this check is the residue rather than
+the boundary.
+
+The shell is still there, for the databases the connector does not serve, and the spec still admits
+in as many words that nothing outside the agent enforces the pause on that route. The spec validator
+refuses any agent that promises a gate without either declaring one or admitting it has none.
 
 `incident-responder` is the hackathon's hero project, and it used to be the one nobody could run:
 it was written against Sentry, so without a Sentry account it could not even be applied to the
@@ -358,12 +377,13 @@ from recorded tool responses, never from the agent's narration.
 ## Development
 
 ```bash
-npm run check             # lint, typecheck, 370 tests, and the fixture check - what CI runs
+npm run check             # lint, typecheck, 388 tests, and the fixture check - what CI runs
 npm test                  # the root suite alone
 npm run fixtures:check    # the fixtures must still fail
 npm run tools:audit       # every reachable tool is gated as claimed
 npm run ops-desk          # the MCP server the incident responder investigates
 npm run front-desk        # the workspace the desk assistant files into
+npm run warehouse         # the read-only SQL surface the analytics agent queries
 cd ui && npm run test:unit && npm run build   # 169 tests, then the interface compiles
 ```
 

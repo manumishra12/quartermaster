@@ -364,7 +364,7 @@ test('the server tests connect to the address the server binds', () => {
    * The suite runs in six seconds here and hung for fourteen minutes there. Verified directly:
    * against a server bound to 127.0.0.1, `127.0.0.1` answers 200 and `[::1]` is ECONNREFUSED.
    */
-  for (const file of ['mcp/ops-desk/server.test.mjs', 'mcp/front-desk/server.test.mjs']) {
+  for (const file of ['mcp/ops-desk/server.test.mjs', 'mcp/front-desk/server.test.mjs', 'mcp/warehouse/server.test.mjs']) {
     const source = readFileSync(fileURLToPath(new URL(`../../${file}`, import.meta.url)), 'utf8');
     const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
     assert.doesNotMatch(

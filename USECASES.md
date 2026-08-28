@@ -13,13 +13,14 @@ is green.
 ```bash
 npm run ops-desk &        # :8795  - the incident responder investigates this
 npm run front-desk &      # :8796  - the desk assistant files into this
+npm run warehouse &       # :8797  - the analytics agent queries this, read-only
 npm run agents:apply
 npm run preflight         # names whatever is still missing, and the fix for it
 ```
 
-Both servers also have to be registered with the harness once - the `curl` loop in `README.md`
-does it. Without that, `agents:apply` skips `incident-responder` and `desk-assistant` as unknown
-servers.
+All three servers also have to be registered with the harness once - the `curl` loop in `README.md`
+does it. Without that, `agents:apply` skips `incident-responder`, `desk-assistant` and `analytics`
+as unknown servers.
 
 Every command below uses the headless runner:
 
@@ -183,19 +184,34 @@ its runner is the most interesting thing in it.
 **What it is for.** Answering a question about data by writing SQL, running it, and showing the
 query beside the rows it returned. It inspects the schema before it writes anything.
 
-**What it reaches.** The sandbox. SQL runs through the `sqlite3` module inside Python - the sandbox
-has `python3` and no database command line at all, no `sqlite3` binary, no `psql`, no `duckdb`. The
-agent is told to write it as a heredoc, because cramming the program into `python3 -c` loses the
-quoting, which is how this agent's own smoke test first failed.
+**What it reaches.** [`warehouse`](mcp/warehouse/README.md), a read-only SQL server that ships in
+this repo, over five tools: `list_tables`, `describe_table`, `profile_table`, `run_query` and
+`explain_query`. And the sandbox, for anything the connector does not serve - a database file
+somebody hands it, one it has to build, a CSV to load. In there SQL runs through the `sqlite3`
+module inside Python, because the sandbox has `python3` and no database command line at all: no
+`sqlite3` binary, no `psql`, no `duckdb`. The agent is told to write it as a heredoc, because
+cramming the program into `python3 -c` loses the quoting, which is how this agent's own smoke test
+first failed.
 
-**What is gated.** **Nothing, and this is the honest exception.** Its SQL runs through the sandbox
-shell, which is not an MCP tool, so there is no `require_approval_for_tools` entry that could gate
-it. It does stop before a write - stating what will change and how many rows - but that pause is
-the agent choosing to ask, not something outside the agent enforcing it. The spec says so, and the
-spec validator refuses any agent that promises a gate without either declaring one or admitting it
-has none.
+**What is gated.** Nothing, and on the connector that is the strong answer rather than the weak one.
+The connection underneath `warehouse` is opened read-only, so SQLite itself refuses every write.
+There is no approval prompt because there is nothing to approve: a gate asks a person to be right
+every time, and a read-only connection does not ask anybody anything.
 
-**Needs an account?** No.
+Read-only does not mean what it sounds like, which is the part worth knowing. `VACUUM INTO
+'/tmp/z.db'` **succeeds** on a read-only connection - it does not modify the source database, it
+writes a complete copy of it somewhere else - so the server refuses that and `ATTACH` on top of the
+connection's own guarantee, and its README is explicit that this second check is the residue rather
+than the boundary.
+
+The sandbox route is still the honest exception. SQL run through the shell is not an MCP tool, so
+there is no `require_approval_for_tools` entry that could gate it; the agent stops before a write
+and states what will change, and that pause is the agent choosing to ask. The spec says so in as
+many words, and the spec validator refuses any agent that promises a gate without either declaring
+one or admitting it has none.
+
+**Needs an account?** No. It needs `npm run warehouse` running and registered once, and the fixture
+built with `cd fixtures/warehouse && sqlite3 warehouse.db < seed.sql`.
 
 **Try this.**
 

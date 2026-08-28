@@ -21,6 +21,7 @@
     "verify": "bash scripts/verify-setup.sh",
     "ops-desk": "node mcp/ops-desk/server.mjs",
     "front-desk": "node mcp/front-desk/server.mjs",
+    "warehouse": "node --disable-warning=ExperimentalWarning mcp/warehouse/server.mjs",
     "demo": "node scripts/demo.mjs",
     "approvals": "node scripts/approvals.mjs"
   },
