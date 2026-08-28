@@ -35,8 +35,8 @@ curl -X POST http://localhost:8790/api/v1/settings/mcp-servers \
 | --- | --- | --- |
 | `list_projects`, `list_teammates`, `list_issues`, `get_issue`, `list_outbox` | `readOnlyHint` | no |
 | `search_workspace`, `list_channels` | `readOnlyHint` | no |
-| `create_issue`, `update_issue` | write | **yes** |
-| `close_issue`, `send_message`, `send_email`, `post_to_channel` | `destructiveHint` | **yes** |
+| `create_issue`, `update_issue`, `comment_on_issue` | write | **yes** |
+| `close_issue`, `bulk_close_issues`, `send_message`, `send_email`, `post_to_channel` | `destructiveHint` | **yes** |
 
 Closing and sending are marked destructive because they cannot be walked back; filing and editing
 can. Everything another person would see the result of is gated either way.
@@ -73,6 +73,23 @@ record through a human decision.
 | Email with no subject or no body | `missing_fields`, naming which |
 | Post to a channel that does not exist | `not_found`, naming the ones that do |
 | Search for nothing | `missing_query` — whitespace matches everything and means nothing |
+| Set priority on SRCH | `not_yours_to_set` — the project's own convention says the team lead does |
+| Bulk-close where one id is wrong | `not_found`, and **none** of the batch runs |
+| Bulk-close where one is already closed | `already_closed`, and none of the batch runs |
+
+Two of those are worth their own note.
+
+**The project's convention is a rule the desk keeps.** SRCH has always said "Priority is only set by
+the team lead", and nothing enforced it - so an assistant could read that sentence, agree with it,
+and set the priority anyway, because agreeing with a policy and being stopped by one are different
+things. It is read from the project rather than hardcoded, so a second project with the same rule
+needs no code. Clearing a priority is refused too: removing the value the lead set is a priority
+decision.
+
+**A bulk close is all of them or none.** A person approving "close 12 issues" has approved a number;
+a person approving a list has approved twelve decisions. So one wrong id refuses the whole batch
+rather than closing eleven and reporting a problem with the twelfth, and the reply names every issue
+it closed so it can be compared against what was approved.
 | Send or file more text than anyone will read | refused by the schema - 20k of body, 300 of title |
 
 ## What the search is for

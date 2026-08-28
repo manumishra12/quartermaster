@@ -96,7 +96,7 @@ async function withServer(body) {
 test('every tool publishes annotations, and the gated ones are the ones that reach people', () =>
   withServer(async ({ call }) => {
     const { result } = await call('tools/list');
-    assert.equal(result.tools.length, 13);
+    assert.equal(result.tools.length, 15);
 
     for (const tool of result.tools) {
       assert.ok(
@@ -110,12 +110,12 @@ test('every tool publishes annotations, and the gated ones are the ones that rea
       .map((t) => t.name)
       .sort();
     // Everything that another person would see the result of.
-    assert.deepEqual(gated, ['close_issue', 'create_issue', 'post_to_channel', 'send_email', 'send_message', 'update_issue']);
+    assert.deepEqual(gated, ['bulk_close_issues', 'close_issue', 'comment_on_issue', 'create_issue', 'post_to_channel', 'send_email', 'send_message', 'update_issue']);
 
     const destructive = result.tools.filter((t) => t.annotations.destructiveHint).map((t) => t.name).sort();
     // Closing and sending cannot be walked back; filing and editing can. Email is the furthest
     // of the three: it is the only one that leaves the building.
-    assert.deepEqual(destructive, ['close_issue', 'post_to_channel', 'send_email', 'send_message']);
+    assert.deepEqual(destructive, ['bulk_close_issues', 'close_issue', 'post_to_channel', 'send_email', 'send_message']);
   }));
 
 test('a filed issue is real, and appears in the record of what was done', () =>
@@ -267,14 +267,19 @@ test('whether a field can be erased depends on the project, not the field', () =
     const issue = await callTool('get_issue', { issue_id: 'CHK-118' });
     assert.equal(issue.assignee, 'priya', 'and the assignee is still there');
 
-    // SRCH does not require priority, so clearing it is an edit the desk should perform.
+    /**
+     * Clearing priority on SRCH used to be allowed here, on the grounds that SRCH does not require
+     * the field - and that is still true. A second, stronger rule now applies to the same field:
+     * SRCH's convention says the team lead sets priority, and removing a priority they set is a
+     * priority decision. Ownership beats optionality, so the desk refuses.
+     *
+     * The required-versus-optional rule this test is actually about is unchanged and checked above
+     * on CHK, which has no such owner.
+     */
     const cleared = await callTool('update_issue', { issue_id: 'SRCH-42', priority: '' });
-    assert.equal(cleared.ok, true);
-    assert.equal(cleared.priority, null, 'stored as absent, not as an empty string');
-
-    // And clearing what is already absent is still not a change.
-    const again = await callTool('update_issue', { issue_id: 'SRCH-42', priority: '' });
-    assert.equal(again.error, 'no_changes');
+    assert.equal(cleared.error, 'not_yours_to_set');
+    // Refused means untouched: the lead's value is still the lead's value.
+    assert.equal((await callTool('get_issue', { issue_id: 'SRCH-42' })).priority, 'low');
   }));
 
 test('an issue is not closed without a resolution', () =>
@@ -479,4 +484,62 @@ test('a channel that pages people says so, to the person approving it', () =>
 
     assert.equal((await callTool('post_to_channel', { channel: 'nope', body: 'x' })).error, 'not_found');
     assert.equal((await callTool('post_to_channel', { channel: 'eng', body: '  ' })).error, 'missing_fields');
+  }));
+
+test('a convention the project states is a rule the desk keeps', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * SRCH's convention has always read "Priority is only set by the team lead", and nothing
+     * enforced it - so an assistant could read that sentence, agree with it, and set the priority
+     * anyway, because agreeing with a policy and being stopped by one are different things.
+     */
+    const refused = await callTool('update_issue', { issue_id: 'SRCH-42', priority: 'high' });
+    assert.equal(refused.error, 'not_yours_to_set');
+    assert.equal(refused.set_by, 'ravi');
+    assert.equal((await callTool('get_issue', { issue_id: 'SRCH-42' })).priority, 'low', 'unchanged');
+
+    // The rule is the project's, not the field's: everything else on SRCH still edits.
+    assert.equal((await callTool('update_issue', { issue_id: 'SRCH-42', assignee: 'ravi' })).ok, true);
+    // And a project without the rule is unaffected.
+    assert.equal((await callTool('update_issue', { issue_id: 'CHK-118', priority: 'low' })).ok, true);
+  }));
+
+test('closing several at once is all of them or none', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * A person approving "close 12 issues" has approved a number. A person approving a list has
+     * approved twelve decisions. So one bad id refuses the whole batch rather than closing eleven
+     * and reporting a problem with the twelfth - a half-done bulk action is the worst of both.
+     */
+    const bad = await callTool('bulk_close_issues', { issue_ids: ['SRCH-42', 'NOPE-1'], resolution: 'done' });
+    assert.equal(bad.error, 'not_found');
+    assert.deepEqual(bad.missing, ['NOPE-1']);
+    assert.equal((await callTool('get_issue', { issue_id: 'SRCH-42' })).state, 'open', 'nothing closed');
+
+    // Already-closed refuses the batch for the same reason close_issue refuses one.
+    assert.equal(
+      (await callTool('bulk_close_issues', { issue_ids: ['CHK-117'], resolution: 'done' })).error,
+      'already_closed',
+    );
+
+    // The happy path names every issue it closed, so the reply can be compared to the approval.
+    const done = await callTool('bulk_close_issues', {
+      issue_ids: ['SRCH-42', 'CHK-118'],
+      resolution: 'Superseded by the rewrite',
+    });
+    assert.equal(done.closed_count, 2);
+    assert.deepEqual(done.closed.map((c) => c.id).sort(), ['CHK-118', 'SRCH-42']);
+  }));
+
+test('a comment on a closed issue is posted, and says nobody is watching', () =>
+  withServer(async ({ callTool }) => {
+    // A real thing people do - a correction, a link to the follow-up - but findings left on a
+    // closed ticket are findings filed where they will not be read.
+    const closed = await callTool('comment_on_issue', { issue_id: 'CHK-117', body: 'Superseded by CHK-118.' });
+    assert.equal(closed.ok, true);
+    assert.match(closed.note, /nobody is watching/);
+
+    const open = await callTool('comment_on_issue', { issue_id: 'SRCH-42', body: 'Reproduced on staging.' });
+    assert.equal(open.note, 'Posted.');
+    assert.equal((await callTool('comment_on_issue', { issue_id: 'SRCH-42', body: '  ' })).error, 'missing_fields');
   }));

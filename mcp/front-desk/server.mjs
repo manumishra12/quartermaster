@@ -462,6 +462,35 @@ function buildServer() {
       );
 
       /**
+       * A convention the project states is a rule the desk keeps.
+       *
+       * SRCH's convention has always read "Priority is only set by the team lead", and nothing
+       * enforced it - so an assistant could read that sentence, agree with it, and then set the
+       * priority anyway, because agreeing with a policy and being stopped by one are different
+       * things. The gate would have shown a person the change, and a person skimming an approval
+       * for a ticket they did not file is exactly who this rule exists to protect.
+       *
+       * Read from the project rather than hardcoded to a key, so a second project with the same
+       * rule needs no code.
+       */
+      const project = state.projects.find((pr) => pr.key === issue.project);
+      if (
+        project?.priority_set_by &&
+        Object.hasOwn(changes, "priority") &&
+        changes.priority !== undefined
+      ) {
+        return text({
+          error: "not_yours_to_set",
+          message:
+            `Priority on ${project.key} is set by ${project.priority_set_by}, not by this desk - it is in the ` +
+            "project's own convention. Nothing was changed. Leave it as it is and ask them, or say in the issue " +
+            "what priority you think it deserves and why.",
+          project: project.key,
+          set_by: project.priority_set_by,
+        });
+      }
+
+      /**
        * A field named but left blank is an attempt to erase it, and whether that is allowed
        * depends on the project rather than on the field.
        *
@@ -529,6 +558,146 @@ function buildServer() {
         ok: true,
         ...issue,
         note: `Changed ${applied.map(([f]) => f).join(", ")}.`,
+      });
+    },
+  );
+
+  register(
+    server,
+    "comment_on_issue",
+    {
+      title: "Comment on an issue",
+      description:
+        "Add a comment to an issue. The team sees it, and it stays on the record.",
+      inputSchema: { issue_id: NAME, body: BODY },
+      /**
+       * A write rather than destructive: a comment can be followed by a correcting comment, which
+       * is not true of closing an issue or sending an email. It is still gated, because it appears
+       * under somebody else's name on their team's ticket.
+       */
+      annotations: WRITES,
+    },
+    async ({ issue_id, body }) => {
+      const issue = state.issues.find((i) => i.id === issue_id);
+      if (!issue)
+        return notFound(
+          `No issue with id ${issue_id}. Nothing was commented.`,
+          state.issues.map((i) => i.id),
+        );
+
+      if (!given(body)) {
+        return text({
+          error: "missing_fields",
+          message:
+            "A comment needs a body. Whitespace is not one, and nothing was posted.",
+        });
+      }
+
+      /**
+       * Commenting on a closed issue is allowed and worth noting in the reply.
+       *
+       * It is a real thing people do - a correction, a link to the follow-up - but nobody is
+       * watching a closed ticket, so an agent that leaves its findings there has filed them
+       * somewhere they will not be read. Say so rather than refusing: the caller may know that.
+       */
+      const comment = { from: "assistant", at: tick(), body: body.trim() };
+      issue.comments = [...(issue.comments ?? []), comment];
+      state.outbox.push({
+        action: "comment_on_issue",
+        id: issue_id,
+        body: comment.body,
+        at: comment.at,
+      });
+
+      return text({
+        ok: true,
+        id: issue_id,
+        ...comment,
+        note:
+          issue.state === "closed"
+            ? "Posted, but this issue is closed and nobody is watching it. If this needs an answer, it needs somewhere else."
+            : "Posted.",
+      });
+    },
+  );
+
+  register(
+    server,
+    "bulk_close_issues",
+    {
+      title: "Close several issues at once",
+      description:
+        "Close a list of issues in one action. Every one of them is named in the approval, and none can be reopened here.",
+      inputSchema: { issue_ids: z.array(NAME).max(20), resolution: BODY },
+      annotations: DESTRUCTIVE,
+    },
+    async ({ issue_ids, resolution }) => {
+      /**
+       * The one tool here where the gate does the most work, and where a summary would defeat it.
+       *
+       * A person approving "close 12 issues" has approved a number. A person approving a list has
+       * approved twelve decisions, and the difference is the whole point of asking - so this
+       * refuses anything it cannot put in front of them in full, and refuses the whole batch if a
+       * single id is wrong rather than closing eleven and reporting a problem with the twelfth.
+       */
+      if (!Array.isArray(issue_ids) || issue_ids.length === 0) {
+        return text({
+          error: "nothing_named",
+          message: "Name the issues to close. Nothing was closed.",
+        });
+      }
+
+      if (!given(resolution)) {
+        return text({
+          error: "missing_fields",
+          message:
+            "Closing needs a resolution, and one resolution has to be true of every issue in the list.",
+        });
+      }
+
+      const known = new Map(state.issues.map((i) => [i.id, i]));
+      const missing = issue_ids.filter((id) => !known.has(id));
+      if (missing.length) {
+        return text({
+          error: "not_found",
+          message: `${missing.join(", ")} - no issue with that id. Nothing was closed, including the ones that do exist.`,
+          missing,
+          known: [...known.keys()],
+        });
+      }
+
+      const already = issue_ids.filter(
+        (id) => known.get(id).state === "closed",
+      );
+      if (already.length) {
+        return text({
+          error: "already_closed",
+          message: `${already.join(", ")} already closed. Closing them again would change nothing and say otherwise, so none of the batch ran.`,
+          already,
+        });
+      }
+
+      const closed = [];
+      for (const id of issue_ids) {
+        const issue = known.get(id);
+        issue.state = "closed";
+        issue.resolution = resolution.trim();
+        issue.closed_at = tick();
+        closed.push({ id, project: issue.project, title: issue.title });
+        state.outbox.push({
+          action: "close_issue",
+          id,
+          resolution: issue.resolution,
+          at: issue.closed_at,
+        });
+      }
+
+      return text({
+        ok: true,
+        closed_count: closed.length,
+        closed,
+        resolution: resolution.trim(),
+        note: "Closed. This desk cannot reopen any of them.",
       });
     },
   );
