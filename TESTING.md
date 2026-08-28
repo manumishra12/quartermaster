@@ -1,6 +1,6 @@
 # Testing
 
-343 tests in the root suite, 161 in the UI across 19 files, one mount test, and a fixture check. What follows is
+350 tests in the root suite, 161 in the UI across 19 files, one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
 
@@ -50,7 +50,7 @@ flowchart TD
     MA["model-advice.test.mjs<br/>6 - what a provider failure means"]
     PO["policies.test.mjs<br/>4 - one reading of each agent policy"]
     SV["lib/serve.test.mjs<br/>5 - the shared HTTP shell"]
-    OD["ops-desk/server.test.mjs<br/>13 - incident fixture server"]
+    OD["ops-desk/server.test.mjs<br/>20 - incident fixture server"]
     FD["front-desk/server.test.mjs<br/>19 - workspace fixture server"]
   end
 
@@ -80,7 +80,7 @@ flowchart TD
 | `turn-state.test.mjs` | Why a turn ended, and what the process then tells CI - a run that crashed, stalled or died on the plumbing must not exit 0. |
 | `flags.test.mjs`, `paths.test.mjs`, `settle.test.mjs`, `http.test.mjs` | Four one-line mistakes that each cost a real behaviour: a flag consumed as another flag's value, a percent-encoded path, a promise raced and abandoned, and an error page parsed as data. |
 | `mcp/front-desk/server.test.mjs` | The workspace server: every write tool refuses what it cannot honestly do and records nothing when it refuses, and the planted prompt injection is still in the fixture - if it is ever removed, the demonstration that the gate holds against a persuaded model silently stops demonstrating anything. |
-| `mcp/ops-desk/server.test.mjs` | The fixture MCP server, tested over the wire: every tool publishes the annotations the selectors resolve from, the destructive ones genuinely mutate, and the fixture still tells a story an investigation can get right. |
+| `mcp/ops-desk/server.test.mjs` | The fixture MCP server, tested over the wire: every tool publishes the annotations the selectors resolve from, the destructive ones genuinely mutate, and the fixture still tells a story an investigation can get right. The log tests pin the correlation - alert, deploy and log lines all naming the same 2000ms - and the two ways a search can lie about an empty result. |
 | `env.test.mjs` (8), `contrast.test.mjs` (28) | Config loading, and that every colour pair in both themes clears 4.5:1 — the reference design's own muted grey was 3.37:1 and had to be darkened. |
 
 ### UI — `ui/src/**/*.test.tsx`

@@ -5,8 +5,8 @@
  * The incident responder was written against Sentry and could not be applied at all without a
  * Sentry account, so the one agent the hackathon calls its hero project was the one nobody could
  * run. This exists so that stops being true: it is the same shape of surface - alerts you can read,
- * deploys you can correlate them against, and remediations you cannot take without a person saying
- * yes - backed by a fixture rather than a company's production estate.
+ * logs you can search, deploys you can correlate them both against, and remediations you cannot
+ * take without a person saying yes - backed by a fixture rather than a company's production estate.
  *
  * It is deliberately not a mock in the testing sense. The read tools return the fixture; the write
  * tools genuinely mutate state and genuinely cannot be undone from inside this process, because an
@@ -64,6 +64,19 @@ const given = (value) => typeof value === "string" && value.trim().length > 0;
  */
 const REASON = z.string().max(2000);
 const ID = z.string().max(200);
+
+/**
+ * The levels this desk actually keeps, rather than the levels logging libraries usually offer.
+ *
+ * `debug` and `trace` were in the enum first and match nothing in the fixture, so asking for them
+ * returned an empty list that reads exactly like a quiet service. An enum that names what is here
+ * turns that into a schema refusal, which is a fact about the desk rather than a fact about the
+ * incident.
+ */
+const LEVELS = ["info", "warn", "error"];
+
+/** Long enough for any timestamp anybody writes, short enough that nothing is stored from it. */
+const WHEN = z.string().max(40);
 
 /**
  * The desk's clock, which has to move.
@@ -228,6 +241,124 @@ function buildServer() {
         });
       }
       return text({ service, series: state.health[service] });
+    },
+  );
+
+  register(
+    server,
+    "search_logs",
+    {
+      title: "Search a service's logs",
+      description:
+        "Log lines for one service, narrowed by time window, level and substring. An empty result means nothing matched the filter, not that the service was quiet.",
+      inputSchema: {
+        service: ID,
+        since: WHEN.optional(),
+        until: WHEN.optional(),
+        level: z.enum(LEVELS).optional(),
+        contains: z.string().max(200).optional(),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ service, since, until, level, contains }) => {
+      /**
+       * The read the responder was missing, and the one that separates two remediations.
+       *
+       * Health says the error rate moved and deploys says what shipped near it. Neither says what
+       * the service was doing, so an investigation could name a suspect without ever seeing the
+       * failure in its own words - and the two explanations that fit those numbers want opposite
+       * actions. "The upstream got slower" is somebody else's page; "we cut the budget below what
+       * the upstream has always taken" is a rollback. The lines here carry the upstream's own
+       * latency either side of the deploy, which is what tells those apart.
+       */
+      // Object.hasOwn, for the reason get_service_health gives above: every name on
+      // Object.prototype is truthy, and answering for `constructor` with an empty list would read
+      // as a service this desk watches and found nothing wrong with.
+      if (!Object.hasOwn(state.logs, service)) {
+        return text({
+          error: "not_found",
+          message: `This desk keeps no logs for ${service}.`,
+          known: Object.keys(state.logs),
+        });
+      }
+
+      /**
+       * A window that does not parse is refused, not ignored.
+       *
+       * The first version compared the ISO strings directly, so `since: "14:00"` - which is how a
+       * person says it, and therefore how a model says it - sorted below every line in the file
+       * and the tool answered with all of them. A filter that is silently dropped answers a
+       * question nobody asked, and the reply still looks like a searched window that came back busy.
+       */
+      const bounds = {};
+      for (const [field, value] of [
+        ["since", since],
+        ["until", until],
+      ]) {
+        if (value === undefined) continue;
+        const parsed = Date.parse(value);
+        if (Number.isNaN(parsed)) {
+          return text({
+            error: "bad_timestamp",
+            message: `${field} was ${JSON.stringify(value)}, which is not a time this desk can read. Nothing was searched, because a window that is quietly dropped answers with every line there is.`,
+            field,
+            example: state.now,
+          });
+        }
+        bounds[field] = parsed;
+      }
+
+      /**
+       * Backwards is refused rather than answered with nothing.
+       *
+       * `since` after `until` matches no line, and "no matching lines" is exactly what an
+       * investigation reads as "the service was quiet then". Naming the mistake costs a call;
+       * hiding it inside an empty list costs the root cause.
+       */
+      if (bounds.since !== undefined && bounds.until !== undefined && bounds.since > bounds.until) {
+        return text({
+          error: "bad_window",
+          message: `since (${since}) is after until (${until}). No line can be in that window, and an empty result would read as a quiet service.`,
+        });
+      }
+
+      /**
+       * Case-insensitive, because the alternative fails silently and in the wrong direction.
+       *
+       * The sample error on ALRT-4471 says `UpstreamTimeout`; a responder that reasonably searches
+       * for `timeout` got nothing back from a service whose logs are nothing but timeouts.
+       */
+      const needle = contains?.toLowerCase();
+      const held = state.logs[service];
+      const lines = held.filter((entry) => {
+        const at = Date.parse(entry.at);
+        if (bounds.since !== undefined && at < bounds.since) return false;
+        if (bounds.until !== undefined && at > bounds.until) return false;
+        if (level && entry.level !== level) return false;
+        return !needle || entry.message.toLowerCase().includes(needle);
+      });
+
+      return text({
+        service,
+        now: state.now,
+        // What was asked for, echoed back beside how many lines the service has at all. `matched: 0`
+        // on its own reads as a quiet service; `matched: 0` beside `held: 12` reads as a filter that
+        // excluded everything, which is the true statement and a different next move.
+        searched: {
+          since: since ?? null,
+          until: until ?? null,
+          level: level ?? null,
+          contains: contains ?? null,
+        },
+        held: held.length,
+        matched: lines.length,
+        lines,
+      });
     },
   );
 

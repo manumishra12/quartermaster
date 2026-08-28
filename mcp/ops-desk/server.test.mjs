@@ -106,7 +106,7 @@ async function withServer(body) {
 test('every tool publishes annotations, because the selectors are resolved from them', () =>
   withServer(async ({ call }) => {
     const { result } = await call('tools/list');
-    assert.equal(result.tools.length, 8);
+    assert.equal(result.tools.length, 9);
 
     for (const tool of result.tools) {
       assert.ok(
@@ -135,6 +135,7 @@ test('the three irreversible actions are the destructive ones, and nothing else 
       'list_actions_taken',
       'list_alerts',
       'list_deploys',
+      'search_logs',
     ]);
   }));
 
@@ -326,4 +327,163 @@ test('a name off the prototype chain is not a service', () =>
 
     // And a real service still restarts.
     assert.equal((await callTool('restart_service', { service: 'checkout-api', reason: 'wedged' })).ok, true);
+  }));
+
+test('the logs agree with the alert and the deploy, so the three of them can be correlated', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * The point of the log fixture. An investigation that reads only the alert has a number, and
+     * one that reads only the deploys has a suspect; the case is made when the same 2000ms appears
+     * in all three, and it is made against the fixture rather than against anybody's memory of it.
+     */
+    const alert = await callTool('get_alert', { alert_id: 'ALRT-4471' });
+    assert.match(alert.sample_error, /2000ms/);
+
+    const deploys = await callTool('list_deploys', { service: 'checkout-api' });
+    assert.match(deploys.deploys.find((d) => d.id === '4c21').summary, /2000ms/);
+
+    const logs = await callTool('search_logs', { service: 'checkout-api', level: 'error' });
+    assert.ok(logs.matched > 0, 'checkout-api must have errors in its logs');
+    for (const line of logs.lines) assert.match(line.message, /did not respond within 2000ms/);
+
+    // And the deploy is visible in the logs at the minute list_deploys says it shipped.
+    const config = await callTool('search_logs', { service: 'checkout-api', contains: '4c21' });
+    assert.equal(config.matched, 1);
+    assert.equal(config.lines[0].at.slice(0, 16), '2026-08-26T13:58');
+  }));
+
+test('the logs rule out the explanation that would send this to the wrong team', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * Two explanations fit a step change in upstream timeouts: the upstream got slower, or the
+     * budget got smaller. They want opposite actions - one is somebody else's page, the other is a
+     * rollback - and only the logs separate them. The gateway answers in about 2.4s on both sides
+     * of 13:58, so what changed is the deadline.
+     */
+    const before = await callTool('search_logs', {
+      service: 'checkout-api',
+      until: '2026-08-26T13:58:00Z',
+      contains: 'answered in',
+    });
+    assert.equal(before.matched, 2, 'the fixture must show the gateway succeeding before the deploy');
+    for (const line of before.lines) assert.match(line.message, /2[34]\d\dms/);
+
+    const after = await callTool('search_logs', {
+      service: 'checkout-api',
+      since: '2026-08-26T14:00:00Z',
+      level: 'error',
+    });
+    for (const line of after.lines) assert.match(line.message, /replied at 2[34]\d\dms/);
+  }));
+
+test('and the logs carry noise a careless read can be wrong about', () =>
+  withServer(async ({ callTool }) => {
+    // Warnings that have nothing to do with the incident and do not move across it: an agent that
+    // names one of these has correlated with whatever was nearest rather than with what changed.
+    const noise = await callTool('search_logs', { service: 'checkout-api', level: 'warn' });
+    assert.ok(noise.matched >= 3);
+    assert.ok(noise.lines.some((l) => /X-Checkout-Legacy/.test(l.message)));
+
+    /**
+     * The red herring, and why the window is the trap.
+     *
+     * search-api logs one dictionary error a minute before checkout's first timeout. Read inside a
+     * ten-minute window it is a lone error beside an incident; read across the day it is hourly and
+     * predates everything, which is what the flat health series already said.
+     */
+    const near = await callTool('search_logs', {
+      service: 'search-api',
+      since: '2026-08-26T13:55:00Z',
+      until: '2026-08-26T14:05:00Z',
+      level: 'error',
+    });
+    assert.equal(near.matched, 1);
+
+    const all = await callTool('search_logs', { service: 'search-api', level: 'error' });
+    assert.equal(all.matched, 3);
+    assert.deepEqual(
+      all.lines.map((l) => l.at.slice(11, 16)),
+      ['11:59', '12:59', '13:59'],
+      'the herring has to be hourly, or widening the window proves nothing',
+    );
+  }));
+
+test('a window that cannot be read is refused, not quietly dropped', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * `since: "14:00"` is how a person says it and therefore how a model says it. Comparing the ISO
+     * strings directly sorted it below every line in the file, so the tool answered with all twelve
+     * - a filter silently dropped, and a reply that still reads as a searched window that came back
+     * busy.
+     */
+    const unreadable = await callTool('search_logs', { service: 'checkout-api', since: '14:00' });
+    assert.equal(unreadable.error, 'bad_timestamp');
+    assert.equal(unreadable.field, 'since');
+
+    // Backwards matches no line, and no line reads as a quiet service rather than as a bad question.
+    const backwards = await callTool('search_logs', {
+      service: 'checkout-api',
+      since: '2026-08-26T14:10:00Z',
+      until: '2026-08-26T14:00:00Z',
+    });
+    assert.equal(backwards.error, 'bad_window');
+
+    // And a window this desk can read still answers, on the same tool and the same service.
+    const honest = await callTool('search_logs', {
+      service: 'checkout-api',
+      since: '2026-08-26T14:00:00Z',
+      until: '2026-08-26T14:10:00Z',
+    });
+    assert.equal(honest.matched, 5);
+    assert.ok(honest.lines.every((l) => l.at >= '2026-08-26T14:00:00Z' && l.at <= '2026-08-26T14:10:00Z'));
+  }));
+
+test('an empty result says which of the two empties it is', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * A service this desk does not keep logs for, and a filter that excluded everything, are
+     * different findings and used to look identical. `matched: 0` beside `held: 12` is a filter;
+     * `not_found` is a service. An investigation that cannot tell them apart concludes the service
+     * was quiet, which is the false negative this whole fixture is arranged against.
+     */
+    const unknown = await callTool('search_logs', { service: 'checkout-ap' });
+    assert.equal(unknown.error, 'not_found');
+    assert.ok(unknown.known.includes('checkout-api'));
+
+    const filtered = await callTool('search_logs', { service: 'checkout-api', contains: 'kafka' });
+    assert.equal(filtered.matched, 0);
+    assert.equal(filtered.held, 12, 'the reply has to say the service was not quiet');
+    assert.equal(filtered.searched.contains, 'kafka');
+
+    // Same guard as the other two service lookups: every name on Object.prototype is truthy, and
+    // an empty list for `constructor` would read as a service this desk watches.
+    for (const name of ['toString', 'constructor', '__proto__']) {
+      assert.equal((await callTool('search_logs', { service: name })).error, 'not_found', name);
+    }
+  }));
+
+test('a substring search matches the way somebody would type it', () =>
+  withServer(async ({ callTool }) => {
+    // The sample error says `UpstreamTimeout`, so a case-sensitive search for `timeout` returned
+    // nothing from a service whose logs are nothing but timeouts.
+    const lower = await callTool('search_logs', { service: 'checkout-api', contains: 'upstreamtimeout' });
+    assert.equal(lower.matched, 5);
+
+    // And searching more text than anyone will type is refused by the schema, before the handler.
+    await assert.rejects(
+      () => callTool('search_logs', { service: 'checkout-api', contains: 'x'.repeat(500) }),
+      'a 500-character substring should not be accepted',
+    );
+  }));
+
+test('reading the logs changes nothing, which is what read-only has to mean', () =>
+  withServer(async ({ callTool }) => {
+    await callTool('search_logs', { service: 'checkout-api', level: 'error' });
+    await callTool('search_logs', { service: 'search-api' });
+    assert.equal((await callTool('list_actions_taken', {})).count, 0);
+
+    // Twice, identically: idempotentHint is published for this tool and nothing should make it a lie.
+    const first = await callTool('search_logs', { service: 'checkout-api' });
+    const second = await callTool('search_logs', { service: 'checkout-api' });
+    assert.deepEqual(first.lines, second.lines);
   }));
