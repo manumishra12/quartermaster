@@ -72,8 +72,18 @@ test('a truncated line is kept as a gap rather than dropped', () => {
 });
 
 test('a ledger that cannot be written does not take the run with it', () => {
-  // The decision has already been made by the time this is called. Failing here would lose the
-  // record and the turn, and the turn matters more.
-  assert.equal(record({ tool: 'x', refused: false }, '/proc/nope/approvals.jsonl'), false);
-  assert.deepEqual(read('/does/not/exist.jsonl'), []);
+  /**
+   * The decision has already been made by the time this is called. Failing here would lose the
+   * record and the turn, and the turn matters more.
+   *
+   * The unwritable path is a file used as a directory, which is ENOTDIR on every platform and
+   * immediate. This used to be `/proc/nope/...`, chosen because /proc does not exist on macOS - and
+   * on Linux, where CI runs, it very much does, and asking to create a directory inside a virtual
+   * filesystem is not the fast refusal it is here. A test that depends on a path being absent is a
+   * test that behaves differently wherever that path is present.
+   */
+  const blocked = join(mkdtempSync(join(tmpdir(), 'ledger-')), 'a-file');
+  writeFileSync(blocked, 'not a directory');
+  assert.equal(record({ tool: 'x', refused: false }, join(blocked, 'approvals.jsonl')), false);
+  assert.deepEqual(read(join(blocked, 'nothing.jsonl')), []);
 });
