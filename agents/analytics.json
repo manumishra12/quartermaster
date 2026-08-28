@@ -33,6 +33,14 @@
         }
       },
       "iteration_limit": 80
-    }
+    },
+    "skills": [
+      {
+        "name": "sql-analysis"
+      },
+      {
+        "name": "untrusted-input"
+      }
+    ]
   }
 }

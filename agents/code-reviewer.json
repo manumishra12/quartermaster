@@ -31,6 +31,17 @@
       },
       "iteration_limit": 60
     },
+    "skills": [
+      {
+        "name": "code-review"
+      },
+      {
+        "name": "evidence-report"
+      },
+      {
+        "name": "untrusted-input"
+      }
+    ],
     "mcp_servers": [
       {
         "name": "github",

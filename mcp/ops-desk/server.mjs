@@ -41,7 +41,6 @@ const PORT = Number(process.env.OPS_DESK_PORT ?? 8795);
  */
 const HOST = process.env.OPS_DESK_HOST ?? "127.0.0.1";
 
-
 /** Loaded once and then mutated in memory: a rollback has to actually change what the next read sees. */
 const state = JSON.parse(readFileSync(FIXTURE, "utf8"));
 const journal = [];
@@ -378,6 +377,98 @@ function buildServer() {
         ok: true,
         ...entry,
         note: "Instances cycled. The health series for this service was reset.",
+      });
+    },
+  );
+
+  register(
+    server,
+    "resolve_alert",
+    {
+      title: "Resolve an alert",
+      description:
+        "Mark an alert resolved, with the reason. The on-call rotation stops watching it.",
+      inputSchema: { alert_id: ID, resolution: REASON },
+      /**
+       * Destructive, and the annotation is not a formality.
+       *
+       * Resolving is the one remediation that changes nothing about the system and everything
+       * about who is looking at it. An alert resolved while the problem is live is worse than an
+       * alert nobody resolved: the page stops, the rotation moves on, and the thing it was
+       * watching carries on failing unobserved. There is no undo for the attention.
+       */
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ alert_id, resolution }) => {
+      const alert = state.alerts.find((a) => a.id === alert_id);
+      if (!alert) {
+        return text({
+          error: "not_found",
+          message: `No alert with id ${alert_id}. Nothing was resolved.`,
+          known: state.alerts.map((a) => a.id),
+        });
+      }
+
+      if (!given(resolution)) {
+        return text({
+          error: "missing_reason",
+          message:
+            "Resolving an alert needs a reason. It is the only record of why somebody stopped watching.",
+        });
+      }
+
+      if (alert.status === "resolved") {
+        return text({
+          error: "already_resolved",
+          message: `${alert_id} is already resolved. Resolving it again would change nothing and say otherwise.`,
+        });
+      }
+
+      /**
+       * The check that makes this tool worth having.
+       *
+       * You cannot honestly resolve an alert while the thing it watches is still bad. An agent
+       * that has just proposed a rollback is exactly the agent most likely to resolve the alert in
+       * the same breath - before any evidence that the rollback helped - and the fixture should
+       * refuse that rather than reward it. The gate would have asked a person either way; this is
+       * the server declining to offer them a decision founded on nothing.
+       */
+      const series = Object.hasOwn(state.health, alert.service)
+        ? state.health[alert.service]
+        : [];
+      const latest = series[series.length - 1];
+      if (latest && latest.error_rate > 0.01) {
+        return text({
+          error: "still_unhealthy",
+          message:
+            `${alert.service} is still at ${(latest.error_rate * 100).toFixed(1)}% errors as of ${latest.at}. ` +
+            "Resolving now would stop the rotation watching a service that is still failing. " +
+            "Fix it, confirm the health series has recovered, then resolve.",
+          error_rate: latest.error_rate,
+          at: latest.at,
+        });
+      }
+
+      alert.status = "resolved";
+      alert.resolved_at = tick();
+      alert.resolution = resolution;
+      const entry = {
+        action: "resolve_alert",
+        alert_id,
+        service: alert.service,
+        reason: resolution,
+        at: alert.resolved_at,
+      };
+      journal.push(entry);
+      return text({
+        ok: true,
+        ...entry,
+        note: "Resolved. The rotation stops watching it, and this desk cannot reopen it.",
       });
     },
   );
