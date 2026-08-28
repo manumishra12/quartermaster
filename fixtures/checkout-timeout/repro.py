@@ -83,10 +83,18 @@ def charge(port, timeout_ms):
         ) as response:
             response.read()
         return True, round((time.monotonic() - started) * 1000)
-    except (TimeoutError, urllib.error.URLError) as error:
+    except (TimeoutError, socket.timeout, urllib.error.URLError) as error:
         # urllib wraps the socket's timeout in a URLError, so the reason is what has to be examined.
         # Catching URLError alone would report a refused connection - a fixture that never started -
         # as the timeout this is trying to demonstrate.
+        #
+        # socket.timeout is named here as well as in the isinstance below, and leaving it out of
+        # this tuple was a live break rather than a portability nicety. On 3.10 and later it is an
+        # alias of TimeoutError and the tuple reads as redundant; on 3.9 it is a separate OSError
+        # subclass, and urllib only wraps the request - the timeout actually fires later, inside
+        # getresponse, and escapes unwrapped. Stock macOS still ships 3.9.6 at /usr/bin/python3, so
+        # this died on a traceback and took `npm run check` with it for anyone who had not installed
+        # their own Python.
         reason = getattr(error, "reason", error)
         if not isinstance(reason, (TimeoutError, socket.timeout)):
             raise

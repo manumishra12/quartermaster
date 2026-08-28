@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDialog } from './useDialog';
 import { EvidenceReport } from './EvidenceReport';
 import { useThemeControl } from './ThemeContext';
+import { rememberVerdict, type Verdict } from './useThreadVerdict';
 import { useComposerBusyState } from '@truefoundry/trueforge-ui';
 // @ts-expect-error - shared JS module, aliased in vite.config.ts
-import { PHASES, isGreen, progress, testRuns, unexecutedToolCalls } from '@evidence';
+import { PHASES, isGreen, judge, progress, testRuns, unexecutedToolCalls } from '@evidence';
 // @ts-expect-error - shared JS module, aliased in vite.config.ts
 import { renderUnexecutedCalls } from '@render-call';
 import { useAgentState } from './useAgentState';
@@ -122,6 +123,12 @@ export function StatusRail() {
     pendingQuestions,
     sandboxId,
     /**
+     * Defaulted for the same reason runStatus below is: this reads a shape the SDK owns, and a rail
+     * that throws when a field it did not write is absent takes the approval prompt down with it.
+     * Empty means nothing is recorded against this conversation, which is the correct outcome.
+     */
+    sessionIds = [],
+    /**
      * Defaulted, because this reads a shape the SDK owns. A rail that throws when a field it did
      * not write is absent takes the approval prompt down with it - and the approval prompt is the
      * part of this screen that must survive everything else being wrong.
@@ -169,6 +176,25 @@ export function StatusRail() {
    * nothing is listening for an answer, because the call was never made. The rail says so in
    * words, using the same renderer the CLI and the evidence report use.
    */
+  /**
+   * The verdict this conversation ended on, remembered so the sidebar can show it.
+   *
+   * Computed by the same `judge()` the CLI uses, and only once the turn has settled - a verdict
+   * taken mid-stream is a verdict about half an answer, and it would flicker through
+   * NO_ANSWER on its way to the truth.
+   */
+  useEffect(() => {
+    if (isBusy || runStatus.type === 'running' || sessionIds.length === 0) return;
+    if (executions.length === 0 && !finalText.trim()) return;
+    try {
+      const { verdict } = judge({ finalText, toolResponses: asResponses }) as { verdict: string };
+      rememberVerdict(sessionIds, verdict as Verdict);
+    } catch {
+      // A verdict that cannot be computed is simply not recorded. The rail's own panels are the
+      // thing somebody is looking at; this is a convenience for the list beside it.
+    }
+  }, [isBusy, runStatus.type, sessionIds, executions.length, finalText, asResponses]);
+
   const [reportOpen, setReportOpen] = useState(false);
   // Only for the report's own header line; the context is already above this component.
   const { agentName } = useThemeControl();

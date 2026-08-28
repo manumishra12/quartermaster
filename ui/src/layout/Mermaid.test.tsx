@@ -40,3 +40,19 @@ describe('rendering a diagram the model wrote', () => {
     expect(screen.getByRole('region', { name: /diagram source/i })).toHaveAttribute('tabindex', '0');
   });
 });
+
+test('a diagram that failed while streaming recovers when it finishes', async () => {
+  /**
+   * A fenced block arrives a chunk at a time, and per CommonMark an unterminated fence is still a
+   * complete code block - so mermaid is handed a half-typed diagram, rejects it, and the failure
+   * used to latch. The finished diagram then parsed perfectly while the reader went on looking at
+   * "did not parse" until they reloaded. Every streamed diagram hit this, not an unlucky one.
+   */
+  renderDiagram.mockRejectedValueOnce(new Error('Parse error on line 2'));
+  const { rerender } = render(<Mermaid code="flowchart LR\n  A --> " />);
+  await waitFor(() => expect(screen.getByText(/did not parse/i)).toBeInTheDocument());
+
+  rerender(<Mermaid code="flowchart LR\n  A --> B" />);
+  await waitFor(() => expect(screen.getByRole('region', { name: 'Diagram' })).toBeInTheDocument());
+  expect(screen.queryByText(/did not parse/i)).not.toBeInTheDocument();
+});

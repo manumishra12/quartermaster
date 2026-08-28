@@ -61,6 +61,21 @@ export function commandOf(args: unknown, toolName?: string): string | null {
 
 export function useAgentState() {
   const messages = useAuiState(({ thread }) => thread.messages) as unknown;
+  /**
+   * A joined key, not an object: the store compares snapshots by identity, and a selector returning
+   * a fresh object every render never settles. This project has already paid for that once with a
+   * blank page, and the lesson is written beside the same pattern in ThreadRow.
+   */
+  const idKey = useAuiState((s: unknown) => {
+    try {
+      const state = s as { threadListItem?: { remoteId?: string; id?: string }; thread?: { threadId?: string } };
+      return [state?.threadListItem?.remoteId, state?.threadListItem?.id, state?.thread?.threadId]
+        .filter(Boolean)
+        .join('\u0000');
+    } catch {
+      return '';
+    }
+  }) as string;
   const approvals = useTrueFoundryApprovals();
   const questions = useTrueFoundryToolResponses();
   const sandboxId = useTrueFoundrySandboxId();
@@ -133,9 +148,21 @@ export function useAgentState() {
     return { type: 'unknown' };
   }, [messages]);
 
+  /**
+   * Which session this pane is showing, if the runtime will say.
+   *
+   * Read from more than one path and defensively. The rail renders outside the thread-list item
+   * scope, so the field a row reads is not necessarily present here, and the shape is the SDK's to
+   * change. An empty list means nothing is recorded against this conversation - which is the right
+   * outcome rather than a failure: a verdict filed under the wrong conversation is worse than no
+   * verdict, and this is the one product that cannot afford one in the wrong place.
+   */
+  const sessionIds = useMemo(() => idKey.split('\u0000').filter(Boolean), [idKey]);
+
   return {
     executions,
     finalText,
+    sessionIds,
     runStatus,
     pendingApprovals: approvals?.pending ?? [],
     respondToApproval: approvals?.respond,

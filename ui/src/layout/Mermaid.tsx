@@ -29,6 +29,18 @@ export function Mermaid({ code }: { code: string }) {
     const mine = (generation.current += 1);
     let alive = true;
 
+    /**
+     * Both states cleared before every attempt, because the failure used to latch.
+     *
+     * A fenced block arrives a chunk at a time, and per CommonMark an unterminated fence is still a
+     * complete code block - so the renderer is handed `flowchart LR\n  A --> ` while the model is
+     * still typing, mermaid rejects it, and nothing ever cleared that. The finished diagram then
+     * parsed perfectly and the reader went on looking at "did not parse" until they reloaded.
+     *
+     * Which means every streamed diagram hit this, not an unlucky one.
+     */
+    setFailed(null);
+
     void (async () => {
       try {
         const { default: mermaid } = await import('mermaid');

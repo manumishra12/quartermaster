@@ -57,6 +57,22 @@ describe('an ordinary answer', () => {
     render(<Answer content={prose} />);
     expect(screen.getByTestId('sdk-markdown')).toBeInTheDocument();
   });
+
+  test('but a whole call object in a sentence is still a printed call', () => {
+    /**
+     * The case above uses JSON with no `name` key, so it never exercised the interesting question,
+     * which review pointed out: what happens when the object really is call-shaped and prose is
+     * wrapped around it.
+     *
+     * It is caught, and that is right. The object is the signal, not the sentence. A model that
+     * emitted a complete call and then apologised for it has still emitted a complete call, and
+     * nothing ran - which is the one thing a reader has to be told.
+     */
+    const wrapped =
+      'I would call { "name": "exec", "arguments": { "command": "ls" } } but the sandbox is not ready.';
+    render(<Answer content={wrapped} />);
+    expect(screen.getByText(/written out, not called/i)).toBeInTheDocument();
+  });
 });
 
 test('nothing is intercepted while the answer is still arriving', () => {

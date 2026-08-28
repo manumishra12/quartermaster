@@ -1,5 +1,6 @@
 import { Children, isValidElement, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNow } from './useNow';
+import { useThreadVerdict, type Verdict } from './useThreadVerdict';
 import { useAuiState } from '@truefoundry/trueforge-ui/assistant-ui';
 import { ThreadListPrimitive } from '@assistant-ui/react';
 import { ChatIcon, PencilIcon, PlusIcon } from './icons';
@@ -59,6 +60,7 @@ export function ThreadRow({
   });
   const ids = useMemo(() => idKey.split('\u0000').filter(Boolean), [idKey]);
   const { title: shown, canRename, rename } = useThreadTitle(ids, title);
+  const verdict = useThreadVerdict(ids);
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(shown);
@@ -171,23 +173,27 @@ export function ThreadRow({
         >
           {shown}
         </span>
-        {agentName && <span className="mt-0.5 block truncate text-2xs text-muted">{agentName}</span>}
+        <span className="mt-0.5 flex items-center gap-1.5">
+          {agentName && <span className="truncate text-2xs text-muted">{agentName}</span>}
+          {verdict && <VerdictChip verdict={verdict} />}
+        </span>
       </button>
 
       {lastMessageAt && (
+        /**
+         * The exact time is on the element as well as the relative one. The compact form is for
+         * scanning a list; the moment somebody actually wants to know when something happened,
+         * "3d" is the wrong answer and there was nowhere else to look.
+         *
+         * One `time`, not two. This was a `time` wrapping a `time` with the same dateTime, which is
+         * invalid and leaves a screen reader announcing the same instant twice.
+         */
         <time
           dateTime={lastMessageAt.toISOString()}
           title={lastMessageAt.toLocaleString()}
           className="qm-nums mt-0.5 shrink-0 text-2xs text-muted"
         >
-          {/**
-           * The exact time is on the element as well as the relative one. The compact form is for
-           * scanning a list; the moment somebody actually wants to know when something happened,
-           * "3d" is the wrong answer and there was nowhere else to look.
-           */}
-          <time dateTime={lastMessageAt.toISOString()} title={lastMessageAt.toLocaleString()}>
-            {ago(lastMessageAt, now)}
-          </time>
+          {ago(lastMessageAt, now)}
         </time>
       )}
 
@@ -231,6 +237,53 @@ export function ThreadRow({
         {actions}
       </span>
     </div>
+  );
+}
+
+/**
+ * How a conversation ended, small enough to scan a column of them.
+ *
+ * Colour is never the only signal here, as everywhere else in this interface: each carries a word,
+ * and the two that matter most - a claim the record contradicts, and a claim it supports - are the
+ * two that read differently in a single glance.
+ */
+const CHIPS: Record<Verdict, { label: string; tone: string; title: string }> = {
+  substantiated: {
+    label: 'proved',
+    tone: 'border-verified/40 text-verified',
+    title: 'The answer claimed something and the recorded runs support it',
+  },
+  contradicted: {
+    label: 'contradicted',
+    tone: 'border-failed/50 text-failed',
+    title: 'The answer claimed something the recorded runs contradict',
+  },
+  unsubstantiated: {
+    label: 'unproved',
+    tone: 'border-waiting/50 text-waiting',
+    title: 'The answer claimed something with no recorded run behind it',
+  },
+  no_claim: {
+    label: 'no claim',
+    tone: 'border-line text-muted',
+    title: 'The answer made no claim that needed proving',
+  },
+  no_answer: {
+    label: 'no answer',
+    tone: 'border-line text-muted',
+    title: 'No answer text was captured, so there was nothing to check',
+  },
+};
+
+function VerdictChip({ verdict }: { verdict: Verdict }) {
+  const chip = CHIPS[verdict];
+  return (
+    <span
+      title={chip.title}
+      className={['shrink-0 rounded-full border px-1.5 text-2xs leading-4', chip.tone].join(' ')}
+    >
+      {chip.label}
+    </span>
   );
 }
 
