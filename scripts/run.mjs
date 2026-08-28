@@ -21,7 +21,7 @@ loadEnv();
 import { judge, performed, refused, resultOf, SUBSTANTIATED, NO_CLAIM } from './lib/evidence.mjs';
 import { buildReport } from './lib/report.mjs';
 import { describeCall } from './lib/describe-call.mjs';
-import { endedBecause } from './lib/turn-state.mjs';
+import { endedBecause, runExitCode } from './lib/turn-state.mjs';
 import { unexecutedToolCalls } from './lib/evidence.mjs';
 import { renderUnexecutedCalls } from './lib/render-call.mjs';
 import { positionals, readFlag } from './lib/flags.mjs';
@@ -327,139 +327,180 @@ function describe(ref) {
   return msg.toolCalls?.find((tc) => tc.id === ref.id) ?? null;
 }
 
-let first;
-if (resuming) {
-  first = await reattach();
-} else {
-  const { data: session } = await client.sessions.create({ agent: { name: agentName } });
-  checkpoint.sessionId = session.id;
-  checkpoint.agentName = agentName;
-  save();
-  console.log(`agent: ${agentName}\nsession: ${session.id}\n`);
-  first = await consume(await client.sessions.createTurnStream(session.id, { input: [{ type: 'user.message', content: prompt }] }));
-}
+/**
+ * Everything from here to the report runs inside a guard, because the report is the point.
+ *
+ * A throw anywhere in the loop - a dropped connection, a stream the SDK could not parse - used to
+ * end the process on a stack trace, and the run's whole record went with it. The executions had
+ * already happened; nothing was left to say so. A crashed run is exactly the run somebody needs
+ * the artifact for, so the crash is caught, recorded as the reason the turn did not finish, and
+ * the report is written from whatever was collected before it.
+ */
+let crash = null;
+/** The gate can be answered this many times before the run is called stuck rather than finished. */
+const HOPS = 24;
+let hop = 0;
+let lastStatus;
 
-let carry = first;
+try {
+  let first;
+  if (resuming) {
+    first = await reattach();
+  } else {
+    const { data: session } = await client.sessions.create({ agent: { name: agentName } });
+    checkpoint.sessionId = session.id;
+    checkpoint.agentName = agentName;
+    save();
+    console.log(`agent: ${agentName}\nsession: ${session.id}\n`);
+    first = await consume(await client.sessions.createTurnStream(session.id, { input: [{ type: 'user.message', content: prompt }] }));
+  }
 
-for (let hop = 0; hop < 24; hop++) {
-  const { pending, status, failure } = carry;
-  if (failure) turnFailure = failure;
-  const resume = [];
+  let carry = first;
 
-  for (const event of pending.approvals) {
-    for (const ref of event.toolCalls) {
-      const call = describe(ref);
-      console.log('\n  ── APPROVAL REQUIRED ──────────────────────────────');
+  for (; hop < HOPS; hop++) {
+    const { pending, status, failure } = carry;
+    lastStatus = status ?? lastStatus;
+    if (failure) turnFailure = failure;
+    const resume = [];
 
-      let answer = null;
-      if (!call) {
-        // The call cannot be displayed, so nobody is asked about it. Asking somebody to approve a
-        // blank is worse than not asking: it produces the appearance of oversight without any.
-        console.log('  This call could not be read, so it cannot be shown to you. Denying.');
-      } else {
-        // What it will change, not eight hundred characters of the JSON it will send.
-        for (const line of describeCall(call.toolInfo?.name, call.function?.arguments)) {
-          console.log(line);
+    for (const event of pending.approvals) {
+      for (const ref of event.toolCalls) {
+        const call = describe(ref);
+        console.log('\n  ── APPROVAL REQUIRED ──────────────────────────────');
+
+        let answer = null;
+        if (!call) {
+          // The call cannot be displayed, so nobody is asked about it. Asking somebody to approve a
+          // blank is worse than not asking: it produces the appearance of oversight without any.
+          console.log('  This call could not be read, so it cannot be shown to you. Denying.');
+        } else {
+          // What it will change, not eight hundred characters of the JSON it will send.
+          for (const line of describeCall(call.toolInfo?.name, call.function?.arguments)) {
+            console.log(line);
+          }
+          if (!denyAll) answer = await ask('  allow / deny > ', 'deny');
         }
-        if (!denyAll) answer = await ask('  allow / deny > ', 'deny');
+
+        /**
+         * One decision, one record. The undisplayable call used to be denied by its own early
+         * return, which skipped the bookkeeping below - so the gate stopped it and the report
+         * counted it as an execution anyway.
+         */
+        const { approval, refused: wasRefused, note } = decideApproval({
+          displayable: Boolean(call),
+          denyAll,
+          piped,
+          answer,
+        });
+        if (note) console.log(`  ${note}`);
+        resume.push({ type: 'user.tool_approval', threadId: event.threadId, toolCallId: ref.id, approval });
+        if (wasRefused) {
+          denied.add(ref.id);
+          checkpoint.denied = [...denied];
+          save();
+        }
+        console.log(`  -> ${wasRefused ? 'denied' : 'allowed'}\n`);
       }
+    }
 
-      /**
-       * One decision, one record. The undisplayable call used to be denied by its own early
-       * return, which skipped the bookkeeping below - so the gate stopped it and the report
-       * counted it as an execution anyway.
-       */
-      const { approval, refused: wasRefused, note } = decideApproval({
-        displayable: Boolean(call),
-        denyAll,
-        piped,
-        answer,
-      });
-      if (note) console.log(`  ${note}`);
-      resume.push({ type: 'user.tool_approval', threadId: event.threadId, toolCallId: ref.id, approval });
-      if (wasRefused) {
-        denied.add(ref.id);
-        checkpoint.denied = [...denied];
-        save();
+    for (const event of pending.questions) {
+      for (const ref of event.toolCalls) {
+        const call = describe(ref);
+        if (call?.toolInfo?.name !== 'ask_user_question') continue;
+        const { question, options } = JSON.parse(call.function?.arguments || '{}');
+        console.log('\n  ── THE AGENT IS ASKING ────────────────────────────');
+        console.log(`  ${question}`);
+        if (options?.length) options.forEach((o, i) => console.log(`    ${i + 1}. ${o}`));
+        /**
+         * `--deny-all` exists to prove the gate holds, so it must not hand the agent the most
+         * permissive possible answer through the question channel. An agent that asks "should I
+         * force-push?" gets a refusal, not "use your best judgement".
+         */
+        /**
+         * With nobody there to answer, the answer is no.
+         *
+         * The fallback was "Use your best judgement and continue" for every unattended run that had
+         * not passed --deny-all - so an agent asking "should I force-push?" through the question
+         * channel got a yes that nobody gave. The reasoning for the --deny-all wording was already
+         * written here and applied to only half the cases: an agent asking a question is asking
+         * because the answer matters, and silence is not consent to whichever branch it prefers.
+         *
+         * --answer is still honoured, because that is somebody deciding in advance and saying so.
+         */
+        /**
+         * --deny-all outranks --answer, and outranks it here too.
+         *
+         * Passing both used to hand the supplied text straight to the agent without prompting, so
+         * `--deny-all --answer yes` produced an affirmative from the flag whose entire purpose is
+         * that this session approves nothing. The flag that refuses has to win, or it is not a flag
+         * that refuses.
+         */
+        const supplied = denyAll ? null : flag('answer', null);
+        const fallback =
+          supplied ??
+          (denyAll
+            ? 'No. Do not proceed. This session cannot approve or answer anything.'
+            : 'No. Nobody is available to answer this. Do not proceed on an assumption - report what you needed to know and stop.');
+        const answer = denyAll ? fallback : await ask('  > ', fallback);
+        resume.push({ type: 'user.tool_response', threadId: event.threadId, toolCallId: ref.id, content: answer });
       }
-      console.log(`  -> ${wasRefused ? 'denied' : 'allowed'}\n`);
     }
-  }
 
-  for (const event of pending.questions) {
-    for (const ref of event.toolCalls) {
-      const call = describe(ref);
-      if (call?.toolInfo?.name !== 'ask_user_question') continue;
-      const { question, options } = JSON.parse(call.function?.arguments || '{}');
-      console.log('\n  ── THE AGENT IS ASKING ────────────────────────────');
-      console.log(`  ${question}`);
-      if (options?.length) options.forEach((o, i) => console.log(`    ${i + 1}. ${o}`));
-      /**
-       * `--deny-all` exists to prove the gate holds, so it must not hand the agent the most
-       * permissive possible answer through the question channel. An agent that asks "should I
-       * force-push?" gets a refusal, not "use your best judgement".
-       */
-      /**
-       * With nobody there to answer, the answer is no.
-       *
-       * The fallback was "Use your best judgement and continue" for every unattended run that had
-       * not passed --deny-all - so an agent asking "should I force-push?" through the question
-       * channel got a yes that nobody gave. The reasoning for the --deny-all wording was already
-       * written here and applied to only half the cases: an agent asking a question is asking
-       * because the answer matters, and silence is not consent to whichever branch it prefers.
-       *
-       * --answer is still honoured, because that is somebody deciding in advance and saying so.
-       */
-      /**
-       * --deny-all outranks --answer, and outranks it here too.
-       *
-       * Passing both used to hand the supplied text straight to the agent without prompting, so
-       * `--deny-all --answer yes` produced an affirmative from the flag whose entire purpose is
-       * that this session approves nothing. The flag that refuses has to win, or it is not a flag
-       * that refuses.
-       */
-      const supplied = denyAll ? null : flag('answer', null);
-      const fallback =
-        supplied ??
-        (denyAll
-          ? 'No. Do not proceed. This session cannot approve or answer anything.'
-          : 'No. Nobody is available to answer this. Do not proceed on an assumption - report what you needed to know and stop.');
-      const answer = denyAll ? fallback : await ask('  > ', fallback);
-      resume.push({ type: 'user.tool_response', threadId: event.threadId, toolCallId: ref.id, content: answer });
+    if (pending.auth.length) {
+      blockedOnAuth = true;
+      for (const event of pending.auth) {
+        for (const server of event.mcpServers ?? []) console.log(`\n  authorize ${server.name}: ${server.authUrl}`);
+      }
+      const acknowledged = await ask('  press enter once authorized > ', null);
+      if (acknowledged === null) {
+        // Nobody is here to authorize it, so the run cannot continue. Reporting this as a finished
+        // turn and exiting 0 told CI the work was done when it had not started.
+        console.log('\n  Cannot authorize a connector without an operator. Stopping.');
+        break;
+      }
+      blockedOnAuth = false;
+      // A turn resuming after mcp.auth_required must not carry a user message, but approvals and
+      // answers already given are not user messages and were being thrown away here.
+      carry = await consume(
+        await client.sessions.createTurnStream(checkpoint.sessionId, resume.length ? { input: resume } : {}),
+      );
+      continue;
     }
-  }
 
-  if (pending.auth.length) {
-    blockedOnAuth = true;
-    for (const event of pending.auth) {
-      for (const server of event.mcpServers ?? []) console.log(`\n  authorize ${server.name}: ${server.authUrl}`);
-    }
-    const acknowledged = await ask('  press enter once authorized > ', null);
-    if (acknowledged === null) {
-      // Nobody is here to authorize it, so the run cannot continue. Reporting this as a finished
-      // turn and exiting 0 told CI the work was done when it had not started.
-      console.log('\n  Cannot authorize a connector without an operator. Stopping.');
+    if (!resume.length) {
+      console.log(`\n\n[${status ?? 'ended'}]`);
+      if (failure) console.log(`  ${failure}`);
       break;
     }
-    blockedOnAuth = false;
-    // A turn resuming after mcp.auth_required must not carry a user message, but approvals and
-    // answers already given are not user messages and were being thrown away here.
-    carry = await consume(
-      await client.sessions.createTurnStream(checkpoint.sessionId, resume.length ? { input: resume } : {}),
-    );
-    continue;
+    finalText = ''; // only the answer that ends the run is judged
+    carry = await consume(await client.sessions.createTurnStream(checkpoint.sessionId, { input: resume }));
   }
-
-  if (!resume.length) {
-    console.log(`\n\n[${status ?? 'ended'}]`);
-    if (failure) console.log(`  ${failure}`);
-    break;
-  }
-  finalText = ''; // only the answer that ends the run is judged
-  carry = await consume(await client.sessions.createTurnStream(checkpoint.sessionId, { input: resume }));
+} catch (err) {
+  crash = err;
+  // On stderr and in full, because a stack is the only useful thing to say about an unexpected
+  // throw - and then the run carries on to the report rather than dying here.
+  console.error(`\n\n  The run stopped on an error.\n${err?.stack ?? err}`);
+} finally {
+  rl?.close();
 }
 
-rl?.close();
+/**
+ * Running out of rounds is not finishing. The loop ends either because the agent stopped asking
+ * for anything, or because it asked twenty-four times - and the second used to be indistinguishable
+ * from the first in every artifact the run produces.
+ */
+const ranOutOfHops = hop >= HOPS;
+if (ranOutOfHops) {
+  const stuck = `Stopped after ${HOPS} rounds of approvals and questions. The turn had not finished.`;
+  console.log(`\n  ${stuck}`);
+  turnFailure ??= stuck;
+}
+if (crash) {
+  // Kept alongside whatever the harness had already said, not instead of it: the turn's own reason
+  // is usually the more specific of the two.
+  const said = `The run stopped on an error: ${crash?.stack ?? crash?.message ?? String(crash)}`;
+  turnFailure = turnFailure ? `${turnFailure}\n\n${said}` : said;
+}
 
 // The closing verdict. The agent does not get the last word on whether it succeeded.
 const { verdict, runs, reason } = judge({ finalText, toolResponses });
@@ -506,14 +547,36 @@ const report = buildReport({
 // arrives from the server on a fresh run and from the checkpoint file on a resume, and `../..` in
 // it would decide where the artifact a reviewer reads ends up.
 const dir = `evidence/${sessionDirName(checkpoint.sessionId)}`;
-mkdirSync(dir, { recursive: true });
-writeFileSync(`${dir}/report.json`, JSON.stringify(report.json, null, 2));
-writeFileSync(`${dir}/report.md`, report.markdown);
-console.log(`  written: ${dir}/report.md\n`);
+// A run whose report could not be written is a run with no record, whatever its verdict was. It
+// says so out loud and takes the exit code with it, rather than printing a stack over the verdict
+// somebody was reading.
+let reportWritten = true;
+try {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(`${dir}/report.json`, JSON.stringify(report.json, null, 2));
+  writeFileSync(`${dir}/report.md`, report.markdown);
+  console.log(`  written: ${dir}/report.md\n`);
+} catch (err) {
+  reportWritten = false;
+  console.error(`  The report could not be written to ${dir}: ${err?.message ?? err}\n`);
+}
 
 if (blockedOnAuth) {
   console.log('  This run stopped waiting for a connector to be authorized. It did not finish.\n');
-  process.exit(1);
 }
 
-process.exit(verdict === SUBSTANTIATED || verdict === NO_CLAIM ? 0 : 1);
+/**
+ * Whether the run finished comes before whether its answer was any good. A turn killed on a
+ * provider quota produces no answer and therefore no claim, and NO CLAIM used to exit 0 - so
+ * every plumbing failure reported success to whatever was watching.
+ */
+process.exit(
+  runExitCode({
+    proved: verdict === SUBSTANTIATED || verdict === NO_CLAIM,
+    crashed: Boolean(crash) || !reportWritten,
+    unfinished: ranOutOfHops,
+    blockedOnAuth,
+    status: lastStatus,
+    failure: turnFailure,
+  }),
+);
