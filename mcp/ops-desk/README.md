@@ -206,9 +206,10 @@ sequenceDiagram
   something that did not happen, which is the failure this whole project exists to refuse. Review
   found both.
 - **The 2000ms appears in three places on purpose.** The alert's `sample_error`, the summary on
-  deploy `4c21`, and every `UpstreamTimeout` line in the logs all name the same number. Change one
-  and the correlation this whole fixture exists to reward stops being available; a test pins all
-  three together for that reason.
+  deploy `4c21`, and every `UpstreamTimeout` line in the logs all name the same number, and
+  `fixtures/checkout-timeout` reproduces against it. Change one and the correlation this whole
+  fixture exists to reward stops being available; a test pins the three here together, and
+  `npm run fixtures:check` pins the reproduction to them.
 - **A read tool has a way of lying too.** It is not a false success — a search can always come back
   empty — it is a false negative. A dropped filter or an impossible window answered with an empty
   list reads as a service that was quiet, and an investigation acts on that exactly as it would act

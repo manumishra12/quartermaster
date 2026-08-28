@@ -59,7 +59,7 @@ flowchart TD
     U2["mount: 1 test, whole app"]
   end
 
-  FX["check-fixtures.mjs<br/>the broken repos are still broken"]
+  FX["check-fixtures.mjs<br/>the broken repos are still broken,<br/>and the reproduction still reproduces"]
 
   root --> CI["CI: 3 jobs"]
   ui --> CI
@@ -131,9 +131,11 @@ names, so a test fails when the control becomes unusable rather than when the ma
 
 ## Fixtures
 
-`fixtures/` holds two deliberately broken repositories the agents are pointed at. `npm run
-fixtures:check` asserts they are **still broken** — a fixture that quietly starts passing turns the
-whole demonstration into a tautology, and CI runs this as its own job so it cannot be missed.
+`fixtures/` holds two deliberately broken repositories the agents are pointed at, and one
+reproduction. `npm run fixtures:check` asserts the two are **still broken** — a fixture that quietly
+starts passing turns the whole demonstration into a tautology — and that the third still fails on
+`4c21` and passes on `9ab7`, because a reproduction that fails in both configurations demonstrates
+a broken script rather than a cause. CI runs this as its own job so it cannot be missed.
 
 Stated plainly, rather than left for someone to discover:
 

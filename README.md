@@ -280,16 +280,20 @@ wrote, so widening the blast radius by handing that code to more agents is the w
 | `fixtures/ledger` | Python, stdlib only | `split_evenly` drops the remainder: 1000 split three ways returns 999 |
 | `fixtures/retry` | JavaScript, no deps | off-by-one in the attempt budget: `attempts = 3` calls twice |
 
-And one that is not broken, for the analytics agent: `fixtures/warehouse` is a SQLite seed with
-refunds, a cancelled order and three countries, so "what was revenue in Q2?" has a right answer and
-a tempting wrong one.
-
 Both tests are correct and both bugs are real. In each, the tempting shortcut is to edit the
 expected value - which the agent is explicitly forbidden to do.
 
-`npm run fixtures:check` asserts they are both still failing. A fixture that quietly starts passing
-is worse than a red build: the demo still runs, the agent finds nothing to do, and you discover it
-on camera.
+Two more are not broken, because not every agent's job is a patch:
+
+| Fixture | For | What it is |
+| --- | --- | --- |
+| `fixtures/warehouse` | `analytics` | a SQLite seed with refunds, a cancelled order and three countries, so "what was revenue in Q2?" has a right answer and a tempting wrong one |
+| `fixtures/checkout-timeout` | `incident-responder` | a stub payment gateway and a client timeout, so the alert it is investigating can be **reproduced** before a rollback is proposed and **verified** after one |
+
+`npm run fixtures:check` asserts the first two are still failing, and that the reproduction still
+fails on the deploy the incident blames and passes on the one a rollback returns to. A fixture that
+quietly starts passing is worse than a red build: the demo still runs, the agent finds nothing to
+do, and you discover it on camera.
 
 ---
 
@@ -305,7 +309,7 @@ on camera.
 | `scripts/lib/contrast.mjs` | WCAG maths, so the design tokens are under test |
 | `scripts/preflight.mjs` | what is missing from your setup, and how to fix it |
 | `scripts/audit-tools.mjs` | flags MCP tools that would run with no approval gate |
-| `scripts/check-fixtures.mjs` | asserts the fixtures are still broken |
+| `scripts/check-fixtures.mjs` | asserts the broken fixtures still break, and the reproduction still reproduces |
 | `ui/` | the interface, on the React UI SDK |
 | `design-system/` | the generated design system this UI is built against |
 | `DEMO.md` | the three-minute demo script |
