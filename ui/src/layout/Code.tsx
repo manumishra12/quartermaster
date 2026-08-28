@@ -1,5 +1,6 @@
 import { SyntaxHighlighter } from '@truefoundry/trueforge-ui';
 import { Diff, looksLikeDiff } from './Diff';
+import { Mermaid } from './Mermaid';
 
 /**
  * The SDK's code block, except when the code is a patch.
@@ -11,7 +12,8 @@ import { Diff, looksLikeDiff } from './Diff';
  *
  * The detection is deliberately narrow - a hunk header, or a language the model itself labelled
  * `diff`. A file of vendor-prefixed CSS opens plenty of lines with `-`, and colouring half of it
- * red because of that would be worse than not rendering patches at all.
+ * red because of that would be worse than not rendering patches at all. Mermaid is narrower still
+ * and takes only the explicit label, because its grammar overlaps ordinary prose.
  */
 export function Code(props: {
   code: string;
@@ -22,6 +24,14 @@ export function Code(props: {
 }) {
   if (looksLikeDiff(props.code, props.language)) {
     return <Diff code={props.code} className={props.className} />;
+  }
+  /**
+   * Only a fence the model labelled `mermaid`. There is no sniffing here, deliberately: mermaid's
+   * grammar overlaps ordinary prose enough that guessing would turn a paragraph into a broken
+   * diagram, and a wrong guess costs more than a missed one.
+   */
+  if (props.language === 'mermaid') {
+    return <Mermaid code={props.code} />;
   }
   return <SyntaxHighlighter {...props} />;
 }

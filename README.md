@@ -352,7 +352,7 @@ npm run fixtures:check    # the fixtures must still fail
 npm run tools:audit       # every reachable tool is gated as claimed
 npm run ops-desk          # the MCP server the incident responder investigates
 npm run front-desk        # the workspace the desk assistant files into
-cd ui && npm run test:unit && npm run build   # 161 tests, then the interface compiles
+cd ui && npm run test:unit && npm run build   # 165 tests, then the interface compiles
 ```
 
 CI runs all of it on every pull request. [`TESTING.md`](TESTING.md) covers how the suites are
