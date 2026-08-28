@@ -5,6 +5,9 @@ permission before touching anything outside the sandbox.**
 
 Built on [TrueForge](https://trueforge.dev), the open-source agent harness.
 
+[`WRITEUP.md`](WRITEUP.md) is the short version: what the agent does, how it uses TrueForge, what
+was found while building it, and what it does not do.
+
 ---
 
 ## The problem
