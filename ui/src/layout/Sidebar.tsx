@@ -161,7 +161,7 @@ function Row({ label, note, warn = false }: { label: string; note: string; warn?
  * answered their question. Real destinations only - a link to a page that does not exist is worse
  * than no link, because it costs a click to discover.
  */
-export function FooterLinks() {
+export function FooterLinks({ onShowShortcuts }: { onShowShortcuts?: () => void } = {}) {
   // Null while loading or if the call failed - the SDK's own documented semantics, and the reason
   // this needs a third state rather than two.
   const capabilities = useServerCapabilities();
@@ -195,6 +195,22 @@ export function FooterLinks() {
 
   return (
     <footer className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line-soft px-5 py-2.5 text-2xs text-muted">
+      {/**
+        * A way to the shortcuts that is not a shortcut.
+        *
+        * `?` opens the list, which is only useful to somebody who already knows to press it. The
+        * reference design puts Shortcuts in the sidebar for that reason, and a keyboard nobody can
+        * find is a keyboard nobody uses.
+        */}
+      {onShowShortcuts && (
+        <button
+          type="button"
+          onClick={onShowShortcuts}
+          className="qm-tap cursor-pointer rounded transition-colors duration-200 hover:text-ink"
+        >
+          Shortcuts
+        </button>
+      )}
       {links.map(({ label, href }) => (
         <a
           key={label}

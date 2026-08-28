@@ -312,7 +312,7 @@ function Verdict({ last, ordinal, of }: { last: Run; ordinal: number; of: number
   return (
     <div
       className={[
-        'mt-3 rounded-lg border p-3 shadow-[var(--qm-shadow)]',
+        'qm-enter mt-3 rounded-lg border p-3 shadow-[var(--qm-shadow)]',
         green ? 'border-verified/40 bg-verified/[0.06]' : 'border-failed/40 bg-failed/[0.06]',
       ].join(' ')}
     >
@@ -474,7 +474,7 @@ function ApprovalPrompt({
       aria-label={`Approval required for ${pending.toolName}`}
       ref={dialogRef}
       tabIndex={-1}
-      className="rounded-lg border border-waiting/60 bg-surface p-3 shadow-[var(--qm-shadow)] focus:outline-2 focus:outline-offset-2 focus:outline-accent"
+      className="qm-enter rounded-lg border border-waiting/60 bg-surface p-3 shadow-[var(--qm-shadow)] focus:outline-2 focus:outline-offset-2 focus:outline-accent"
     >
       {/* Announced separately: an alertdialog label is read on focus, but this must reach someone
           whose focus is elsewhere entirely. */}

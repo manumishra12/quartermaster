@@ -120,7 +120,7 @@ export function QuartermasterLayout({ className }: { className?: string }) {
             </>
           }
         />
-        <FooterLinks />
+        <FooterLinks onShowShortcuts={() => setHelpOpen(true)} />
       </main>
 
       <StatusRail />

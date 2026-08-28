@@ -159,3 +159,25 @@ describe('the connectivity claim is not hardcoded', () => {
     }
   });
 });
+
+describe('finding the keyboard', () => {
+  test('the sidebar offers the shortcuts, because a key nobody knows is not an affordance', async () => {
+    /**
+     * `?` opens the list, which only helps somebody who already knows to press it. The reference
+     * design puts Shortcuts in the sidebar for the same reason.
+     */
+    const { FooterLinks } = await import('./Sidebar');
+    const onShowShortcuts = vi.fn();
+    render(<FooterLinks onShowShortcuts={onShowShortcuts} />);
+    screen.getByRole('button', { name: 'Shortcuts' }).click();
+    expect(onShowShortcuts).toHaveBeenCalledTimes(1);
+  });
+
+  test('and stays out of the way where nothing can open them', async () => {
+    // Rendered without the handler - as the tests for the rest of this footer do - it must not
+    // offer a control that does nothing.
+    const { FooterLinks } = await import('./Sidebar');
+    render(<FooterLinks />);
+    expect(screen.queryByRole('button', { name: 'Shortcuts' })).not.toBeInTheDocument();
+  });
+});

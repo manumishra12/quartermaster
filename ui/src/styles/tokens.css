@@ -211,6 +211,40 @@
   }
 }
 
+/**
+ * The entrance the reference design uses: six pixels up, over 240ms.
+ *
+ * Motion here is not decoration - it says a thing is new. An approval prompt and a finished
+ * verdict both appear while somebody is looking somewhere else, and a card that fades up is
+ * noticed where a card that simply exists is not.
+ *
+ * Nothing loops and nothing moves on its own. The only movement is a thing arriving.
+ */
+@keyframes qm-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.qm-enter {
+  animation: qm-fade-up 240ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+/**
+ * Honoured rather than assumed. Somebody who has asked their system for less motion has usually
+ * asked for a reason, and an entrance animation is exactly the kind nobody needs.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .qm-enter {
+    animation: none;
+  }
+}
+
 .qm-nums {
   font-variant-numeric: tabular-nums;
 }
