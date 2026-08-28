@@ -3,6 +3,7 @@ import { TrueForgeUI } from '@truefoundry/trueforge-ui';
 import { QuartermasterLayout } from './layout/QuartermasterLayout';
 import { ThemeContext } from './layout/ThemeContext';
 import { Welcome } from './layout/Welcome';
+import { Code } from './layout/Code';
 import { ThreadList, ThreadRow } from './layout/ThreadRow';
 import { AgentStepsCard, ReasoningCard } from './layout/Steps';
 import { useTheme } from './layout/useTheme';
@@ -43,6 +44,9 @@ const OVERRIDES = {
   // it to a line with a preview and put the answer back on top.
   AgentStepsCard,
   ReasoningCard,
+  // One case intercepted, everything else handed back to the SDK: a patch is rendered as a patch,
+  // and every other language keeps whatever highlighting the SDK does and whatever it improves.
+  SyntaxHighlighter: Code,
 } as const;
 const BRAND = { name: 'Quartermaster', logo: { src: '/mark.svg' } } as const;
 
