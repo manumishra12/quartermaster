@@ -1,6 +1,6 @@
 # Testing
 
-332 tests in the root suite, 138 in the UI across 15 files, one mount test, and a fixture check. What follows is
+339 tests in the root suite, 138 in the UI across 15 files, one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
 
@@ -44,6 +44,7 @@ flowchart TD
     ST["settle.test.mjs<br/>5 - waiting without abandoning"]
     HT["http.test.mjs<br/>3 - an error page is not a body"]
     PA["paths.test.mjs<br/>4 - module-relative paths"]
+    SK["skills.test.mjs<br/>7 - the skill registry"]
     CA["connector-advice.test.mjs<br/>10 - what to tell a person"]
     CO["contrast.test.mjs<br/>28 - palette contrast"]
     MA["model-advice.test.mjs<br/>6 - what a provider failure means"]

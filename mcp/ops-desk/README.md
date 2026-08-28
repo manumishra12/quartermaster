@@ -50,6 +50,7 @@ Then `npm run agents:apply` and `incident-responder` applies instead of being sk
 | `list_actions_taken` | `readOnlyHint` | no |
 | `rollback_deploy` | `destructiveHint` | **yes** |
 | `restart_service` | `destructiveHint` | **yes** |
+| `resolve_alert` | `destructiveHint` | **yes** |
 
 Every tool publishes annotations, and that matters more here than anywhere else in the project.
 The selectors `@read-only`, `@write` and `@destructive` are resolved *from these hints*. A tool
@@ -79,6 +80,8 @@ for work it did not do has laundered a false record through a human decision.
 | Roll back or restart with a reason of spaces | `missing_reason` — whitespace is not an explanation |
 | Restart a service the desk does not know | `not_found`, naming the ones it does |
 | Send more text than anyone will read | refused by the schema, before the handler is reached |
+| Resolve an alert whose service is still failing | `still_unhealthy`, quoting the error rate it is still at |
+| Resolve an alert already resolved, or with no reason | `already_resolved` / `missing_reason` |
 
 The second row is worth its own note, because the fixture used to make it unreachable and the test
 suite agreed with the bug. Rolling back `4c21` reverts to `9ab7`; rolling back `9ab7` then reported

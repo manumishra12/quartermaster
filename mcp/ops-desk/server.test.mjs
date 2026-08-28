@@ -106,7 +106,7 @@ async function withServer(body) {
 test('every tool publishes annotations, because the selectors are resolved from them', () =>
   withServer(async ({ call }) => {
     const { result } = await call('tools/list');
-    assert.equal(result.tools.length, 7);
+    assert.equal(result.tools.length, 8);
 
     for (const tool of result.tools) {
       assert.ok(
@@ -116,12 +116,17 @@ test('every tool publishes annotations, because the selectors are resolved from 
     }
   }));
 
-test('the two remediations are the destructive ones, and nothing else is', () =>
+test('the three irreversible actions are the destructive ones, and nothing else is', () =>
   withServer(async ({ call }) => {
     const { result } = await call('tools/list');
 
+    /**
+     * resolve_alert is destructive and the annotation is not a formality. It changes nothing about
+     * the system and everything about who is watching it: the page stops, the rotation moves on,
+     * and there is no undo for attention.
+     */
     const destructive = result.tools.filter((t) => t.annotations.destructiveHint).map((t) => t.name).sort();
-    assert.deepEqual(destructive, ['restart_service', 'rollback_deploy']);
+    assert.deepEqual(destructive, ['resolve_alert', 'restart_service', 'rollback_deploy']);
 
     const readOnly = result.tools.filter((t) => t.annotations.readOnlyHint).map((t) => t.name).sort();
     assert.deepEqual(readOnly, [
