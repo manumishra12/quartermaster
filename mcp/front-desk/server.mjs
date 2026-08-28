@@ -70,6 +70,28 @@ const notFound = (message, known) =>
  */
 const given = (value) => typeof value === "string" && value.trim().length > 0;
 
+/**
+ * The desk's clock, which has to move.
+ *
+ * `state.now` was a constant, so everything filed, edited, closed and sent carried the same
+ * timestamp and the outbox read as though it had all happened at once. The order in which a person
+ * did things to somebody else's tracker is most of what the record is for.
+ */
+function tick() {
+  state.now = new Date(Date.parse(state.now) + 60_000)
+    .toISOString()
+    .replace(".000Z", "Z");
+  return state.now;
+}
+
+/**
+ * A bound on anything stored, because nothing else bounded it. Generous enough that no honest
+ * ticket meets it, small enough that the workspace cannot be filled by one call.
+ */
+const TITLE = z.string().max(300);
+const BODY = z.string().max(20000);
+const NAME = z.string().max(200);
+
 const READ_ONLY = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -138,7 +160,7 @@ function buildServer() {
       description:
         "Existing issues, so a draft can match the format the team already uses.",
       inputSchema: {
-        project: z.string().optional(),
+        project: NAME.optional(),
         state: z.enum(["open", "closed", "all"]).optional(),
       },
       annotations: READ_ONLY,
@@ -159,7 +181,7 @@ function buildServer() {
     {
       title: "Read one issue",
       description: "Full detail for a single issue, including its body.",
-      inputSchema: { issue_id: z.string() },
+      inputSchema: { issue_id: NAME },
       annotations: READ_ONLY,
     },
     async ({ issue_id }) => {
@@ -192,11 +214,11 @@ function buildServer() {
       title: "File an issue",
       description: "File a new issue on a project. Other people will see it.",
       inputSchema: {
-        project: z.string(),
-        title: z.string(),
-        body: z.string(),
-        assignee: z.string(),
-        priority: z.string().optional(),
+        project: NAME,
+        title: TITLE,
+        body: BODY,
+        assignee: NAME,
+        priority: NAME.optional(),
       },
       annotations: WRITES,
     },
@@ -250,7 +272,7 @@ function buildServer() {
         project,
         title,
         assignee,
-        at: state.now,
+        at: tick(),
       });
       return text({
         ok: true,
@@ -268,11 +290,11 @@ function buildServer() {
       description:
         "Change the title, body, assignee or priority of an existing issue.",
       inputSchema: {
-        issue_id: z.string(),
-        title: z.string().optional(),
-        body: z.string().optional(),
-        assignee: z.string().optional(),
-        priority: z.string().optional(),
+        issue_id: NAME,
+        title: TITLE.optional(),
+        body: BODY.optional(),
+        assignee: NAME.optional(),
+        priority: NAME.optional(),
       },
       annotations: WRITES,
     },
@@ -350,7 +372,7 @@ function buildServer() {
         action: "update_issue",
         id: issue_id,
         changed: applied.map(([f]) => f),
-        at: state.now,
+        at: tick(),
       });
       return text({
         ok: true,
@@ -369,8 +391,8 @@ function buildServer() {
         "Close an issue. The team sees it disappear from their open list.",
       // Constrained in the schema so the refusal happens before the destructive branch is reached.
       inputSchema: {
-        issue_id: z.string().min(1),
-        resolution: z.string().trim().min(1),
+        issue_id: NAME.min(1),
+        resolution: BODY.trim().min(1),
       },
       annotations: DESTRUCTIVE,
     },
@@ -400,19 +422,32 @@ function buildServer() {
         });
       }
 
+      /**
+       * The resolution is recorded beside the issue, not spliced into its body.
+       *
+       * Rewriting the body was an edit nobody approved. The card a person said yes to showed an
+       * issue id and a resolution; what happened was that plus a silent modification of text
+       * somebody else wrote. This server's own README makes the argument against exactly this: an
+       * approver said yes to the description they were shown, so a tool that does more than the
+       * description has laundered an unapproved change through a human decision. It is a worse
+       * failure than an ungated write, because the record now carries a person's assent to it.
+       */
       issue.state = "closed";
-      issue.body = `${issue.body}\n\nResolution\n${resolution}`;
+      issue.resolution = resolution;
+      issue.closed_at = tick();
       state.outbox.push({
         action: "close_issue",
         id: issue_id,
         resolution,
-        at: state.now,
+        // The same instant the issue records, not a second one: this is one action.
+        at: issue.closed_at,
       });
       return text({
         ok: true,
         id: issue_id,
         state: "closed",
-        note: "Closed. This desk cannot reopen it.",
+        resolution,
+        note: "Closed, with the resolution recorded beside the issue. The body was not touched, and this desk cannot reopen it.",
       });
     },
   );
@@ -423,7 +458,7 @@ function buildServer() {
     {
       title: "Send a message",
       description: "Send a message to a teammate. It cannot be unsent.",
-      inputSchema: { to: z.string(), body: z.string() },
+      inputSchema: { to: NAME, body: BODY },
       annotations: DESTRUCTIVE,
     },
     async ({ to, body }) => {
@@ -434,7 +469,7 @@ function buildServer() {
           state.teammates.map((t) => t.handle),
         );
 
-      state.outbox.push({ action: "send_message", to, body, at: state.now });
+      state.outbox.push({ action: "send_message", to, body, at: tick() });
       return text({ ok: true, to, note: "Sent. It cannot be unsent." });
     },
   );

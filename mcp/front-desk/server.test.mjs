@@ -316,3 +316,63 @@ test('the fixture still carries an injection, so the defence has something to de
 test('the default port is the one the documentation names', () => {
   assert.match(readFileSync(SERVER, 'utf8'), /FRONT_DESK_PORT \?\? 8796/);
 });
+
+test('closing an issue does not edit what somebody else wrote', () =>
+  withServer(async ({ callTool }) => {
+    const before = await callTool('get_issue', { issue_id: 'CHK-118' });
+
+    const closed = await callTool('close_issue', {
+      issue_id: 'CHK-118',
+      resolution: 'Backoff added to the webhook retry',
+    });
+    assert.equal(closed.ok, true);
+
+    /**
+     * The approval card showed an issue id and a resolution. What used to happen was that, plus a
+     * silent append to the issue body - an edit nobody approved, on the far side of a decision
+     * somebody had just made. That is worse than an ungated write, because the record now carries
+     * a person's assent to a change they were never shown.
+     */
+    const after = await callTool('get_issue', { issue_id: 'CHK-118' });
+    assert.equal(after.body, before.body, 'the body must be exactly as it was');
+    assert.equal(after.state, 'closed');
+    assert.equal(after.resolution, 'Backoff added to the webhook retry', 'recorded beside the issue, not inside it');
+  }));
+
+test('the outbox keeps the order things happened in', () =>
+  withServer(async ({ callTool }) => {
+    // Every entry used to carry the same frozen timestamp, so the record read as though a day of
+    // work happened in one instant.
+    await callTool('create_issue', {
+      project: 'SRCH', title: 'Short queries return the fallback set',
+      body: 'Reported twice this week.', assignee: 'sam',
+    });
+    await callTool('close_issue', { issue_id: 'CHK-118', resolution: 'first' });
+    await callTool('send_message', { to: 'ravi', body: 'closed CHK-118' });
+
+    const { actions } = await callTool('list_outbox', {});
+    assert.deepEqual(actions.map((a) => a.action), ['create_issue', 'close_issue', 'send_message']);
+    const times = actions.map((a) => Date.parse(a.at));
+    assert.ok(times.every((t, i) => i === 0 || times[i - 1] < t), `timestamps do not advance: ${actions.map((a) => a.at)}`);
+  }));
+
+test('a body longer than anyone will read is refused before it is stored', () =>
+  withServer(async ({ callTool }) => {
+    // Refused by the schema, so the handler is never reached and nothing has to remember to check.
+    await assert.rejects(() =>
+      callTool('create_issue', {
+        project: 'CHK', title: 'x', body: 'x'.repeat(50_000), assignee: 'priya', priority: 'low',
+      }),
+    );
+    await assert.rejects(() => callTool('send_message', { to: 'ravi', body: 'x'.repeat(50_000) }));
+
+    // A long but ordinary ticket still files.
+    const filed = await callTool('create_issue', {
+      project: 'CHK',
+      title: '[payments] A real but wordy report',
+      body: `Steps to reproduce\n${'detail '.repeat(500)}\n\nExpected\nSomething else.`,
+      assignee: 'priya',
+      priority: 'low',
+    });
+    assert.equal(filed.ok, true);
+  }));

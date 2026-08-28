@@ -189,9 +189,27 @@ test('an older deploy cannot be rolled back, because that would change nothing a
     const after = await callTool('list_deploys', { service: 'checkout-api' });
     assert.ok(after.deploys.some((d) => d.id === '9ab7'), 'and it is still there');
 
-    // Rolling back what is running works, and then the one behind it becomes current.
-    assert.equal((await callTool('rollback_deploy', { deploy_id: '4c21', reason: 'test' })).ok, true);
-    assert.equal((await callTool('rollback_deploy', { deploy_id: '9ab7', reason: 'test' })).ok, true);
+    // Rolling back what is running works, and then the one behind it becomes current - twice,
+    // because a chain of one proves nothing about a chain.
+    const first = await callTool('rollback_deploy', { deploy_id: '4c21', reason: 'test' });
+    assert.equal(first.ok, true);
+    assert.equal(first.to, '9ab7');
+
+    const second = await callTool('rollback_deploy', { deploy_id: '9ab7', reason: 'test' });
+    assert.equal(second.ok, true);
+    assert.equal(second.to, '77f0');
+
+    /**
+     * And the end of the chain refuses rather than inventing somewhere to go.
+     *
+     * This assertion used to read `ok: true` for the rollback of 9ab7, when 77f0 was not in the
+     * fixture at all - so the test agreed with the defect, and the reply said the service had
+     * returned to a version this desk had never heard of. 77f0 exists now, which makes the honest
+     * two-step chain testable, and the oldest deploy is the one with nothing behind it.
+     */
+    const end = await callTool('rollback_deploy', { deploy_id: '77f0', reason: 'test' });
+    assert.equal(end.error, 'unknown_previous');
+    assert.ok((await callTool('list_deploys', { service: 'checkout-api' })).deploys.some((d) => d.id === '77f0'));
   }));
 
 test('restarting a service the desk does not know is not a success', () =>
@@ -228,3 +246,58 @@ test('the default port is the one the documentation names', () => {
   // health check and a connector registered at an address nothing is listening on.
   assert.match(readFileSync(SERVER, 'utf8'), /OPS_DESK_PORT \?\? 8795/);
 });
+
+test('a reason of spaces is not a reason', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * `reason: "   "` came back ok:true and went into the journal as the justification for
+     * restarting a production service. A record that reads as though somebody explained themselves
+     * is worse than one with an obviously empty field, because nobody goes looking at it.
+     */
+    for (const [tool, args] of [
+      ['restart_service', { service: 'checkout-api', reason: '   ' }],
+      ['rollback_deploy', { deploy_id: '4c21', reason: '\t\n ' }],
+    ]) {
+      assert.equal((await callTool(tool, args)).error, 'missing_reason', tool);
+    }
+
+    // Nothing was done, so the journal has nothing in it.
+    assert.equal((await callTool('list_actions_taken', {})).count, 0);
+
+    // And a real reason still works, on the same two tools.
+    assert.equal((await callTool('restart_service', { service: 'checkout-api', reason: 'wedged workers' })).ok, true);
+    assert.equal((await callTool('rollback_deploy', { deploy_id: '4c21', reason: 'timeout cut' })).ok, true);
+  }));
+
+test('the journal keeps the order things happened in', () =>
+  withServer(async ({ callTool }) => {
+    // Every entry used to carry the same frozen timestamp, so a rollback, a restart and another
+    // rollback all read as one instant - and the order is most of what a timeline is for.
+    await callTool('restart_service', { service: 'checkout-api', reason: 'one' });
+    await callTool('rollback_deploy', { deploy_id: '4c21', reason: 'two' });
+    await callTool('restart_service', { service: 'search-api', reason: 'three' });
+
+    const { actions } = await callTool('list_actions_taken', {});
+    assert.deepEqual(actions.map((a) => a.reason), ['one', 'two', 'three']);
+    const times = actions.map((a) => Date.parse(a.at));
+    assert.ok(times[0] < times[1] && times[1] < times[2], `timestamps do not advance: ${actions.map((a) => a.at)}`);
+  }));
+
+test('a reason longer than anyone will read is refused before it is stored', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * 100k characters was accepted and kept. A reason nobody can read is not a reason.
+     *
+     * The refusal arrives as a protocol error rather than a tool result, because the bound is in
+     * the schema and the handler is never reached - the same shape as close_issue refusing a
+     * missing resolution. That is the stronger place for it: nothing has to remember to check.
+     */
+    await assert.rejects(
+      () => callTool('restart_service', { service: 'checkout-api', reason: 'x'.repeat(100_000) }),
+      'a 100k reason should not be accepted',
+    );
+    assert.equal((await callTool('list_actions_taken', {})).count, 0);
+
+    // A long but sane one still goes through.
+    assert.equal((await callTool('restart_service', { service: 'checkout-api', reason: 'x'.repeat(1900) })).ok, true);
+  }));

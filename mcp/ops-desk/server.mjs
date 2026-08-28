@@ -45,6 +45,41 @@ const HOST = process.env.OPS_DESK_HOST ?? "127.0.0.1";
 const state = JSON.parse(readFileSync(FIXTURE, "utf8"));
 const journal = [];
 
+/**
+ * Whether a field was actually given.
+ *
+ * A string of spaces satisfies every truthiness check and is not a reason. front-desk has always
+ * refused one; this desk accepted `reason: "   "` and wrote it into the journal as the
+ * justification for restarting a production service. The record then reads as though somebody
+ * explained themselves, which is worse than an obviously missing field.
+ */
+const given = (value) => typeof value === "string" && value.trim().length > 0;
+
+/**
+ * A bound on anything stored, because nothing else bounded it.
+ *
+ * 100k characters of reason was accepted and kept. Long before that is a problem for this process
+ * it is a problem for whoever reads the journal, and a reason nobody can read is not a reason.
+ * Generous enough that no honest use meets it.
+ */
+const REASON = z.string().max(2000);
+const ID = z.string().max(200);
+
+/**
+ * The desk's clock, which has to move.
+ *
+ * `state.now` was a constant, so every remediation in the journal carried the same timestamp and
+ * the record read as though a rollback, a restart and another rollback all happened in the same
+ * instant. The order in which somebody did things to a production service is most of what a
+ * timeline is for. A minute per action is arbitrary and honest; this is a fixture, and it says so.
+ */
+function tick() {
+  state.now = new Date(Date.parse(state.now) + 60_000)
+    .toISOString()
+    .replace(".000Z", "Z");
+  return state.now;
+}
+
 /** What a service is running now: the newest deploy for it. */
 function currentDeploy(service) {
   return state.deploys
@@ -195,7 +230,7 @@ function buildServer() {
       title: "Roll back a deploy",
       description:
         "Revert a service to the deploy that preceded the given one. This is not reversible from here.",
-      inputSchema: { deploy_id: z.string(), reason: z.string() },
+      inputSchema: { deploy_id: ID, reason: REASON },
       // The hint that puts this behind the gate. Getting it wrong is the whole failure mode.
       annotations: {
         readOnlyHint: false,
@@ -231,15 +266,47 @@ function buildServer() {
         });
       }
 
+      if (!given(reason)) {
+        return text({
+          error: "missing_reason",
+          message:
+            "A rollback needs a reason. Whitespace is not one, and it lands in the journal as though it were.",
+        });
+      }
+
+      /**
+       * You cannot honestly report a revert to a version you have no record of.
+       *
+       * Rolling back 4c21 reverts to 9ab7, which this desk knows. Rolling back 9ab7 then reported
+       * `ok: true, to: "77f0"` - a deploy that appears nowhere in the fixture - and left the
+       * timeline empty. A responder reading that would believe checkout-api was serving 77f0.
+       * Nothing was serving anything. Two rollbacks is not an exotic path; it is what happens when
+       * the first one does not help.
+       */
+      const previous = deploy.previous
+        ? state.deploys.find((d) => d.id === deploy.previous)
+        : null;
+      if (!previous) {
+        return text({
+          error: "unknown_previous",
+          message:
+            `${deploy_id} names ${deploy.previous ?? "no"} previous deploy, and this desk has no record of it. ` +
+            "Rolling back would leave the service on a version nobody here can describe, so it is refused rather " +
+            "than reported as a revert to something imaginary.",
+          previous: deploy.previous ?? null,
+          known: state.deploys.map((d) => d.id),
+        });
+      }
+
       // Actually mutate. A gate in front of an operation that does nothing proves nothing.
       state.deploys = state.deploys.filter((d) => d.id !== deploy_id);
       const entry = {
         action: "rollback_deploy",
         deploy_id,
         service: deploy.service,
-        to: deploy.previous,
+        to: previous.id,
         reason,
-        at: state.now,
+        at: tick(),
       };
       journal.push(entry);
       return text({
@@ -257,7 +324,7 @@ function buildServer() {
       title: "Restart a service",
       description:
         "Restart every instance of a service. In-flight requests are dropped.",
-      inputSchema: { service: z.string(), reason: z.string() },
+      inputSchema: { service: ID, reason: REASON },
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
@@ -281,11 +348,19 @@ function buildServer() {
         });
       }
 
+      if (!given(reason)) {
+        return text({
+          error: "missing_reason",
+          message:
+            "A restart needs a reason. Whitespace is not one, and it lands in the journal as though it were.",
+        });
+      }
+
       const entry = {
         action: "restart_service",
         service,
         reason,
-        at: state.now,
+        at: tick(),
       };
       journal.push(entry);
       // Health readings do not survive a restart, which is part of why it is not a free action.
