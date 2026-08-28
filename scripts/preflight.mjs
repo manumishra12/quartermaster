@@ -17,6 +17,7 @@ import { routingConflicts, specFiles } from './lib/spec.mjs';
 import { loadAgents } from './lib/route.mjs';
 import { fromModule } from './lib/paths.mjs';
 import { skillPathAtRef } from './lib/skills.mjs';
+import { driftBetween } from './lib/drift.mjs';
 import { spawnSync } from 'node:child_process';
 
 loadEnv();
@@ -253,18 +254,46 @@ try {
   record(false, 'MCP connectors', 'could not list servers');
 }
 
-// 6. Are our specs actually on the server?
+// 6. Are our specs actually on the server, and are they the specs in this repository?
 try {
-  const applied = new Set(asList(await get('/api/v1/agents')).map((a) => a.name));
-  const wanted = readdirSync(AGENTS_DIR)
-    .filter((f) => f.endsWith('.json'))
-    .map((f) => JSON.parse(readFileSync(join(AGENTS_DIR, f), 'utf8')).name);
+  const server = asList(await get('/api/v1/agents'));
+  const applied = new Set(server.map((a) => a.name));
+  const files = readdirSync(AGENTS_DIR).filter((f) => f.endsWith('.json'));
+  const specs = files.map((f) => JSON.parse(readFileSync(join(AGENTS_DIR, f), 'utf8')));
+  const wanted = specs.map((spec) => spec.name);
   const missing = wanted.filter((n) => !applied.has(n));
   record(
     missing.length === 0,
     'Agents applied',
     missing.length ? `not on the server: ${missing.join(', ')}` : wanted.join(', '),
     'npm run agents:apply',
+  );
+
+  /**
+   * Applied is not the same as current, and reporting the first as though it were the second is how
+   * nine agents ended up running against a provider whose quota was exhausted while `.env`, every
+   * spec file and every document went on describing the local model. Nothing was broken in the
+   * repository. Nothing was wrong in the harness. The pair disagreed, and the only way anybody found
+   * out was by looking.
+   *
+   * `${TRUEFORGE_MODEL}` is resolved the way `apply-agents` resolves it, because comparing an
+   * unresolved placeholder against a real model name would report drift on every agent every time,
+   * which is the fastest way to teach somebody to ignore a check.
+   */
+  const model = process.env.TRUEFORGE_MODEL;
+  const drifted = [];
+  for (const spec of specs) {
+    const live = server.find((a) => a.name === spec.name);
+    if (!live) continue;
+    const resolved = model ? JSON.parse(JSON.stringify(spec).replaceAll('${TRUEFORGE_MODEL}', model)) : spec;
+    for (const line of driftBetween(live, resolved)) drifted.push(`${spec.name} - ${line}`);
+  }
+
+  record(
+    drifted.length === 0,
+    'Specs match the harness',
+    drifted.length ? drifted.join('; ') : `${specs.length} agent(s) applied as this repository declares them`,
+    'npm run agents:apply, or work out which side is the one you meant',
   );
 } catch (err) {
   record(false, 'Agents applied', err.message, 'npm run agents:apply');
