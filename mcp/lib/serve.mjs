@@ -20,12 +20,16 @@ import { createServer } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
 /** Names that mean "this machine", and so are the only Host values a loopback server should answer to. */
+/**
+ * Written as they arrive after the port is stripped. The unbracketed IPv6 spellings could never
+ * match: the non-bracket branch splits on ':' and yields an empty string for both, so they were
+ * two entries that looked like coverage and were not.
+ */
 const LOOPBACK_HOSTS = new Set([
   "localhost",
   "127.0.0.1",
   "[::1]",
-  "::1",
-  "0000:0000:0000:0000:0000:0000:0000:0001",
+  "[0000:0000:0000:0000:0000:0000:0000:0001]",
 ]);
 
 /**
@@ -49,8 +53,12 @@ export function hostAllowed(header, extra = []) {
     ? value.slice(0, value.indexOf("]") + 1)
     : value.split(":")[0];
 
+  // The host is lower-cased, so what it is compared against has to be too: an operator who set
+  // OPS_DESK_HOST=Ops.Internal was refused by their own allow-list.
+  const wanted = host.toLowerCase();
   return (
-    LOOPBACK_HOSTS.has(host.toLowerCase()) || extra.includes(host.toLowerCase())
+    LOOPBACK_HOSTS.has(wanted) ||
+    extra.some((allowed) => String(allowed).toLowerCase() === wanted)
   );
 }
 
@@ -90,13 +98,26 @@ export function serve({
   extraHosts = [],
   describe,
 }) {
+  /**
+   * The Host check guards loopback, and only loopback.
+   *
+   * It exists because a browser can reach 127.0.0.1 from a page an attacker controls, and Host is
+   * the one part of that request the page cannot choose. An operator who has deliberately bound to
+   * a wider address has opened the port on purpose: anyone who can reach it can reach it directly,
+   * so refusing them on a header defends nothing and breaks exactly what they asked for. The first
+   * version checked unconditionally, so setting the variable the 403 named bound the server wider
+   * and then refused every request that arrived there - the health check included. An escape hatch
+   * that does not open is worse than none.
+   */
+  const onLoopback = host === "127.0.0.1" || host === "::1";
+
   const http = createServer((req, res) => {
     const send = (status, body) => {
       res.writeHead(status, { "content-type": "application/json" });
       res.end(JSON.stringify(body));
     };
 
-    if (!hostAllowed(req.headers.host, extraHosts)) {
+    if (onLoopback && !hostAllowed(req.headers.host, extraHosts)) {
       // Said plainly, because the person who trips this is usually the operator reaching the
       // server from another machine, not an attacker.
       return send(403, {
@@ -142,6 +163,33 @@ export function serve({
       });
 
     send(404, { error: "not_found", routes: ["/mcp", "/health"] });
+  });
+
+  /**
+   * A port already in use is the ordinary case here, not an exceptional one. The README says to
+   * start the server and then register the connector, so starting it twice is what happens when
+   * somebody follows the instructions and forgets the first one is running. Without a listener
+   * that is an unhandled 'error' event, which ends the process on a stack trace rather than a
+   * sentence naming the one thing they need to do.
+   */
+  http.on("error", (error) => {
+    if (error?.code === "EADDRINUSE") {
+      console.error(
+        `${name} cannot start: something is already listening on port ${port}.`,
+      );
+      console.error(
+        "  If that is another copy of this server, use it - the state is in memory and",
+      );
+      console.error(
+        "  a second copy would not share it. Otherwise pick another port:",
+      );
+      console.error(
+        `  ${name.toUpperCase().replace(/-/g, "_")}_PORT=<other> npm run ${name}`,
+      );
+    } else {
+      console.error(`${name} could not start:`, error?.message ?? error);
+    }
+    process.exit(1);
   });
 
   http.listen(port, host, () => {

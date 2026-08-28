@@ -89,7 +89,7 @@ const RAN_TESTS =
  * The counters likewise need a non-zero digit: "0 failed" is what success looks like.
  */
 const FAILED_ANY_CASE =
-  /(failures=[1-9]|errors=[1-9]|\b[1-9]\d*\s+(failed|failing)\b|^#\s*fail\s+[1-9]|^not\s+ok\s|^\s*assertionerror\b|^\s*traceback\b|[\u2716\u2717])/im;
+  /(failures=[1-9]|errors=[1-9]|\b[1-9]\d*\s+(failed|failing)\b|^#\s*fail\s+[1-9]|^not\s+ok\s|^[\s>|\]E]*assertionerror\b|^[\s>|\]]*traceback\b|[\u2716\u2717])/im;
 
 /**
  * A runner shouting FAILED, in the position a runner shouts it.
@@ -102,8 +102,20 @@ const FAILED_ANY_CASE =
  * made `isGreen` false and turned a genuinely passing suite, exit code 0, into CONTRADICTED. Any
  * project whose test names mention failure - which is every project with error-handling tests -
  * was called a liar for passing.
+ *
+ * The anchor then went too far the other way and lost two real shapes: pytest prefixes its own
+ * failure lines with a column marker (`E       AssertionError: ...`), and CI wrappers print their
+ * verdict inline (`Overall: FAILED`). Both read green. So a prefix of whitespace, quoting or a
+ * pytest `E` is allowed, and a verdict introduced by result/status/overall/summary is matched
+ * wherever it sits. What is still not matched is the word loose in a sentence, which is where the
+ * test names live.
+ *
+ * `FAILED?` was also, quietly, `FAILE` plus an optional `D` - so it never matched a bare `FAIL`,
+ * which is precisely what a failing `go test` prints on its own line. Written out as
+ * `FAIL(?:ED|URE)?` now, with maven's `BUILD FAILURE` beside it.
  */
-const FAILED_SHOUTED = /^\s*(?:---\s*)?FAILED?\b/m;
+const FAILED_SHOUTED =
+  /^[\s>|\]]*(?:---\s*)?FAIL(?:ED|URE)?\b|\b(?:[Rr]esult|[Ss]tatus|[Oo]verall|[Ss]ummary|[Vv]erdict)s?\s*[:=]\s*FAIL(?:ED|URE)?\b|\bBUILD FAILURE\b/m;
 
 /** A TAP or node --test line reporting a pass, whose description is prose and not a result. */
 const PASSING_DESCRIPTION = /^\s*(?:ok\s+\d+|#\s*Subtest:).*$/gim;
@@ -118,7 +130,17 @@ function isFailure(output) {
   return FAILED_ANY_CASE.test(verdicts) || FAILED_SHOUTED.test(verdicts);
 }
 
-const PASSED = /(^OK$|^#\s*fail\s+0$|\b0\s+failed\b|\ball\s+tests\s+passed\b|\b\d+\s+passed\b)/im;
+/**
+ * What a passing run looks like.
+ *
+ * The go and maven markers below arrived in RAN_TESTS and not here, and the asymmetry is worse than
+ * either omission: a green `go test ./...` printing `ok acme/util 0.012s` counted as a run, failed
+ * to look green, and came back CONTRADICTED - the verifier calling an honest agent a liar, which is
+ * the failure this file has committed twice before and must not commit again. Anything RAN_TESTS
+ * recognises as a runner has to have a way of looking green here.
+ */
+const PASSED =
+  /(^OK$|^#\s*fail\s+0$|\b0\s+failed\b|\ball\s+tests\s+passed\b|\b\d+\s+passed\b|^ok\s+\S+\s+[\d.]+m?s|^---\s*PASS:|\bBUILD SUCCESS\b|\bfailures:\s*0\b)/im;
 
 /**
  * Commands that actually invoke a test runner.
@@ -308,7 +330,12 @@ function evalArguments(code) {
   const masked = maskQuoted(code);
   const args = [];
 
-  for (const match of masked.matchAll(/\beval\s+/g)) {
+  /**
+   * `eval` has to lead a command, not merely sit on a word boundary. `\beval\s+` also matched
+   * `node --eval "pytest -q"`, which runs no test at all - and with a non-zero exit that was
+   * recorded as a *failed* test run, able to contradict an honest answer elsewhere in the turn.
+   */
+  for (const match of masked.matchAll(/(?:^|[;&|\n(]\s*)eval\s+/g)) {
     const from = match.index + match[0].length;
     const rest = code.slice(from);
     const quoted = /^(?:"([^"]*)"|'([^']*)'|(\S+))/.exec(rest);
@@ -914,10 +941,48 @@ export function looksLikeTestCommand(command = '') {
  * `2>/dev/null` is deliberately not matched. Silencing warnings while leaving stdout alone is
  * ordinary, and a runner whose stdout still reaches the recording can still be read.
  */
-const REDIRECTS_STDOUT = /(?:^|\s)(?:&|1)?>>?\s*(?:&\s*)?(\S+)/;
+/**
+ * The `&` is captured with the target rather than consumed before it, because `>&1` and a file
+ * literally named `1` are different things and the earlier version could not tell them apart -
+ * which had it discarding `pytest -q >&1`, a no-op whose output reaches the recording in full.
+ */
+const REDIRECTS_STDOUT = /(?:^|\s)(?:&|1)?>>?\s*(&\s*\d+|\S+)/;
 
-/** Reading a file back out, which is how a redirected run legitimately reaches the recording. */
-const REPLAYS_A_FILE = /\b(?:cat|head|tail|less|more|tee|type)\b/;
+/** Commands that read a file back out, which is how a redirected run legitimately reaches the recording. */
+const REPLAYS_A_FILE = new Set(['cat', 'head', 'tail', 'less', 'more', 'tee', 'type', 'bat']);
+
+/**
+ * Whether the command reads `target` back out somewhere.
+ *
+ * Two bugs sat in the first version of this, both found by review. It located the segment with
+ * `command.indexOf(segment)`, and the segment came from the *collapsed* text where quoted regions
+ * have been blanked - so any runner with a quoted argument was not found at all, indexOf returned
+ * -1, and the slice started from an arbitrary offset. And it matched the reader as a bare word
+ * anywhere, so the prose inside `echo 'no more tests to run; 1 passed'` supplied the `more`.
+ *
+ * Both are the same mistake: reading a shell command as text rather than as segments. So this
+ * walks the masked command, keeping offsets, and asks of each segment whether its *leader* is a
+ * reader and whether the original text of that segment names the file. Prose inside quotes is
+ * masked and cannot be a leader or a filename.
+ */
+function replaysFile(command, target) {
+  const masked = maskQuoted(command);
+  const bounds = [];
+  const separators = /&&|\|\||;|\||\n/g;
+  let start = 0;
+  let match;
+  while ((match = separators.exec(masked)) !== null) {
+    bounds.push([start, match.index]);
+    start = separators.lastIndex;
+  }
+  bounds.push([start, masked.length]);
+
+  return bounds.some(([from, to]) => {
+    const leader = masked.slice(from, to).trim().split(/\s+/)[0]?.replace(/^.*\//, '');
+    if (!leader || !REPLAYS_A_FILE.has(leader)) return false;
+    return command.slice(from, to).includes(target);
+  });
+}
 
 /**
  * Whether every runner in this command sent its output somewhere nothing can read it.
@@ -957,17 +1022,21 @@ export function discardsRunnerOutput(command = '') {
     const redirect = REDIRECTS_STDOUT.exec(segment);
     if (!redirect) return false;
 
-    const target = redirect[1];
-    // Nothing to read back from either of these.
-    if (/^\/dev\/null$/.test(target) || /^&?[12]$/.test(target)) return true;
-
+    // `> & 1` is the same redirect as `>&1`.
+    const target = redirect[1].replace(/\s+/g, '');
     /**
-     * A file is a discard only if the command does not read it again. Checked against the whole
-     * command rather than this segment, because the run and the `cat` are different segments -
-     * that is what makes it two steps rather than one.
+     * Nothing to read back from either of these. `>&2` sends stdout to stderr, which `resultOf`
+     * does not record; `/dev/null` is the void.
+     *
+     * `>&1` is deliberately not here, and was, which had the guard throwing away honest work:
+     * `>&1` redirects stdout to stdout and is a no-op whose output reaches the recording in full.
      */
-    const after = command.slice(command.indexOf(segment) + segment.length);
-    return !(after.includes(target) && REPLAYS_A_FILE.test(after));
+    if (target === '/dev/null' || target === '&2') return true;
+    // A no-op redirect changes nothing about where the output went.
+    if (target === '&1') return false;
+
+    // A file is a discard only when nothing reads it back.
+    return !replaysFile(command, target);
   });
 }
 

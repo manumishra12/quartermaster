@@ -91,6 +91,28 @@ export function validateSpec(spec, filename = 'spec') {
     );
   }
 
+  /**
+   * The second promise-versus-policy check, added because the first one only covered approvals and
+   * a review found the same shape elsewhere.
+   *
+   * `code-reviewer` told the model that an oversized tool result "has been saved to a path" and to
+   * read it from the sandbox. The harness only writes that file when large_tool_response is
+   * enabled, and that spec did not enable it - so on a large pull request diff, the single most
+   * likely oversized result for a code reviewer, the model would have been sent to `head` a path
+   * that does not exist.
+   */
+  const promisesSpill =
+    /\b(saved to a path|written .{0,20}into the sandbox|read the file with the sandbox|too large and has been saved)\b/i.test(
+      m.instructions ?? '',
+    );
+  if (promisesSpill && m.config?.context_management?.large_tool_response?.enabled !== true) {
+    say(
+      'the instructions tell the agent a large tool result is written to a file, but ' +
+        'config.context_management.large_tool_response.enabled is not true - so no file is written and the ' +
+        'agent is sent to read a path that does not exist',
+    );
+  }
+
   const seenServers = new Set();
 
   for (const server of m.mcp_servers ?? []) {

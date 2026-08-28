@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { specFiles, validateSpec } from './spec.mjs';
 
 test('every agent spec in the repository is valid', () => {
@@ -219,4 +220,63 @@ test('preload: false is caught, because deferred loading is broken on this harne
     manifest: { mcp_servers: [{ name: 'g', enable_tools: ['@read-only'], require_approval_for_tools: ['@write'], preload: true }] },
   });
   assert.doesNotMatch(validateSpec(on).join(), /preload/);
+});
+
+test('an instruction promising a spilled tool result needs the setting that spills it', () => {
+  /**
+   * The same shape as the approval promise-versus-policy rule, found in a second place by review.
+   * A spec told the model that an oversized result "has been saved to a path" and to read it from
+   * the sandbox, without enabling the setting that writes it - so on the largest results, which is
+   * exactly when it matters, the model was sent to read a path that does not exist.
+   */
+  const promising = sound({
+    manifest: {
+      instructions: 'When a result is too large and has been saved to a path, read the file with the sandbox shell.',
+    },
+  });
+  assert.match(validateSpec(promising).join(), /large_tool_response\.enabled is not true/);
+
+  // Enabled, and the promise is kept.
+  const enabled = sound({
+    config: { context_management: { large_tool_response: { enabled: true } } },
+    manifest: {
+      instructions: 'When a result is too large and has been saved to a path, read the file with the sandbox shell.',
+    },
+  });
+  assert.doesNotMatch(validateSpec(enabled).join(), /large_tool_response/);
+
+  // And a spec that promises nothing is not asked for the setting.
+  assert.doesNotMatch(validateSpec(sound()).join(), /large_tool_response/);
+});
+
+test('the documented test counts are the counts', () => {
+  /**
+   * TESTING.md carried per-file numbers typed by hand, and by the time a review checked them the
+   * page was describing a suite that does not exist: 276 in the diagram against 326 actual, three
+   * files missing entirely, and two lines of the same document disagreeing about the UI.
+   *
+   * This repository's own serve.mjs calls a hand-written count "a small lie of exactly the kind
+   * this project spends the rest of its time refusing". A page nothing generates is exactly that,
+   * so the page is now checked against the files it describes.
+   */
+  const testing = readFileSync(fileURLToPath(new URL('../../TESTING.md', import.meta.url)), 'utf8');
+
+  const claimed = [...testing.matchAll(/([\w-]+)\.test\.mjs<br\/>(\d+)/g)].map(([, name, n]) => [name, Number(n)]);
+  assert.ok(claimed.length >= 18, `expected the diagram to list the suites, found ${claimed.length}`);
+
+  const total = Number(/(\d+) tests in the root suite/.exec(testing)?.[1]);
+  const summed = claimed.reduce((n, [, count]) => n + count, 0);
+  assert.equal(
+    summed,
+    total,
+    `the diagram lists ${summed} tests and the page claims ${total}. Whichever is wrong, they cannot both stand.`,
+  );
+
+  // And every suite file has to appear, so a new one cannot be quietly left out of the picture.
+  const files = [
+    ...readdirSync(fileURLToPath(new URL('.', import.meta.url))),
+  ].filter((f) => f.endsWith('.test.mjs')).map((f) => f.replace('.test.mjs', ''));
+  const named = new Set(claimed.map(([name]) => name));
+  const missing = files.filter((f) => !named.has(f));
+  assert.deepEqual(missing, [], `these suites exist and TESTING.md does not mention them: ${missing.join(', ')}`);
 });

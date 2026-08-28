@@ -26,7 +26,7 @@ const FIXTURE = fileURLToPath(new URL('./workspace.json', import.meta.url));
  */
 async function startServer() {
   const child = spawn(process.execPath, [SERVER], {
-    env: { ...process.env, FRONT_DESK_PORT: '0' },
+    env: { ...process.env, FRONT_DESK_PORT: '0', FRONT_DESK_HOST: '127.0.0.1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -375,4 +375,14 @@ test('a body longer than anyone will read is refused before it is stored', () =>
       priority: 'low',
     });
     assert.equal(filed.ok, true);
+  }));
+
+test('a message with nothing in it is not sent', () =>
+  withServer(async ({ callTool }) => {
+    // The only write tool here that skipped the whitespace check, and the one that cannot be
+    // recalled - so a body of spaces was pushed to the outbox and reported as sent.
+    assert.equal((await callTool('send_message', { to: 'priya', body: '   ' })).error, 'missing_fields');
+    assert.equal((await callTool('list_outbox', {})).count, 0);
+
+    assert.equal((await callTool('send_message', { to: 'priya', body: 'CHK-118 is closed' })).ok, true);
   }));

@@ -33,7 +33,7 @@ const SERVER = fileURLToPath(new URL('./server.mjs', import.meta.url));
  */
 async function startServer() {
   const child = spawn(process.execPath, [SERVER], {
-    env: { ...process.env, OPS_DESK_PORT: '0' },
+    env: { ...process.env, OPS_DESK_PORT: '0', OPS_DESK_HOST: '127.0.0.1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -300,4 +300,25 @@ test('a reason longer than anyone will read is refused before it is stored', () 
 
     // A long but sane one still goes through.
     assert.equal((await callTool('restart_service', { service: 'checkout-api', reason: 'x'.repeat(1900) })).ok, true);
+  }));
+
+test('a name off the prototype chain is not a service', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * `service in state.health` walks the prototype chain, so every name on Object.prototype
+     * passed the guard whose docblock says a typo is not a restart. `restart_service` answered
+     * ok:true for "toString" and cycled instances of nothing, on the far side of an approval
+     * somebody had just given. `__proto__` was worse: the assignment that followed re-pointed the
+     * health map's prototype.
+     */
+    for (const name of ['toString', 'constructor', 'valueOf', 'hasOwnProperty', '__proto__']) {
+      assert.equal((await callTool('restart_service', { service: name, reason: 'probe' })).error, 'not_found', name);
+      assert.equal((await callTool('get_service_health', { service: name })).error, 'not_found', name);
+    }
+
+    // Nothing was done, so nothing is in the journal.
+    assert.equal((await callTool('list_actions_taken', {})).count, 0);
+
+    // And a real service still restarts.
+    assert.equal((await callTool('restart_service', { service: 'checkout-api', reason: 'wedged' })).ok, true);
   }));

@@ -45,6 +45,7 @@ const PORT = Number(process.env.FRONT_DESK_PORT ?? 8796);
  */
 const HOST = process.env.FRONT_DESK_HOST ?? "127.0.0.1";
 
+
 /** Loaded once and mutated in memory: filing an issue has to change what the next read sees. */
 const state = JSON.parse(readFileSync(FIXTURE, "utf8"));
 let counter = 1000;
@@ -468,6 +469,19 @@ function buildServer() {
           `No teammate called ${to}. Nothing was sent.`,
           state.teammates.map((t) => t.handle),
         );
+
+      /**
+       * The only write tool here that did not check this, and the one that cannot be recalled.
+       * A body of spaces was pushed to the outbox and reported as sent - on the far side of an
+       * approval somebody had just given for a message with nothing in it.
+       */
+      if (!given(body)) {
+        return text({
+          error: "missing_fields",
+          message:
+            "A message needs a body. Whitespace is not one, and nothing was sent.",
+        });
+      }
 
       state.outbox.push({ action: "send_message", to, body, at: tick() });
       return text({ ok: true, to, note: "Sent. It cannot be unsent." });

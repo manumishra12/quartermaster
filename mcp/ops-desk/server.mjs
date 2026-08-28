@@ -41,6 +41,7 @@ const PORT = Number(process.env.OPS_DESK_PORT ?? 8795);
  */
 const HOST = process.env.OPS_DESK_HOST ?? "127.0.0.1";
 
+
 /** Loaded once and then mutated in memory: a rollback has to actually change what the next read sees. */
 const state = JSON.parse(readFileSync(FIXTURE, "utf8"));
 const journal = [];
@@ -212,14 +213,22 @@ function buildServer() {
       },
     },
     async ({ service }) => {
-      const series = state.health[service];
-      return series
-        ? text({ service, series })
-        : text({
-            error: "not_found",
-            message: `No health series for ${service}.`,
-            known: Object.keys(state.health),
-          });
+      /**
+       * Object.hasOwn, not a truthiness check on the lookup.
+       *
+       * `state.health["constructor"]` is a function inherited from Object.prototype, which is
+       * truthy - so this answered `{"service":"constructor"}` with a series that is not a series
+       * and no error at all. Every name on the prototype chain did it: toString, valueOf,
+       * hasOwnProperty, __proto__.
+       */
+      if (!Object.hasOwn(state.health, service)) {
+        return text({
+          error: "not_found",
+          message: `No health series for ${service}.`,
+          known: Object.keys(state.health),
+        });
+      }
+      return text({ service, series: state.health[service] });
     },
   );
 
@@ -340,7 +349,7 @@ function buildServer() {
        * series it created then read back as a real service to everything downstream. An operator
        * approving a restart of `checkout-ap` would have been told it worked.
        */
-      if (!(service in state.health)) {
+      if (!Object.hasOwn(state.health, service)) {
         return text({
           error: "not_found",
           message: `This desk does not know a service called ${service}. Nothing was restarted.`,

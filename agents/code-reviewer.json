@@ -20,6 +20,15 @@
       "ask_user_questions": {
         "enabled": true
       },
+      "context_management": {
+        "compaction": {
+          "enabled": true,
+          "compaction_threshold_tokens": 50000
+        },
+        "large_tool_response": {
+          "enabled": true
+        }
+      },
       "iteration_limit": 60
     },
     "mcp_servers": [

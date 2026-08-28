@@ -46,3 +46,25 @@ test('a route is the path, not a prefix of it', () => {
   assert.equal(routeOf('/health'), '/health');
   assert.equal(routeOf(undefined), '/');
 });
+
+test('an operator names their own host, in whatever case they wrote it', () => {
+  // The host is lower-cased before comparison, so the allow-list has to be too - an operator who
+  // set OPS_DESK_HOST=Ops.Internal was refused by their own entry.
+  assert.equal(hostAllowed('Ops.Internal:8795', ['Ops.Internal']), true);
+  assert.equal(hostAllowed('ops.internal', ['Ops.Internal']), true);
+  assert.equal(hostAllowed('OPS.INTERNAL:1', ['ops.internal']), true);
+
+  // and naming one still admits nothing else
+  assert.equal(hostAllowed('evil.example.com', ['Ops.Internal']), false);
+});
+
+test('the long IPv6 loopback literal is loopback', () => {
+  /**
+   * Two entries in the set could never match anything. A Host header carries IPv6 bracketed, and
+   * the unbracketed spellings were compared against the output of `split(':')[0]`, which is the
+   * empty string for both - so they read as coverage and were not.
+   */
+  assert.equal(hostAllowed('[0000:0000:0000:0000:0000:0000:0000:0001]'), true);
+  assert.equal(hostAllowed('[0000:0000:0000:0000:0000:0000:0000:0001]:8795'), true);
+  assert.equal(hostAllowed('[::1]'), true);
+});

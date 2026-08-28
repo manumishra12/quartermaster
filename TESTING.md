@@ -1,6 +1,6 @@
 # Testing
 
-323 tests in the root suite, 138 in the UI across 15 files, one mount test, and a fixture check. What follows is
+332 tests in the root suite, 138 in the UI across 15 files, one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
 
@@ -30,10 +30,10 @@ error or a type error, and both have reached a pull request from here before.
 ```mermaid
 flowchart TD
   subgraph root["root suite - node --test"]
-    EV["evidence.test.mjs<br/>105 - the verifier"]
+    EV["evidence.test.mjs<br/>122 - the verifier"]
     DC["describe-call.test.mjs<br/>13 - the approval display"]
-    SP["spec.test.mjs<br/>13 - agent spec rules"]
-    AN["annotations.test.mjs<br/>15 - tool selectors"]
+    SP["spec.test.mjs<br/>22 - agent spec rules"]
+    AN["annotations.test.mjs<br/>17 - tool selectors"]
     RP["report.test.mjs<br/>11 - the written evidence"]
     RC["render-call.test.mjs<br/>8 - a call printed, not made"]
     EN["env.test.mjs<br/>8 - config loading"]
@@ -45,9 +45,12 @@ flowchart TD
     HT["http.test.mjs<br/>3 - an error page is not a body"]
     PA["paths.test.mjs<br/>4 - module-relative paths"]
     CA["connector-advice.test.mjs<br/>10 - what to tell a person"]
-    CO["contrast.test.mjs<br/>23 - palette contrast"]
-    OD["ops-desk/server.test.mjs<br/>9 - incident fixture server"]
-    FD["front-desk/server.test.mjs<br/>13 - workspace fixture server"]
+    CO["contrast.test.mjs<br/>28 - palette contrast"]
+    MA["model-advice.test.mjs<br/>6 - what a provider failure means"]
+    PO["policies.test.mjs<br/>4 - one reading of each agent policy"]
+    SV["lib/serve.test.mjs<br/>5 - the shared HTTP shell"]
+    OD["ops-desk/server.test.mjs<br/>13 - incident fixture server"]
+    FD["front-desk/server.test.mjs<br/>17 - workspace fixture server"]
   end
 
   subgraph ui["ui - vitest, two projects"]
@@ -77,13 +80,13 @@ flowchart TD
 | `flags.test.mjs`, `paths.test.mjs`, `settle.test.mjs`, `http.test.mjs` | Four one-line mistakes that each cost a real behaviour: a flag consumed as another flag's value, a percent-encoded path, a promise raced and abandoned, and an error page parsed as data. |
 | `mcp/front-desk/server.test.mjs` | The workspace server: every write tool refuses what it cannot honestly do and records nothing when it refuses, and the planted prompt injection is still in the fixture - if it is ever removed, the demonstration that the gate holds against a persuaded model silently stops demonstrating anything. |
 | `mcp/ops-desk/server.test.mjs` | The fixture MCP server, tested over the wire: every tool publishes the annotations the selectors resolve from, the destructive ones genuinely mutate, and the fixture still tells a story an investigation can get right. |
-| `env.test.mjs` (8), `contrast.test.mjs` (23) | Config loading, and that every colour pair in both themes clears 4.5:1 — the reference design's own muted grey was 3.37:1 and had to be darkened. |
+| `env.test.mjs` (8), `contrast.test.mjs` (28) | Config loading, and that every colour pair in both themes clears 4.5:1 — the reference design's own muted grey was 3.37:1 and had to be darkened. |
 
 ### UI — `ui/src/**/*.test.tsx`
 
 Two vitest projects, because they need different things:
 
-- **`unit`** — 12 files, 123 tests, jsdom, components in isolation.
+- **`unit`** — 15 files, 138 tests, jsdom, components in isolation.
 - **`mount`** — one test that mounts the entire app. It exists because the app once rendered a
   blank page while every unit test passed: the crash was an infinite render loop that only appears
   when the real provider stack is assembled. `--dangerouslyIgnoreUnhandledErrors` is scoped to this
