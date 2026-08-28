@@ -5,6 +5,7 @@ import { QuickActions } from './QuickActions';
 import { SheetContext } from './SheetContext';
 import { Topbar } from './Topbar';
 import { useCallback, useState } from 'react';
+import { useDialog } from './useDialog';
 import { useSidebarWidth, MIN_WIDTH, MAX_WIDTH } from './useSidebarWidth';
 import { useThemeControl } from './ThemeContext';
 
@@ -23,6 +24,7 @@ export function QuartermasterLayout({ className }: { className?: string }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const sidebar = useSidebarWidth();
   const closeSheet = useCallback(() => setSheetOpen(false), []);
+  const sheetRef = useDialog<HTMLElement>(sheetOpen, closeSheet);
 
   /**
    * ComposerBusyProvider is wired by default inside <Thread />, which this layout does not use - it
@@ -120,8 +122,18 @@ export function QuartermasterLayout({ className }: { className?: string }) {
           {/* Choosing a conversation closes the sheet. Being left staring at the drawer covering
               the conversation it just opened is the sheet failing at the one thing it exists for. */}
           <nav
+            /**
+             * A dialog, and now treated as one. It took no focus when it opened, Tab walked
+             * straight into the conversation underneath it, and no key closed it - so on a phone
+             * with a keyboard the only way out was the overlay, which is not reachable by keyboard
+             * either.
+             */
+            ref={sheetRef}
+            role="dialog"
+            aria-modal="true"
+            tabIndex={-1}
             aria-label="Conversations and agent reach"
-            className="relative w-72 max-w-[85vw] border-r border-line-soft bg-bg shadow-[var(--qm-shadow)]"
+            className="relative w-72 max-w-[85vw] border-r border-line-soft bg-bg shadow-[var(--qm-shadow)] focus:outline-none"
           >
             <SheetContext.Provider value={closeSheet}>
               <Sidebar mode={mode} resolved={resolved} onThemeChange={onThemeChange} />

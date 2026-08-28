@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useDialog } from './useDialog';
 import { useComposerBusyState } from '@truefoundry/trueforge-ui';
 // @ts-expect-error - shared JS module, aliased in vite.config.ts
 import { PHASES, isGreen, progress, testRuns, unexecutedToolCalls } from '@evidence';
@@ -517,18 +518,11 @@ function OutputDialog({ run, green, onClose }: { run: Run; green: boolean; onClo
    * commit every few hundred milliseconds, so focus was dragged back into the dialog continuously
    * and its own controls could not be reached.
    */
-  const dialogRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    dialogRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  /**
+   * Focus, Escape, the trap and the scroll lock all come from one place now. This dialog had the
+   * first two and the sheet had neither, which is what two copies of a behaviour turn into.
+   */
+  const dialogRef = useDialog<HTMLDivElement>(true, onClose);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
