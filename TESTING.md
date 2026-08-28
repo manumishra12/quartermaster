@@ -1,6 +1,6 @@
 # Testing
 
-357 tests in the root suite, 169 in the UI across 22 files, one mount test, and a fixture check. What follows is
+359 tests in the root suite, 169 in the UI across 22 files, one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
 
@@ -52,7 +52,7 @@ flowchart TD
     PO["policies.test.mjs<br/>4 - one reading of each agent policy"]
     SV["lib/serve.test.mjs<br/>5 - the shared HTTP shell"]
     OD["ops-desk/server.test.mjs<br/>21 - incident fixture server"]
-    FD["front-desk/server.test.mjs<br/>19 - workspace fixture server"]
+    FD["front-desk/server.test.mjs<br/>21 - workspace fixture server"]
   end
 
   subgraph ui["ui - vitest, two projects"]

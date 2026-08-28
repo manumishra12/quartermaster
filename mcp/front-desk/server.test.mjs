@@ -96,7 +96,7 @@ async function withServer(body) {
 test('every tool publishes annotations, and the gated ones are the ones that reach people', () =>
   withServer(async ({ call }) => {
     const { result } = await call('tools/list');
-    assert.equal(result.tools.length, 10);
+    assert.equal(result.tools.length, 13);
 
     for (const tool of result.tools) {
       assert.ok(
@@ -110,12 +110,12 @@ test('every tool publishes annotations, and the gated ones are the ones that rea
       .map((t) => t.name)
       .sort();
     // Everything that another person would see the result of.
-    assert.deepEqual(gated, ['close_issue', 'create_issue', 'send_email', 'send_message', 'update_issue']);
+    assert.deepEqual(gated, ['close_issue', 'create_issue', 'post_to_channel', 'send_email', 'send_message', 'update_issue']);
 
     const destructive = result.tools.filter((t) => t.annotations.destructiveHint).map((t) => t.name).sort();
     // Closing and sending cannot be walked back; filing and editing can. Email is the furthest
     // of the three: it is the only one that leaves the building.
-    assert.deepEqual(destructive, ['close_issue', 'send_email', 'send_message']);
+    assert.deepEqual(destructive, ['close_issue', 'post_to_channel', 'send_email', 'send_message']);
   }));
 
 test('a filed issue is real, and appears in the record of what was done', () =>
@@ -438,4 +438,45 @@ test('an email needs a subject and a body, and reports exactly what it sent', ()
 
     const { actions } = await callTool('list_outbox', {});
     assert.equal(actions.at(-1).action, 'send_email');
+  }));
+
+test('the search says how much it looked at, not only what it found', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * Nothing found across ten records is a fact about the workspace. Nothing found because the
+     * word was too specific is a fact about the query, and the two read identically without the
+     * number - so an agent concludes the team has no convention when it has one it did not match.
+     */
+    const hit = await callTool('search_workspace', { query: 'retry' });
+    assert.equal(hit.matched, 2, 'the runbook and the ticket that describe the same bug');
+    assert.ok(hit.searched >= 10);
+    assert.ok(hit.documents.some((d) => d.id === 'DOC-3'));
+    assert.ok(hit.issues.some((i) => i.id === 'CHK-118'));
+
+    const miss = await callTool('search_workspace', { query: 'zzz-nothing-here' });
+    assert.equal(miss.matched, 0);
+    assert.equal(miss.searched, hit.searched, 'it looked at the same records and found none');
+
+    // A blank query matches everything and means nothing.
+    assert.equal((await callTool('search_workspace', { query: '   ' })).error, 'missing_query');
+  }));
+
+test('a channel that pages people says so, to the person approving it', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * A tool that quietly wakes an on-call engineer and reports "posted" has told the approver the
+     * least interesting true thing about what just happened. The reply names who it paged.
+     */
+    const paged = await callTool('post_to_channel', { channel: '#incidents', body: 'Checkout is failing' });
+    assert.equal(paged.ok, true);
+    assert.deepEqual(paged.paged.sort(), ['priya', 'ravi', 'sam']);
+    assert.match(paged.note, /pages everyone/);
+
+    // A quieter channel says who sees it, and does not claim to have paged anybody.
+    const quiet = await callTool('post_to_channel', { channel: 'eng', body: 'Heads up' });
+    assert.equal(quiet.paged, undefined);
+    assert.ok(quiet.seen_by.includes('sam'));
+
+    assert.equal((await callTool('post_to_channel', { channel: 'nope', body: 'x' })).error, 'not_found');
+    assert.equal((await callTool('post_to_channel', { channel: 'eng', body: '  ' })).error, 'missing_fields');
   }));

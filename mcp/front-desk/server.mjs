@@ -209,6 +209,157 @@ function buildServer() {
 
   register(
     server,
+    "search_workspace",
+    {
+      title: "Search everything this desk knows",
+      description:
+        "Search documents, issues and message history at once. The way to find the convention, the prior ticket, or the policy before drafting anything.",
+      inputSchema: {
+        query: NAME,
+        kind: z.enum(["all", "documents", "issues", "messages"]).optional(),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ query, kind = "all" }) => {
+      if (!given(query)) {
+        return text({
+          error: "missing_query",
+          message:
+            "A search needs something to search for. Whitespace matches everything and means nothing.",
+        });
+      }
+
+      /**
+       * Substring matching, and the limit is stated rather than hidden.
+       *
+       * This is a fixture, not a search engine: there is no stemming, no ranking by relevance and
+       * no synonyms, so "retries" does not find "retry". An agent that gets nothing back and
+       * concludes the workspace is empty has drawn the wrong conclusion from a weak index, which is
+       * why every reply says how many records were searched.
+       */
+      const needle = query.trim().toLowerCase();
+      const hit = (haystack) =>
+        String(haystack ?? "")
+          .toLowerCase()
+          .includes(needle);
+
+      const documents =
+        kind === "all" || kind === "documents"
+          ? state.documents.filter(
+              (d) => hit(d.title) || hit(d.body) || hit(d.kind),
+            )
+          : [];
+      const issues =
+        kind === "all" || kind === "issues"
+          ? state.issues.filter((i) => hit(i.title) || hit(i.body) || hit(i.id))
+          : [];
+      const messages =
+        kind === "all" || kind === "messages"
+          ? state.messages.filter(
+              (m) => hit(m.body) || hit(m.from) || hit(m.channel),
+            )
+          : [];
+
+      const searched =
+        (kind === "all" || kind === "documents" ? state.documents.length : 0) +
+        (kind === "all" || kind === "issues" ? state.issues.length : 0) +
+        (kind === "all" || kind === "messages" ? state.messages.length : 0);
+
+      return text({
+        query: query.trim(),
+        kind,
+        matched: documents.length + issues.length + messages.length,
+        /**
+         * How many records were looked at, beside how many matched. Nothing found across forty
+         * records is a fact about the workspace; nothing found across zero is a fact about the
+         * filter, and they read identically without this number.
+         */
+        searched,
+        note: "Substring match only - no stemming and no synonyms. Try a shorter or different word before concluding nothing is there.",
+        documents,
+        issues,
+        messages,
+      });
+    },
+  );
+
+  register(
+    server,
+    "list_channels",
+    {
+      title: "List channels",
+      description:
+        "The channels on this desk, who is in them, and what each is for - including which of them pages somebody.",
+      annotations: READ_ONLY,
+    },
+    async () =>
+      text({ count: state.channels.length, channels: state.channels }),
+  );
+
+  register(
+    server,
+    "post_to_channel",
+    {
+      title: "Post to a channel",
+      description:
+        "Post a message to a channel. Everybody in it sees it, and one of them pages the on-call.",
+      inputSchema: { channel: NAME, body: BODY },
+      /**
+       * Destructive, and for a reason a DM is not: a channel post is read by everybody in the
+       * channel, and #incidents wakes somebody up. There is no unsend, and there is no undoing a
+       * page at three in the morning.
+       */
+      annotations: DESTRUCTIVE,
+    },
+    async ({ channel, body }) => {
+      const found = state.channels.find(
+        (c) => c.name === channel.replace(/^#/, ""),
+      );
+      if (!found) {
+        return notFound(
+          `No channel called ${channel}. Nothing was posted.`,
+          state.channels.map((c) => c.name),
+        );
+      }
+
+      if (!given(body)) {
+        return text({
+          error: "missing_fields",
+          message:
+            "A post needs a body. Whitespace is not one, and nothing was posted.",
+        });
+      }
+
+      const posted = {
+        action: "post_to_channel",
+        channel: found.name,
+        body: body.trim(),
+        at: tick(),
+        /**
+         * Said in the reply, because the approver is the person who has to know. A tool that
+         * quietly pages an on-call engineer and reports "posted" has told them the least
+         * interesting true thing about what just happened.
+         */
+        ...(found.name === "incidents"
+          ? {
+              paged: found.members,
+              note: "Posted, and this channel pages everyone in it. It cannot be unsent.",
+            }
+          : { seen_by: found.members, note: "Posted. It cannot be unsent." }),
+      };
+      state.messages.push({
+        channel: found.name,
+        from: "assistant",
+        at: posted.at,
+        body: posted.body,
+      });
+      state.outbox.push(posted);
+      return text({ ok: true, ...posted });
+    },
+  );
+
+  register(
+    server,
     "create_issue",
     {
       title: "File an issue",

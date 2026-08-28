@@ -34,8 +34,9 @@ curl -X POST http://localhost:8790/api/v1/settings/mcp-servers \
 | Tool | Annotation | Gated |
 | --- | --- | --- |
 | `list_projects`, `list_teammates`, `list_issues`, `get_issue`, `list_outbox` | `readOnlyHint` | no |
+| `search_workspace`, `list_channels` | `readOnlyHint` | no |
 | `create_issue`, `update_issue` | write | **yes** |
-| `close_issue`, `send_message`, `send_email` | `destructiveHint` | **yes** |
+| `close_issue`, `send_message`, `send_email`, `post_to_channel` | `destructiveHint` | **yes** |
 
 Closing and sending are marked destructive because they cannot be walked back; filing and editing
 can. Everything another person would see the result of is gated either way.
@@ -70,7 +71,39 @@ record through a human decision.
 | Email an address this desk does not know | `not_found` — the one refusal here about blast radius, not honesty |
 | Copy an address this desk does not know | `not_found`, nothing sent — a cc receives the same email |
 | Email with no subject or no body | `missing_fields`, naming which |
+| Post to a channel that does not exist | `not_found`, naming the ones that do |
+| Search for nothing | `missing_query` — whitespace matches everything and means nothing |
 | Send or file more text than anyone will read | refused by the schema - 20k of body, 300 of title |
+
+## What the search is for
+
+`search_workspace` covers the documents, the issues and the message history at once, because almost
+every question this desk is asked has been answered somewhere in it already - the convention for
+writing this kind of ticket, the prior issue describing the same bug, the policy about which channel
+wakes somebody up.
+
+Every reply says **how many records it looked at** beside how many matched. That is the whole design
+of it: nothing found across ten records is a fact about the workspace, nothing found because the
+word was too specific is a fact about the query, and without the number those two read identically -
+so an agent concludes the team has no convention when it has one it failed to match. The reply also
+says plainly that it is a substring match with no stemming, so `retries` will not find `retry`.
+
+## Channels, and what each one costs
+
+| Channel | Who sees it | What it costs |
+| --- | --- | --- |
+| `#eng` | the whole team | their attention |
+| `#checkout` | the two people who own it | theirs |
+| `#incidents` | everyone, **now** | somebody is woken up |
+
+`post_to_channel` names who it reached, and for `#incidents` it names who it **paged**. A tool that
+quietly wakes an on-call engineer and reports "posted" has told the approver the least interesting
+true thing about what just happened.
+
+`DOC-2` in the fixture is the policy that makes this a decision rather than a preference: the
+incidents channel is for a live customer-facing failure and nothing else. An agent that reads it
+before posting picks the quiet channel; one that does not picks the loud one because the work felt
+urgent, which is how an assistant becomes something people mute.
 
 ## The injection, and why it is in the fixture
 

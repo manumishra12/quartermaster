@@ -31,8 +31,9 @@ mailbox behind it - and the rules require private and login-protected informatio
 repository and the demo. A mailbox is the most private thing anybody would connect.
 
 So `desk-assistant` reaches `front-desk`, which ships here: projects to read, conventions to match,
-teammates to assign to, and `create_issue`, `update_issue`, `close_issue`, `send_message` and
-`send_email` all behind the gate. It drafts something a person has to stand behind, reads freely to
+teammates to assign to, channels to post in, documents and message history to search, and
+`create_issue`, `update_issue`, `close_issue`, `send_message`, `send_email` and `post_to_channel`
+all behind the gate. It drafts something a person has to stand behind, reads freely to
 match the team's existing conventions, and stops before it files anything. The card's point is the
 approval gate, not the vendor. `TOOLS.md` has the longer version of this argument.
 
