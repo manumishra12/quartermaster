@@ -353,3 +353,24 @@ test('the dev server does not hand the harness to the network', () => {
   assert.doesNotMatch(config, /host:\s*['"]0\.0\.0\.0['"]/, 'same thing, spelled out');
   assert.match(config, /host:\s*['"]127\.0\.0\.1['"]/, 'the dev server must name loopback explicitly');
 });
+
+test('the server tests connect to the address the server binds', () => {
+  /**
+   * The servers bind 127.0.0.1 and the banner prints "localhost", because that is the URL every
+   * README and the connector registration use. The tests connected to that name, which asks the
+   * resolver - and on a host where localhost is ::1 first, which is most Linux CI, that is a
+   * different address with nothing listening.
+   *
+   * The suite runs in six seconds here and hung for fourteen minutes there. Verified directly:
+   * against a server bound to 127.0.0.1, `127.0.0.1` answers 200 and `[::1]` is ECONNREFUSED.
+   */
+  for (const file of ['mcp/ops-desk/server.test.mjs', 'mcp/front-desk/server.test.mjs']) {
+    const source = readFileSync(fileURLToPath(new URL(`../../${file}`, import.meta.url)), 'utf8');
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    assert.doesNotMatch(
+      code,
+      /fetch\(`?http:\/\/localhost:/,
+      `${file} connects to a name; bind and connect must agree on the address`,
+    );
+  }
+});

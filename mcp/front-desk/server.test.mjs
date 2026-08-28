@@ -63,7 +63,19 @@ async function startServer() {
     child.on('exit', (code) => done(new Error(`front-desk exited with code ${code} before reporting a port`)));
   });
 
-  const endpoint = `http://localhost:${port}/mcp`;
+  /**
+   * Connect to the address the server actually bound, not to a name that may resolve elsewhere.
+   *
+   * The server binds 127.0.0.1 and the banner prints "localhost", because that is the URL every
+   * README and the connector registration use. Connecting to that name asks the resolver, and on a
+   * host where localhost is ::1 first - which is most Linux CI - that is a different address with
+   * nothing listening on it. The suite runs in six seconds here and hung for fourteen minutes
+   * there, on exactly that.
+   *
+   * The Host header stays "localhost", which is what the server's own check expects, so this
+   * exercises the same path a browser or the harness would.
+   */
+  const endpoint = `http://127.0.0.1:${port}/mcp`;
 
   async function call(method, params) {
     const res = await fetch(endpoint, {
