@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { contrast, luminance, readThemes, PAIRS } from './contrast.mjs';
+import { fromModule } from './paths.mjs';
 
-const THEMES = readThemes(new URL('../../ui/src/styles/tokens.css', import.meta.url).pathname);
+const THEMES = readThemes(fromModule(import.meta.url, '../../ui/src/styles/tokens.css'));
 
 test('the stylesheet declares both themes', () => {
   assert.deepEqual(Object.keys(THEMES).sort(), ['dark', 'light']);

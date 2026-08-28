@@ -20,11 +20,12 @@ import { classify, ungatedRisks, UNANNOTATED } from './lib/annotations.mjs';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadEnv } from './lib/env.mjs';
+import { fromModule } from './lib/paths.mjs';
 
 loadEnv();
 
 const BASE = process.env.TRUEFORGE_BASE_URL ?? 'http://localhost:8790';
-const AGENTS_DIR = new URL('../agents/', import.meta.url).pathname;
+const AGENTS_DIR = fromModule(import.meta.url, '../agents/');
 
 /** What the specs actually declare for a connector, rather than the library default. */
 function specFor(serverName) {

@@ -12,11 +12,12 @@ import { describeConnectorFailure } from './lib/connector-advice.mjs';
 import { join } from 'node:path';
 import { classify, ungatedRisks } from './lib/annotations.mjs';
 import { loadEnv } from './lib/env.mjs';
+import { fromModule } from './lib/paths.mjs';
 
 loadEnv();
 
 const BASE = process.env.TRUEFORGE_BASE_URL ?? 'http://localhost:8790';
-const AGENTS_DIR = new URL('../agents/', import.meta.url).pathname;
+const AGENTS_DIR = fromModule(import.meta.url, '../agents/');
 
 const results = [];
 const record = (ok, label, detail, fix) => results.push({ ok, label, detail, fix });
