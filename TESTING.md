@@ -1,6 +1,6 @@
 # Testing
 
-340 tests in the root suite, 148 in the UI across 17 files, one mount test, and a fixture check. What follows is
+340 tests in the root suite, 153 in the UI across 18 files, one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
 
@@ -13,7 +13,7 @@ npm run lint         # eslint
 npm run typecheck    # tsc --noEmit
 
 cd ui
-npm run test:unit    # 148 tests, jsdom
+npm run test:unit    # 153 tests, jsdom
 npm run test:mount   # the one test that mounts the whole app
 npm run build        # production build
 ```
@@ -55,7 +55,7 @@ flowchart TD
   end
 
   subgraph ui["ui - vitest, two projects"]
-    U1["unit: 17 files, 148 tests"]
+    U1["unit: 18 files, 153 tests"]
     U2["mount: 1 test, whole app"]
   end
 
@@ -87,7 +87,7 @@ flowchart TD
 
 Two vitest projects, because they need different things:
 
-- **`unit`** — 17 files, 148 tests, jsdom, components in isolation.
+- **`unit`** — 18 files, 153 tests, jsdom, components in isolation.
 - **`mount`** — one test that mounts the entire app. It exists because the app once rendered a
   blank page while every unit test passed: the crash was an infinite render loop that only appears
   when the real provider stack is assembled. `--dangerouslyIgnoreUnhandledErrors` is scoped to this

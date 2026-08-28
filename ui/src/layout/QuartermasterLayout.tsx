@@ -6,6 +6,8 @@ import { SheetContext } from './SheetContext';
 import { Topbar } from './Topbar';
 import { useCallback, useState } from 'react';
 import { useDialog } from './useDialog';
+import { useShortcuts } from './useShortcuts';
+import { Shortcuts } from './Shortcuts';
 import { useSidebarWidth, MIN_WIDTH, MAX_WIDTH } from './useSidebarWidth';
 import { useThemeControl } from './ThemeContext';
 
@@ -25,6 +27,18 @@ export function QuartermasterLayout({ className }: { className?: string }) {
   const sidebar = useSidebarWidth();
   const closeSheet = useCallback(() => setSheetOpen(false), []);
   const sheetRef = useDialog<HTMLElement>(sheetOpen, closeSheet);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+
+  useShortcuts({
+    // The composer is the SDK's; reached by role rather than by ref, because the ref belongs to it.
+    focusComposer: () => document.querySelector<HTMLTextAreaElement>('textarea')?.focus(),
+    toggleSidebar: () => setCollapsed((was) => !was),
+    // No search panel yet, so this opens the sheet where the conversations are - which is where
+    // somebody pressing it is trying to get to. Better than binding a key to nothing.
+    openSearch: () => setSheetOpen(true),
+    showHelp: () => setHelpOpen(true),
+  });
 
   /**
    * ComposerBusyProvider is wired by default inside <Thread />, which this layout does not use - it
@@ -40,7 +54,7 @@ export function QuartermasterLayout({ className }: { className?: string }) {
     <div className={['flex h-full flex-col bg-bg text-ink md:flex-row', className].filter(Boolean).join(' ')}>
       <nav
         aria-label="Conversations and agent reach"
-        className="relative hidden shrink-0 border-r border-line-soft lg:block"
+        className={['relative shrink-0 border-r border-line-soft', collapsed ? 'hidden' : 'hidden lg:block'].join(' ')}
         style={{ width: sidebar.width }}
       >
         <Sidebar mode={mode} resolved={resolved} onThemeChange={onThemeChange} />
@@ -110,6 +124,8 @@ export function QuartermasterLayout({ className }: { className?: string }) {
       </main>
 
       <StatusRail />
+
+      {helpOpen && <Shortcuts onClose={() => setHelpOpen(false)} />}
 
       {sheetOpen && (
         <div className="fixed inset-0 z-30 flex lg:hidden">
