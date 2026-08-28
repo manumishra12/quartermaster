@@ -164,6 +164,10 @@ event stream rather than the transcript - turns out to generalise, and each is o
 
 Start with `quartermaster-local`. It needs no token and touches nothing outside the sandbox.
 
+[`USECASES.md`](USECASES.md) takes each of the nine in turn: what it is for, what it reaches, what
+is gated, commands you can paste, what the output looks like, and what it refuses. Start there if
+what you want is to see one of them do something.
+
 `code-reviewer` reads a pull request, runs its suite in the sandbox, and comments on what it found.
 It is the one agent here whose output *is* a claim about a test run, which makes it the sharpest
 case for the verifier: a review saying "tests pass" without a run is worth less than no review,
