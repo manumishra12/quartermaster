@@ -22,7 +22,7 @@ Everything Quartermaster is allowed to touch, and what is gated. Kept in sync wi
 | **GitHub** (shipped catalog) | header (PAT) | `quartermaster`, `code-reviewer`, `gate-demo` | `@read-only` + named writes, different per agent (see section 7); `gate-demo` gets one | `["@write", "@destructive"]` + those writes by name |
 | **Exa** (shipped catalog) | none | `research-desk` | `@read-only` | `["@write", "@destructive"]` - nothing it exposes is a write |
 | **deepwiki** (shipped catalog) | none | both quartermasters | 3 tools by name | `["@write", "@destructive"]` |
-| **ops-desk** (ours, `mcp/ops-desk`) | none | `incident-responder` | `@read-only` + `rollback_deploy`, `restart_service` | both writes by name, plus `["@write", "@destructive"]` |
+| **ops-desk** (ours, `mcp/ops-desk`) | none | `incident-responder` | `@read-only` + `rollback_deploy`, `restart_service`, `resolve_alert` | all three by name, plus `["@write", "@destructive"]` |
 | **front-desk** (ours, `mcp/front-desk`) | none | `desk-assistant` | `@read-only` + `create_issue`, `update_issue`, `close_issue`, `send_message` | all four by name, plus `["@write", "@destructive"]` |
 
 ### Why there is no Gmail or Slack
@@ -138,9 +138,9 @@ is relevant, then the whole pack is materialized in the sandbox at `/opt/tfy/ski
 | Submit a pull request review | GitHub, real | **approval required** |
 | Merge a pull request, push files, delete a file | GitHub, real | not enabled for any agent here |
 | Read repo, issues, CI status | GitHub, real | no gate — read-only |
-| Roll back a deploy, restart a service | ops-desk | **approval required** |
+| Roll back a deploy, restart a service, resolve an alert | ops-desk | **approval required** |
 | File, edit or close an issue; send a message | front-desk | **approval required** |
-| Read alerts, deploys, health, projects, issues | ops-desk, front-desk | no gate — read-only |
+| Read alerts, logs, deploys, health, projects, issues | ops-desk, front-desk | no gate — read-only |
 
 The last three rows are the ones that matter for anyone reproducing this, because they are the only
 gated actions that need no account at all. Both servers annotate every tool, so the tags in the

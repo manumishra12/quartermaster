@@ -178,6 +178,7 @@ what "it resolved on its own" looks like from below, and it is the evidence for 
 sequenceDiagram
   participant A as incident-responder
   participant O as ops-desk
+  participant S as sandbox
   participant P as person
 
   A->>O: get_alert(ALRT-4471)
@@ -187,11 +188,23 @@ sequenceDiagram
   A->>O: list_deploys(checkout-api)
   O-->>A: 4c21 at 13:58 - timeout 5000ms to 2000ms
   Note over A: correlation, not proof - and it says which
+  A->>O: search_logs(checkout-api, around 14:00)
+  O-->>A: gateway answers in 2.4s before and after - the deadline moved, not the upstream
+  A->>S: python3 repro.py --deploy 4c21
+  S-->>A: UpstreamTimeout at 2000ms, exit 1
+  A->>S: python3 repro.py --deploy 9ab7
+  S-->>A: answered in 2412ms, exit 0
+  Note over A,S: the pair is the evidence - one half is only a failure
   A->>O: rollback_deploy(4c21)
   Note over A,P: the harness stops the turn here
   P-->>A: deny
   A->>A: report the denial, propose nothing else, stop
 ```
+
+Approved instead of denied, the last two beats are the other half of the arc: `get_service_health`
+again to see the error rate come down, `repro.py --deploy 9ab7` again against what the service is
+now running, and only then `resolve_alert` - which the desk refuses outright while the series is
+still bad.
 
 ## Notes for anyone extending it
 
