@@ -37,6 +37,19 @@ describe('renaming a conversation', () => {
     expect(screen.getByRole('button', { name: 'Rename Fix the ledger test' })).toBeInTheDocument();
   });
 
+  test('and is reachable by thumb as well as by mouse', () => {
+    /**
+     * 32px clears WCAG 2.5.8's 24px floor and is right under a mouse. Under a finger it is not,
+     * and this control had grown on coarse pointers while the theme toggle, the sidebar collapse
+     * and the dialog close had not - one fix at a time, in one file at a time.
+     *
+     * They share one rule now, so this asserts the class rather than the pixel: the media query
+     * lives in a single place and jsdom would not evaluate it anyway.
+     */
+    render(<ThreadRow {...base} />);
+    expect(screen.getByRole('button', { name: /^Rename/ }).className).toMatch(/\bqm-tap\b/);
+  });
+
   test('a new name replaces the one TrueForge derived', async () => {
     render(<ThreadRow {...base} />);
     await userEvent.click(screen.getByRole('button', { name: /^Rename/ }));

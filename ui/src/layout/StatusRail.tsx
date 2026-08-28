@@ -178,7 +178,17 @@ export function StatusRail() {
       // Below lg this is a column flex child with no ceiling, so its content height won every
       // contest and the conversation and composer were squeezed to zero. Capped at half the
       // viewport there, which is also what makes its own overflow-y-auto do anything.
-      className="max-h-[50vh] w-full shrink-0 overflow-y-auto border-t border-line-soft bg-bg text-ink lg:max-h-none lg:w-[22rem] lg:border-l lg:border-t-0"
+      /**
+       * Three layouts, because a tablet is not a large phone.
+       *
+       * Below md the rail sits under the conversation, capped at half the viewport - without a
+       * ceiling its content height won every contest and squeezed the conversation and composer to
+       * nothing. From md it sits beside the conversation, because a 768px tablet has the width for
+       * a column and stacking wastes it. The full 22rem waits for xl: at exactly 1024px, which is
+       * what a landscape iPad reports, a 352px rail plus a 256px sidebar leaves the conversation
+       * 416px, and that is where the answer, the diff and the test output have to be read.
+       */
+      className="max-h-[50vh] w-full shrink-0 overflow-y-auto border-t border-line-soft bg-bg text-ink md:max-h-none md:w-64 md:border-l md:border-t-0 lg:w-72 xl:w-[22rem]"
     >
       <Section label="Doing" badge={step.index >= 0 ? `${step.index + 1} of ${(PHASES as string[]).length}` : undefined}>
         <p
@@ -326,7 +336,7 @@ function Verdict({ last, ordinal, of }: { last: Run; ordinal: number; of: number
         className={[
           // border-line, not border-line-soft: this became focusable, and the boundary of
           // something you can tab into has to clear 3:1 (WCAG 1.4.11). The soft token is 1.18:1.
-          'mt-3 overflow-auto rounded-md border border-line bg-bg/60 p-2.5 font-mono text-2xs leading-relaxed whitespace-pre-wrap break-words text-ink',
+          'mt-3 overflow-auto rounded-md border border-line bg-bg/60 p-2.5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words text-ink',
           'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
           expanded ? 'max-h-80' : 'max-h-40',
         ].join(' ')}
@@ -470,7 +480,7 @@ function ApprovalPrompt({
       </p>
 
       {pending.argsText && (
-        <pre className="max-h-44 overflow-auto rounded-lg border border-line-soft bg-bg p-2.5 font-mono text-2xs leading-relaxed whitespace-pre-wrap break-words">
+        <pre className="max-h-44 overflow-auto rounded-lg border border-line bg-bg p-2.5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words">
           {pending.argsText}
         </pre>
       )}
@@ -554,14 +564,14 @@ function OutputDialog({ run, green, onClose }: { run: Run; green: boolean; onClo
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="ml-auto inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-muted transition-colors duration-200 hover:bg-raised hover:text-ink"
+            className="qm-tap ml-auto inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-muted transition-colors duration-200 hover:bg-raised hover:text-ink"
           >
             <CloseIcon />
           </button>
         </header>
 
         {run.command && (
-          <p className="border-b border-line-soft px-4 py-2 font-mono text-2xs text-muted">{run.command}</p>
+          <p className="border-b border-line-soft px-4 py-2 font-mono text-xs text-muted">{run.command}</p>
         )}
 
         <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-xs leading-relaxed text-ink">

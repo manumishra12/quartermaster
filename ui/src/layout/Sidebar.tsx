@@ -44,7 +44,7 @@ export function SidebarHeader({
           type="button"
           onClick={onOpenSidebar}
           aria-label="Open conversations and what this agent can reach"
-          className="inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-line bg-surface transition-colors duration-200 hover:border-accent"
+          className="qm-tap inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-line bg-surface transition-colors duration-200 hover:border-accent"
         >
           <img src="/mark.svg" alt="" width={18} height={18} />
         </button>

@@ -209,7 +209,7 @@ export function ThreadRow({
             onClick={startEditing}
             aria-label={`Rename ${shown}`}
             title="Rename"
-            className="grid size-8 cursor-pointer place-items-center rounded text-muted hover:bg-surface hover:text-ink [@media(hover:none)]:size-11"
+            className="qm-tap grid size-8 cursor-pointer place-items-center rounded text-muted hover:bg-surface hover:text-ink"
           >
             <PencilIcon />
           </button>

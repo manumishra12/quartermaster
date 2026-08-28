@@ -19,22 +19,62 @@ export const MIN_WIDTH = 208;
 export const MAX_WIDTH = 560;
 export const DEFAULT_WIDTH = 256;
 
+/**
+ * What the rest of the layout needs, so the sidebar cannot take it.
+ *
+ * The three columns are the sidebar, the conversation and the status rail, and only one of them is
+ * draggable - so the drag is the only way to starve the other two. At 1024px, the width a landscape
+ * iPad reports, the rail takes 352 and a sidebar dragged to its 560 maximum leaves the conversation
+ * 112 pixels. `min-w-0` on that column means it shrinks silently rather than overflowing, so
+ * nothing looks broken: the answer, the diff and the test output are simply unreadable, which is a
+ * worse failure than a scrollbar.
+ *
+ * So the ceiling is whichever is smaller: the fixed maximum, or what leaves the conversation a
+ * readable column. 34ch at this font is around 384px, and below that a diff is not worth showing.
+ */
+const RAIL_WIDTH = 352;
+const CONVERSATION_FLOOR = 384;
+
 /** Storage throws in private windows and where site data is blocked, so every access is guarded. */
 function load(): number {
   try {
     const stored = Number(window.localStorage.getItem(KEY));
     if (!Number.isFinite(stored) || stored <= 0) return DEFAULT_WIDTH;
-    return clamp(stored);
+    return clamp(stored, viewportWidth());
   } catch {
     return DEFAULT_WIDTH;
   }
 }
 
-export function clamp(width: number): number {
+/**
+ * The widest this sidebar may be on a viewport of the given width.
+ *
+ * Below the large breakpoint the sidebar is not laid out beside anything - it is a sheet over the
+ * page - so the viewport does not constrain it and the fixed maximum stands.
+ */
+export function ceilingFor(viewport: number): number {
+  if (!Number.isFinite(viewport) || viewport < 1024) return MAX_WIDTH;
+  const spare = viewport - RAIL_WIDTH - CONVERSATION_FLOOR;
+  // Never below the minimum: a viewport too small for all three is a layout problem, not a reason
+  // to hand back a width the user cannot drag out of.
+  return Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, spare));
+}
+
+export function clamp(width: number, viewport?: number): number {
   // NaN survives every comparison, so without this it flows into the style attribute and the
   // column collapses to nothing with no way to drag it back.
   if (!Number.isFinite(width)) return MIN_WIDTH;
-  return Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(width)));
+  const ceiling = viewport === undefined ? MAX_WIDTH : ceilingFor(viewport);
+  return Math.min(ceiling, Math.max(MIN_WIDTH, Math.round(width)));
+}
+
+/** The viewport width, or something harmless where there is no window to ask. */
+function viewportWidth(): number {
+  try {
+    return window.innerWidth;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
 }
 
 export function useSidebarWidth() {
@@ -56,7 +96,7 @@ export function useSidebarWidth() {
 
   const set = useCallback(
     (next: number) => {
-      const bounded = clamp(next);
+      const bounded = clamp(next, viewportWidth());
       setWidth(bounded);
       persist(bounded);
       return bounded;

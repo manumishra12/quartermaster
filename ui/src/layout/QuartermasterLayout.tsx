@@ -37,7 +37,7 @@ export function QuartermasterLayout({ className }: { className?: string }) {
    */
   return (
     <ComposerBusyProvider>
-    <div className={['flex h-full flex-col bg-bg text-ink lg:flex-row', className].filter(Boolean).join(' ')}>
+    <div className={['flex h-full flex-col bg-bg text-ink md:flex-row', className].filter(Boolean).join(' ')}>
       <nav
         aria-label="Conversations and agent reach"
         className="relative hidden shrink-0 border-r border-line-soft lg:block"

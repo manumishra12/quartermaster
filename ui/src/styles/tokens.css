@@ -32,8 +32,12 @@
      when the real problem was that nothing was subordinate. */
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1rem;
-  --text-xs: 0.71875rem;
-  --text-xs--line-height: 1.0625rem;
+  /* 12px. It was 11.5, which is under the floor for anything a person has to read carefully, and
+     the two things this product asks them to read carefully - the recorded output and the
+     arguments of a call they are about to approve - are set in it. Half a pixel of density is not
+     worth an operator squinting at the text they are consenting to. */
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.125rem;
   --text-sm: 0.78125rem;
   --text-sm--line-height: 1.25rem;
   --text-base: 0.84375rem;
@@ -189,6 +193,24 @@
 
 /* Counts sit next to each other down the rail and change while you watch. Proportional digits make
    them jitter as the value changes; tabular ones hold their column. */
+/**
+ * A control big enough for a thumb, on devices that have thumbs.
+ *
+ * 32px clears WCAG 2.5.8's 24px floor and is comfortable under a mouse, which is why the icon
+ * buttons are that size. Under a finger it is not - and the row-level rename control already
+ * grew on coarse pointers while the theme toggle, the sidebar collapse and the dialog close did
+ * not, which is the kind of inconsistency that comes from fixing one thing at a time.
+ *
+ * Keyed on the pointer rather than the viewport: a small window on a desktop still has a mouse,
+ * and a large tablet still has a finger.
+ */
+@media (hover: none) and (pointer: coarse) {
+  .qm-tap {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+}
+
 .qm-nums {
   font-variant-numeric: tabular-nums;
 }
