@@ -462,7 +462,7 @@ from recorded tool responses, never from the agent's narration.
 ## Development
 
 ```bash
-npm run check             # lint, typecheck, 449 tests, and the fixture check - what CI runs
+npm run check             # lint, typecheck, 457 tests, and the fixture check - what CI runs
 npm test                  # the root suite alone
 npm run fixtures:check    # the fixtures must still fail
 npm run tools:audit       # every reachable tool is gated as claimed
