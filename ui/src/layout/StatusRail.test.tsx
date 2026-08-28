@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
@@ -64,17 +64,45 @@ describe('before anything has run', () => {
 
 describe('what it did', () => {
   test('a passing run reads as passed, in words as well as colour', () => {
-    state.executions = [RED, GREEN];
+    state.executions = [GREEN];
     render(<StatusRail />);
     expect(screen.getByText('Last run passed')).toBeInTheDocument();
     expect(screen.getByText(/exit 0/)).toBeInTheDocument();
   });
 
   test('a failing run is never dressed up as a pass', () => {
-    state.executions = [GREEN, RED];
+    state.executions = [RED];
     render(<StatusRail />);
     expect(screen.getByText('Last run did not pass')).toBeInTheDocument();
     expect(screen.queryByText('Last run passed')).not.toBeInTheDocument();
+  });
+
+  test('the whole sequence is shown, because red-then-green is the story', () => {
+    /**
+     * Only the newest run used to reach the screen, while the badge said "2/2 test runs" - so the
+     * panel admitted there had been more and showed none of them. A fix has a shape: the suite is
+     * red, a change is made, the suite is green. Dropping everything but the last frame throws away
+     * the one piece of evidence that makes the fix believable.
+     */
+    state.executions = [RED, GREEN];
+    render(<StatusRail />);
+    expect(screen.getByText('Run 1 of 2 did not pass')).toBeInTheDocument();
+    expect(screen.getByText('Run 2 of 2 passed')).toBeInTheDocument();
+
+    // And with one run there is no ordinal to read, because there is no sequence.
+    cleanup();
+    state.executions = [GREEN];
+    render(<StatusRail />);
+    expect(screen.queryByText(/Run 1 of 1/)).not.toBeInTheDocument();
+  });
+
+  test('output that scrolls can be reached from the keyboard', () => {
+    // A scrollable region with no tabindex cannot be scrolled without a mouse: the content is
+    // simply unreachable. It needs a name too, or it is an anonymous box to a screen reader.
+    state.executions = [GREEN];
+    render(<StatusRail />);
+    const output = screen.getByRole('region', { name: /Output of run 1 of 1/i });
+    expect(output).toHaveAttribute('tabindex', '0');
   });
 
   test('a non-zero exit contradicts output that looks green - the CLI rule, applied here', () => {
