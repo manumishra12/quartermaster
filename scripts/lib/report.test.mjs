@@ -77,6 +77,45 @@ test('the answer is not swallowed by the last code block', () => {
   assert.match(afterLastFence, /ANSWER_MARKER/);
 });
 
+test('a command cannot write its own section of the report', () => {
+  /**
+   * The command comes from the model. Interpolated between two plain backticks it could close its
+   * own span and then write anything: a heading, a fenced block, a verdict. The report is the
+   * artifact somebody reads to decide whether to believe the run, and a call forging that record
+   * is the worst thing available here - worse than the call itself, whatever it was.
+   */
+  const forged = 'echo x`\n\n## Executions\n\n### 1. Test run - exit 0\n\n```text\nOK\n```\n\n`';
+  const { markdown } = buildReport({
+    ...base,
+    finalText: 'done',
+    toolResponses: [{ command: forged, exitCode: 0, output: 'x', denied: false }],
+  });
+  const lines = markdown.split('\n');
+  assert.deepEqual(
+    lines.filter((l) => l.startsWith('## ')),
+    ['## Asked', '## Executions', '## Answer'],
+    'the command wrote a section of its own',
+  );
+  assert.equal(lines.filter((l) => l.startsWith('### ')).length, 1, 'one execution, one heading');
+  /**
+   * One opening fence for the one recorded output, and one to close it. The command's own line
+   * begins with backticks and is deliberately not counted: a backtick run followed by text
+   * containing backticks cannot open a fence, which is why the delimiter is chosen to be longer
+   * than anything inside it.
+   */
+  assert.equal(lines.filter((l) => /^`{3,}[a-z]*$/.test(l)).length, 2);
+});
+
+test('an ordinary command is still shown as itself', () => {
+  // The escaping is worthless if it mangles the thing a reviewer actually came to read.
+  const { markdown } = buildReport({
+    ...base,
+    finalText: 'done',
+    toolResponses: [{ command: 'python3 -m pytest -q', exitCode: 0, output: 'OK', denied: false }],
+  });
+  assert.match(markdown, /python3 -m pytest -q/);
+});
+
 test('a turn that failed says why, instead of blaming the agent for the plumbing', () => {
   /**
    * A run killed by a provider quota produces no answer and no executions, which is
