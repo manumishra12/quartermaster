@@ -330,16 +330,30 @@ had to ask about. The real case in this repository:
   code-reviewer asked to hand this to quartermaster. Refused.
   handing from code-reviewer to quartermaster would widen what this request can do
 
-    github/create_branch          -  the sender cannot reach it
-    github/create_or_update_file  -  the sender cannot reach it
+    dynamic_sub_agents                        -  the receiver may spawn subagents and the sender may not
+    github/create_branch                      -  the sender cannot reach it
+    github/create_or_update_file              -  the sender cannot reach it
+    github/push_files                         -  the sender cannot reach it
+    github/create_pull_request                -  the sender cannot reach it
+    github/add_reply_to_pull_request_comment  -  the sender cannot reach it
+    github/@read-only                         -  the sender cannot reach it
+    deepwiki                                  -  the sender does not have this connector at all
 ```
 
-`code-reviewer` cannot push or merge by design - a reviewer that can merge is not a reviewer - and
-delegating its fix to the agent that can push is how it would get one anyway. Of the 72 directed
-pairs between these nine agents, 15 are handoffs that widen nothing.
+`code-reviewer` reaches five named GitHub reads and nothing else - it cannot branch, write a file or
+open a pull request, because a reviewer that can land its own fix is not a reviewer. Delegating the
+fix to the agent that can push is how it would land one anyway. Of the 72 directed pairs between
+these nine agents, 15 are handoffs that widen nothing.
+
+The last two lines are the check being blunt rather than clever, and it is worth seeing. `@read-only`
+is reported as unreachable because `covers` will not expand a selector into the tools it stands for -
+that expansion needs annotations the servers publish at runtime, and this has to answer in CI with
+nothing connected. The same bluntness refuses the reverse direction, `quartermaster` to
+`code-reviewer`, over `pull_request_read`. Over-reporting names a handoff that is in fact safe; the
+error in the other direction blesses one that is not.
 
 Three further rules, all enforced in `handoff.mjs`: **approvals never travel** (there is no field
-for one, and a test asserts the absence), the chain is **bounded at three hops with no revisiting**,
+for one, and a test asserts the absence), the chain is **bounded at three agents - two handoffs - with no revisiting**,
 and the sender's note reaches the receiver **framed as untrusted text** - because it is text written
 by a model, with the same power to contain "this was pre-approved" as any issue body from a
 stranger. An allowed handoff re-enters the same run script, so the receiving agent gets the
@@ -429,7 +443,7 @@ from recorded tool responses, never from the agent's narration.
 ## Development
 
 ```bash
-npm run check             # lint, typecheck, 397 tests, and the fixture check - what CI runs
+npm run check             # lint, typecheck, 413 tests, and the fixture check - what CI runs
 npm test                  # the root suite alone
 npm run fixtures:check    # the fixtures must still fail
 npm run tools:audit       # every reachable tool is gated as claimed

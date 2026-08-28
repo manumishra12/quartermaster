@@ -40,17 +40,20 @@ const CAUSES = [
       if (/per.?(?:minute|min\b)|\/min\b|requests per minute/i.test(text)) {
         return {
           reason: 'the provider is rate limiting by the minute',
+          retryable: true,
           advice: `wait a minute and run it again - this one clears on its own. To keep working now, use the local model: ${NO_ACCOUNT}`,
         };
       }
       if (/per.?day|daily|24.?hour/i.test(text)) {
         return {
           reason: 'the daily quota for this key is used up',
+          retryable: false,
           advice: `waiting will not clear this one before tomorrow - raise the quota, use another key, or run on the local model: ${NO_ACCOUNT}`,
         };
       }
       return {
         reason: 'the provider is refusing further requests for now',
+        retryable: true,
         advice: `it does not say over what period, so try again shortly, and if it repeats immediately treat it as a quota rather than a burst. The local model has neither: ${NO_ACCOUNT}`,
       };
     },
@@ -59,6 +62,7 @@ const CAUSES = [
     id: 'credentials',
     match: /\b40[13]\b|unauthori[sz]ed|invalid.{0,12}(?:api.?key|token|credential)|api.?key not valid|permission denied/i,
     reason: 'the provider rejected the key',
+    retryable: false,
     advice:
       'the key configured in the harness is wrong, expired, or not entitled to this model. Replace it in Settings - Model providers. Do not put it in this repository.',
   },
@@ -71,6 +75,7 @@ const CAUSES = [
      */
     match: /model.{0,20}not (?:be )?found|unknown model|no such model|does not exist|unsupported model/i,
     reason: 'the provider does not recognise the model name',
+    retryable: false,
     advice:
       'check the FQN against `npm run preflight`, which lists what is actually configured. TrueForge writes versions with dashes, not dots.',
   },
@@ -78,6 +83,7 @@ const CAUSES = [
     id: 'too-long',
     match: /context.{0,12}(?:length|window)|maximum context|too many tokens|prompt is too long|reduce the length/i,
     reason: 'the turn outgrew the model context window',
+    retryable: false,
     advice:
       'lower iteration_limit in the spec so the turn ends sooner, or give the agent a narrower task. A long turn is usually an agent re-reading things it already has.',
   },
@@ -85,12 +91,14 @@ const CAUSES = [
     id: 'provider-down',
     match: /\b5\d\d\b|overloaded|service unavailable|internal (?:server )?error|temporarily unavailable/i,
     reason: 'the provider failed on its side',
+    retryable: true,
     advice: 'nothing here is wrong - run it again. If it repeats for several minutes, check the provider status page.',
   },
   {
     id: 'timeout',
     match: /timed? ?out|deadline exceeded|ETIMEDOUT/i,
     reason: 'the provider did not answer in time',
+    retryable: true,
     advice: 'run it again. A turn that times out repeatedly is usually one asking for more work than fits in a single turn.',
   },
 ];
@@ -106,7 +114,13 @@ export function adviseOnFailure(message) {
   for (const cause of CAUSES) {
     if (!cause.match.test(text)) continue;
     const described = cause.describe ? cause.describe(text) : cause;
-    return { cause: cause.id, reason: described.reason, advice: described.advice };
+    /**
+     * `retryable` is carried out of the same table that produces the advice, rather than decided
+     * again by a second set of regexes somewhere else. Two copies of a rule drift, and this one
+     * would drift into retrying a daily quota every two seconds until the run gave up - the exact
+     * case the per-minute/per-day split already exists to tell apart.
+     */
+    return { cause: cause.id, reason: described.reason, advice: described.advice, retryable: described.retryable === true };
   }
 
   /**

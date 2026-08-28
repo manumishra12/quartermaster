@@ -34,6 +34,7 @@ import { decideApproval } from './lib/approval.mjs';
 import { record as recordDecision } from './lib/ledger.mjs';
 import { loadAgents, route } from './lib/route.mjs';
 import { handoff, renderHandoff, requestedHandoff } from './lib/handoff.mjs';
+import { retryDecision } from './lib/retry.mjs';
 
 const argv = process.argv.slice(2);
 /** The flags that take a value, named once so the prompt and the readers agree on them. */
@@ -117,6 +118,11 @@ const toolResponses = [];
  * only the status threw it away, and the report then blamed the agent for the plumbing.
  */
 let turnFailure = null;
+/**
+ * Approvals granted in this run, which is the one thing that makes a failed turn unsafe to retry:
+ * the call went out, the failure came back, and nothing here can tell whether the write landed.
+ */
+let approvalsGranted = 0;
 /**
  * Tool call ids the operator refused, so the record can tell a refusal from a silent success.
  *
@@ -379,6 +385,8 @@ let crash = null;
 /** The gate can be answered this many times before the run is called stuck rather than finished. */
 const HOPS = 24;
 let hop = 0;
+/** Which attempt at the turn this is, for the transient-failure backoff. */
+let attempts = 1;
 let lastStatus;
 
 try {
@@ -457,6 +465,7 @@ try {
           reason: approval.reason ?? null,
         });
 
+        if (!wasRefused) approvalsGranted += 1;
         console.log(`  -> ${wasRefused ? 'denied' : 'allowed'}\n`);
       }
     }
@@ -526,10 +535,36 @@ try {
     }
 
     if (!resume.length) {
+      /**
+       * A provider failure that clears on its own, waited out rather than handed back.
+       *
+       * The advice printed below already said "wait a minute and run it again - this one clears on
+       * its own", which left a person doing by hand the one thing that needed nobody. What it will
+       * not do is retry a turn in which something was approved: `retryDecision` refuses those,
+       * because a failed turn cannot say whether the approved call took effect and running it
+       * again is a coin-flip on filing the ticket twice.
+       */
+      if (failure) {
+        const again = retryDecision({ failure, attempt: attempts, approvals: approvalsGranted });
+        if (again.retry) {
+          attempts = again.attempt;
+          console.log(`\n  ${again.why}. Waiting ${Math.round(again.waitMs / 1000)}s and trying again (attempt ${attempts} of 3).`);
+          await new Promise((resolve) => setTimeout(resolve, again.waitMs));
+          finalText = '';
+          turnFailure = null;
+          carry = await consume(
+            await client.sessions.createTurnStream(checkpoint.sessionId, { input: [{ type: 'user.message', content: prompt }] }),
+          );
+          continue;
+        }
+        console.log(`\n\n[${status ?? 'ended'}]`);
+        // The provider's own words, and what to do about them where that can be said with any
+        // confidence. explainFailure hands the message back unchanged when it cannot.
+        console.log(`  ${explainFailure(failure)}`);
+        if (approvalsGranted > 0) console.log(`  Not retried: ${again.why}.`);
+        break;
+      }
       console.log(`\n\n[${status ?? 'ended'}]`);
-      // The provider's own words, and what to do about them where that can be said with any
-      // confidence. explainFailure hands the message back unchanged when it cannot.
-      if (failure) console.log(`  ${explainFailure(failure)}`);
       break;
     }
     finalText = ''; // only the answer that ends the run is judged
