@@ -20,6 +20,7 @@ import { loadEnv } from './lib/env.mjs';
 loadEnv();
 import { judge, performed, refused, resultOf, SUBSTANTIATED, NO_CLAIM } from './lib/evidence.mjs';
 import { buildReport } from './lib/report.mjs';
+import { announcedArtifacts, artifactName } from './lib/artifacts.mjs';
 import { describeCall } from './lib/describe-call.mjs';
 import { endedBecause, runExitCode } from './lib/turn-state.mjs';
 import { explainFailure } from './lib/model-advice.mjs';
@@ -562,6 +563,42 @@ try {
 } catch (err) {
   reportWritten = false;
   console.error(`  The report could not be written to ${dir}: ${err?.message ?? err}\n`);
+}
+
+/**
+ * Anything the agent announced it wrote, fetched out of the sandbox and filed beside the report.
+ *
+ * The sandbox is disposable, and everything in it goes when it does. A report the agent spent a
+ * turn producing is worth exactly nothing if it lives only there, and eight specs have had
+ * `file_downloads` switched on the whole time with nothing on this side to use it.
+ *
+ * Failures here are reported and do not change the verdict. The evidence check is about what the
+ * agent did; a file that could not be fetched afterwards is a separate disappointment.
+ */
+const artifacts = announcedArtifacts(finalText);
+if (artifacts.length > 0 && reportWritten) {
+  const into = `${dir}/artifacts`;
+  let saved = 0;
+  try {
+    mkdirSync(into, { recursive: true });
+  } catch {
+    // Reported below, once, rather than per file.
+  }
+
+  for (const path of artifacts) {
+    try {
+      const file = await client.sessions.downloadSandboxFile(checkpoint.sessionId, checkpoint.turnId, {
+        path,
+      });
+      const bytes = Buffer.from(await new Response(file).arrayBuffer());
+      writeFileSync(`${into}/${artifactName(path)}`, bytes);
+      saved += 1;
+    } catch (err) {
+      console.log(`  could not fetch ${path}: ${err?.message ?? err}`);
+    }
+  }
+
+  if (saved > 0) console.log(`  saved ${saved} artifact(s): ${into}/\n`);
 }
 
 if (blockedOnAuth) {

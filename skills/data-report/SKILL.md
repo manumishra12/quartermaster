@@ -24,9 +24,21 @@ MD
 wc -l /work/reports/revenue-may.md
 ```
 
-Then say the path and show the report in your answer too. Somebody reading in a terminal should not
-have to go and find it, and somebody who wants to keep it should not have to copy it out of a
-transcript.
+Then **announce it**, in a fenced block the harness understands:
+
+````
+```sandbox_artifacts
+/work/reports/revenue-may.md
+```
+````
+
+That block is the only reason the file survives. The sandbox is disposable and everything in it
+goes when it does - so a report you wrote and did not announce is a report nobody will ever read,
+and you will have spent a turn producing it. Announcing it is what puts a download control in the
+interface and what makes the command line fetch it out and file it beside the evidence report.
+
+Show the report in your answer as well. Somebody reading in a terminal should not have to go and
+find it, and somebody who wants to keep it should not have to copy it out of a transcript.
 
 ## What a report contains
 
