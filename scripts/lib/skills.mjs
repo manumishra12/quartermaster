@@ -58,8 +58,13 @@ export function readSkill(dir, root = SKILLS_DIR) {
      * and never read, which costs the fetch and buys nothing.
      */
     problems.push('description is too short to say when the skill applies');
-  } else if (!/\buse (when|whenever|for)\b/i.test(description)) {
-    problems.push('description does not say when to use the skill ("Use when ...")');
+  } else if (!/\buse (when|whenever|for|after|once|before|during)\b/i.test(description)) {
+    /**
+     * The rule is that the description names a trigger, and this was checking for three spellings
+     * of one. It rejected "Use after opening a pull request", which states a trigger perfectly
+     * well - so the check was about phrasing rather than about the property it exists to enforce.
+     */
+    problems.push('description does not say when to use the skill ("Use when ...", "Use after ...")');
   }
 
   return { dir, name, description, body: source.slice(framed[0].length), problems };

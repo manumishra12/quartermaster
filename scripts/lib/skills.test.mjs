@@ -98,3 +98,27 @@ test('the warehouse fixture still contains every trap its README claims', () => 
     assert.ok(readme.includes(claim), `README no longer states ${claim}`);
   }
 });
+
+test('a description names a trigger, however it is phrased', () => {
+  /**
+   * The rule is that the description says *when* to load the skill, and it was checking for three
+   * spellings of one phrase - so it rejected "Use after opening a pull request", which states a
+   * trigger perfectly well. A check about phrasing rather than about the property it enforces is
+   * a check that will be worked around rather than satisfied.
+   */
+  for (const skill of skillDirs().map((dir) => readSkill(dir))) {
+    assert.ok(
+      !skill.problems.some((p) => /does not say when to use/.test(p)),
+      `skills/${skill.dir}: ${skill.problems.join('; ')}`,
+    );
+  }
+
+  // Every one of them states a trigger, in whatever words.
+  for (const skill of skillDirs().map((dir) => readSkill(dir))) {
+    assert.match(
+      skill.description,
+      /\buse (when|whenever|for|after|once|before|during)\b/i,
+      `skills/${skill.dir} does not say when to load it`,
+    );
+  }
+});

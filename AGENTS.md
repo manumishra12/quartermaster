@@ -16,7 +16,7 @@ And three the list does not ask for:
 
 | Agent | Why it exists | Account needed |
 | --- | --- | --- |
-| `quartermaster` | the project's own agent: fixes a failing test, proves it, and opens a pull request | a PAT |
+| `quartermaster` | the project's own agent: fixes a failing test, proves it, opens a pull request, and answers the review on it | a PAT |
 | `quartermaster-local` | the same discipline with nothing to publish to, so a stranger can run it first | **no** |
 | `gate-demo` | one gated tool call, so the approval pause is visible on its own | a PAT |
 
