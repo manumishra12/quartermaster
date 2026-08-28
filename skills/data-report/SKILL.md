@@ -40,6 +40,69 @@ interface and what makes the command line fetch it out and file it beside the ev
 Show the report in your answer as well. Somebody reading in a terminal should not have to go and
 find it, and somebody who wants to keep it should not have to copy it out of a transcript.
 
+## Three files, not one
+
+Markdown is the report somebody reads. It is rarely the only thing they want.
+
+| File | For | When |
+| --- | --- | --- |
+| `report.md` | reading, forwarding, arguing with | always |
+| `rows.csv` | the spreadsheet somebody will actually pivot | whenever there are rows worth keeping |
+| `result.json` | a pipeline, a dashboard, the next question | when a machine is the reader |
+
+```bash
+python3 - <<'PY'
+import csv, json, sqlite3
+db = sqlite3.connect('warehouse.db')
+rows = db.execute('SELECT country, count(*) AS orders FROM ...').fetchall()
+cols = [d[0] for d in db.description]
+
+with open('/work/reports/rows.csv', 'w', newline='') as f:
+    w = csv.writer(f); w.writerow(cols); w.writerows(rows)
+with open('/work/reports/result.json', 'w') as f:
+    json.dump([dict(zip(cols, r)) for r in rows], f, indent=2)
+PY
+```
+
+Write the header row from `cursor.description` rather than typing it. A CSV whose header disagrees
+with its columns is worse than one with no header, because a spreadsheet will happily chart the
+wrong thing under a confident label.
+
+Announce all of them in one block:
+
+````
+```sandbox_artifacts
+/work/reports/report.md
+/work/reports/rows.csv
+/work/reports/result.json
+```
+````
+
+Do not emit a CSV of four rows. Three files for a number somebody asked in passing is noise, and the
+point of the formats is that different readers need different things - not that more files is more
+thorough.
+
+## Draw the schema when the question is about the data itself
+
+"What is in this database", "how do these tables relate", "why does this join double the rows" - all
+of those are answered by a picture, and mermaid draws one from what you already read out of the
+schema:
+
+````
+```mermaid
+erDiagram
+  customers ||--o{ orders : places
+  orders ||--o{ order_items : contains
+  orders ||--o{ refunds : "may have"
+  products ||--o{ order_items : "appears in"
+```
+````
+
+Draw the cardinality you **verified**, not the one the foreign keys imply. `orders ||--o{ refunds`
+says an order may have many refunds and a refund belongs to one order - if you have not checked
+whether an order can have two, write what you checked. A diagram is a claim in the same way a number
+is, and this one is easier to draw wrong because it looks like documentation.
+
 ## What a report contains
 
 In this order, because it is the order somebody reads in:

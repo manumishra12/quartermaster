@@ -21,6 +21,42 @@ SELECT name, sql FROM sqlite_master WHERE type = 'table';
 Then look at a few rows. Grain is the thing people get wrong: is one row one order, one line item,
 or one order-status-change? Every aggregate you write depends on the answer.
 
+## Step 1b — Profile it before you trust it
+
+Reading the schema tells you what the columns are called. Profiling tells you what is actually in
+them, and it is the difference between a query that runs and an answer that is right. Ten minutes
+here saves an afternoon of explaining a wrong number.
+
+```sql
+SELECT count(*) AS rows,
+       count(country) AS with_country,          -- NULLs are the gap between these two
+       count(DISTINCT country) AS countries,
+       min(signed_up_at) AS earliest,
+       max(signed_up_at) AS latest
+FROM customers;
+```
+
+Five things, on every table you are about to use:
+
+- **How many rows**, so you know whether a filter that returns four is suspicious.
+- **How many NULLs per column you care about.** `count(*)` and `count(col)` differ by exactly the
+  NULLs, and a `GROUP BY` on that column silently loses every one of them.
+- **How many distinct values**, which tells you whether a column is a category or free text.
+- **The range of every date you will filter on.** A window outside the data returns zero rows and
+  looks like a finding.
+- **Orphans across a join**, before you rely on it:
+
+```sql
+SELECT count(*) FROM orders o LEFT JOIN customers c ON c.id = o.customer_id WHERE c.id IS NULL;
+SELECT count(*) FROM orders o LEFT JOIN order_items i ON i.order_id = o.id WHERE i.order_id IS NULL;
+```
+
+The second one is the trap that catches everybody: an order with no line items is dropped silently
+by an inner join, so the total is wrong and nothing anywhere says so.
+
+Say what the profile showed in your answer when it changes the number. "Two customers have no
+country, so the totals by country do not add up to the whole" is worth more than the totals.
+
 ## Step 2 — Ask when the question is ambiguous
 
 "How many active customers?" is not a question yet. Active over what window, by what activity, and
@@ -48,6 +84,33 @@ If a statement is not plainly a read, treat it as a write.
 Before any write: stop and ask, stating what it will change and how many rows it will touch. Run a
 `SELECT COUNT(*)` with the same `WHERE` clause first so the number you state is a number, not an
 estimate.
+
+## Step 3b — Bind values, never paste them
+
+A question arrives as English and becomes SQL, so somewhere a string somebody else wrote goes near
+a query. Put it in a parameter, never in the text:
+
+```python
+# Right: the value is data and cannot become syntax.
+db.execute('SELECT count(*) FROM orders WHERE status = ?', (status,))
+
+# Wrong, and not only when somebody is being clever:
+db.execute(f"SELECT count(*) FROM orders WHERE status = '{status}'")
+```
+
+Two reasons, and the boring one matters more day to day. A name with an apostrophe in it - O'Brien,
+d'Angelo - breaks the second query outright, and you will read the syntax error as a broken database
+rather than as a quoting bug. The other reason is that a question is untrusted text: `'; DROP TABLE
+orders; --` is a thing somebody types into a chat box, sometimes to see what happens.
+
+Identifiers cannot be bound - no database lets you parameterise a table or column name. If a
+question decides which table to read, check it against a list you got from the schema rather than
+concatenating it:
+
+```python
+if table not in known_tables:
+    raise SystemExit(f'no table called {table}')
+```
 
 ## Step 4 — Run it, and read what came back
 

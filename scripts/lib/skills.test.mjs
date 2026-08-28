@@ -122,3 +122,34 @@ test('a description names a trigger, however it is phrased', () => {
     );
   }
 });
+
+test('the SQL skill carries the guardrails a database agent needs', () => {
+  /**
+   * This agent turns an English question into SQL, so somebody else's string ends up near a query
+   * every single time - and the skill said nothing at all about binding. The apostrophe case is
+   * the one that bites daily: a customer called O'Brien breaks an interpolated query outright, and
+   * the syntax error reads as a broken database rather than as a quoting bug.
+   *
+   * Profiling is here for the same reason: reading a schema tells you the column names, and only
+   * profiling tells you that two rows have no country and one order has no line items - which is
+   * the difference between a query that runs and an answer that is right.
+   */
+  const body = readSkill('sql-analysis').body.toLowerCase();
+  for (const guard of ['bind', 'never paste', "o'brien", 'identifiers cannot be bound', 'orphan']) {
+    assert.ok(body.includes(guard), `sql-analysis no longer covers ${guard}`);
+  }
+
+  // And the older rules it must not lose while gaining these.
+  for (const rule of ['category, not a list', 'never present a number you did not get']) {
+    assert.ok(body.includes(rule), `sql-analysis no longer states "${rule}"`);
+  }
+});
+
+test('the report skill offers a format for each kind of reader', () => {
+  // Markdown is what somebody reads, CSV is what they pivot, JSON is what the next system consumes.
+  // A number in a chat window serves none of them past tomorrow.
+  const body = readSkill('data-report').body.toLowerCase();
+  for (const shape of ['rows.csv', 'result.json', 'sandbox_artifacts', 'erdiagram', 'cursor.description']) {
+    assert.ok(body.includes(shape), `data-report no longer covers ${shape}`);
+  }
+});
