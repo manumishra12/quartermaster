@@ -77,7 +77,7 @@ export function Welcome({ heading }: { heading?: string }) {
             <button
               type="button"
               onClick={() => use(prompt)}
-              className="group h-full w-full cursor-pointer rounded-xl border border-line-soft bg-surface p-3.5 text-left transition-colors duration-200 hover:border-accent hover:bg-raised"
+              className="group h-full w-full cursor-pointer rounded-xl border border-line bg-surface p-3.5 text-left transition-colors duration-200 hover:border-accent hover:bg-raised"
             >
               <span className="mb-2.5 flex size-8 items-center justify-center rounded-lg border border-line-soft text-muted transition-colors duration-200 group-hover:text-accent">
                 <Icon />

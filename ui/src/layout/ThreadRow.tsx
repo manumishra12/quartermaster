@@ -1,4 +1,5 @@
 import { Children, isValidElement, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useNow } from './useNow';
 import { useAuiState } from '@truefoundry/trueforge-ui/assistant-ui';
 import { ChatIcon, PencilIcon } from './icons';
 import { useCloseSheet } from './SheetContext';
@@ -30,6 +31,7 @@ export function ThreadRow({
   actions?: ReactNode;
 }) {
   const closeSheet = useCloseSheet();
+  const now = useNow();
 
   /**
    * The row renders inside the SDK's thread-list item, so the session it belongs to is readable
@@ -150,9 +152,17 @@ export function ThreadRow({
           closeSheet();
         }}
         aria-current={active ? 'true' : undefined}
+        aria-label={shown}
         className="min-w-0 flex-1 cursor-pointer text-left"
       >
+        {/*
+          * The full title is reachable three ways, because a truncated one is unreadable and the
+          * title is the only thing distinguishing two conversations: the native tooltip on hover,
+          * the accessible name for a screen reader, and the rename field, which shows the whole
+          * string in an input you can scroll through.
+          */}
         <span
+          title={shown}
           className={[
             'block truncate text-xs leading-snug',
             active ? 'font-medium text-ink' : 'text-ink',
@@ -169,7 +179,14 @@ export function ThreadRow({
           title={lastMessageAt.toLocaleString()}
           className="qm-nums mt-0.5 shrink-0 text-2xs text-muted"
         >
-          {ago(lastMessageAt)}
+          {/**
+           * The exact time is on the element as well as the relative one. The compact form is for
+           * scanning a list; the moment somebody actually wants to know when something happened,
+           * "3d" is the wrong answer and there was nowhere else to look.
+           */}
+          <time dateTime={lastMessageAt.toISOString()} title={lastMessageAt.toLocaleString()}>
+            {ago(lastMessageAt, now)}
+          </time>
         </time>
       )}
 
@@ -178,14 +195,21 @@ export function ThreadRow({
         * row, always visible, would compete with the titles it is there to serve. focus-within
         * keeps it reachable by keyboard, where hover never happens.
         */}
-      <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+      {/*
+        * Visible on hover and on focus, and always visible where there is no hover at all.
+        *
+        * `opacity-0` with only a hover rule meant that on a touch screen the rename control was
+        * permanently invisible while still occupying space and accepting taps - a feature nobody
+        * could find on the devices least able to guess it was there.
+        */}
+      <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
         {canRename && (
           <button
             type="button"
             onClick={startEditing}
             aria-label={`Rename ${shown}`}
             title="Rename"
-            className="cursor-pointer rounded p-1 text-muted hover:bg-surface hover:text-ink"
+            className="grid size-8 cursor-pointer place-items-center rounded text-muted hover:bg-surface hover:text-ink [@media(hover:none)]:size-11"
           >
             <PencilIcon />
           </button>
@@ -196,9 +220,16 @@ export function ThreadRow({
   );
 }
 
-/** Compact relative time: the list is scanned, not read. */
-function ago(date: Date): string {
-  const seconds = Math.max(0, (Date.now() - date.getTime()) / 1000);
+/**
+ * Compact relative time: the list is scanned, not read.
+ *
+ * Takes `now` rather than reading the clock, so a caller that wants it to advance can pass a value
+ * that changes. Reading Date.now() inside meant the label was computed once and then sat there -
+ * a conversation stayed "now" for as long as nothing else happened to re-render the list, which on
+ * an idle screen is indefinitely.
+ */
+function ago(date: Date, now: number): string {
+  const seconds = Math.max(0, (now - date.getTime()) / 1000);
   if (seconds < 60) return 'now';
   const minutes = seconds / 60;
   if (minutes < 60) return `${Math.floor(minutes)}m`;

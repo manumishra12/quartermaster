@@ -67,4 +67,14 @@ export const PAIRS = [
   { name: 'waiting on background', fg: '--qm-waiting', bg: '--qm-bg', min: 4.5 },
   { name: 'label on accent button', fg: '--qm-on-accent', bg: '--qm-accent', min: 4.5 },
   { name: 'control border on background', fg: '--qm-border', bg: '--qm-bg', min: 3 },
+  { name: 'control border on surface', fg: '--qm-border', bg: '--qm-surface', min: 3 },
+  { name: 'control border on a raised surface', fg: '--qm-border', bg: '--qm-surface-raised', min: 3 },
 ];
+
+/**
+ * The soft token is 1.18:1 against the background and is not meant to clear anything - it
+ * separates regions, which WCAG 1.4.11 does not cover. It is listed here so nothing quietly
+ * promotes it: four interactive controls were drawn with it, and the boundary of something you can
+ * click or tab into is the boundary that has to be visible.
+ */
+export const REGION_ONLY = ['--qm-border-soft'];

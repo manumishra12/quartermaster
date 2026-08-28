@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useDialog } from './useDialog';
 import { useComposerBusyState } from '@truefoundry/trueforge-ui';
 // @ts-expect-error - shared JS module, aliased in vite.config.ts
 import { PHASES, isGreen, progress, testRuns, unexecutedToolCalls } from '@evidence';
 // @ts-expect-error - shared JS module, aliased in vite.config.ts
 import { renderUnexecutedCalls } from '@render-call';
 import { useAgentState } from './useAgentState';
-import { CheckIcon, ClockIcon, CloseIcon, CrossIcon, DotIcon, ExpandIcon, SpinnerIcon } from './icons';
+import { CheckIcon, ClockIcon, CloseIcon, CrossIcon, DotIcon, ExpandIcon, SpinnerIcon, iconForTool } from './icons';
 
 /**
  * The three questions a person actually has while an agent is running: what is it doing, what is
@@ -111,7 +112,20 @@ function Steps({ index, settled, busy }: { index: number; settled: boolean; busy
 
 export function StatusRail() {
   const busy = useComposerBusyState() as unknown as boolean | { isBusy?: boolean } | null;
-  const { executions, finalText, pendingApprovals, respondToApproval, pendingQuestions, sandboxId } = useAgentState();
+  const {
+    executions,
+    finalText,
+    pendingApprovals,
+    respondToApproval,
+    pendingQuestions,
+    sandboxId,
+    /**
+     * Defaulted, because this reads a shape the SDK owns. A rail that throws when a field it did
+     * not write is absent takes the approval prompt down with it - and the approval prompt is the
+     * part of this screen that must survive everything else being wrong.
+     */
+    runStatus = { type: 'unknown' as const },
+  } = useAgentState();
 
   const isBusy = typeof busy === 'boolean' ? busy : Boolean(busy?.isBusy);
 
@@ -124,7 +138,27 @@ export function StatusRail() {
   );
   const runs = useMemo(() => testRuns(asResponses) as Run[], [asResponses]);
   const step = useMemo(() => progress(asResponses) as { index: number; label: string; settled: boolean }, [asResponses]);
-  const last = runs[runs.length - 1];
+  /**
+   * How this turn ended, in the words for what actually happened.
+   *
+   * It used to be `busy ? Working : hasSteps ? 'Finished' : 'Idle'`, so a turn the user stopped and
+   * a turn that died on a provider error both read as Finished - under a heading whose entire job
+   * is saying what happened, with real executions listed beneath it.
+   */
+  const ending = useMemo(() => {
+    if (isBusy || runStatus.type === 'running') return { label: `Working — ${step.label}`, tone: 'text-accent' as const };
+    if (runStatus.type === 'requires-action') return { label: 'Waiting for you', tone: 'text-waiting' as const };
+    if (runStatus.type === 'incomplete') {
+      // The reason is the whole point: cancelled is a decision somebody made, error is not.
+      if (runStatus.reason === 'cancelled') return { label: 'Stopped before it finished', tone: 'text-waiting' as const };
+      return {
+        label: `Ended without finishing${runStatus.reason ? ` — ${runStatus.reason}` : ''}`,
+        tone: 'text-failed' as const,
+      };
+    }
+    if (step.index >= 0) return { label: 'Finished', tone: 'text-muted' as const };
+    return { label: 'Idle', tone: 'text-muted' as const };
+  }, [isBusy, runStatus.type, runStatus.reason, step.index, step.label]);
 
   /**
    * A tool call the model wrote out instead of making.
@@ -149,10 +183,10 @@ export function StatusRail() {
       <Section label="Doing" badge={step.index >= 0 ? `${step.index + 1} of ${(PHASES as string[]).length}` : undefined}>
         <p
           aria-live="polite"
-          className={['mb-3 flex items-center gap-2.5 text-sm', isBusy ? 'text-accent' : 'text-muted'].join(' ')}
+          className={['mb-3 flex items-center gap-2.5 text-sm', ending.tone].join(' ')}
         >
           {isBusy ? <SpinnerIcon /> : <ClockIcon />}
-          {isBusy ? `Working — ${step.label}` : step.index >= 0 ? 'Finished' : 'Idle'}
+          {ending.label}
         </p>
         <Steps index={step.index} settled={step.settled} busy={isBusy} />
       </Section>
@@ -193,16 +227,29 @@ export function StatusRail() {
               Printed, not called
             </p>
             <ul className="mt-1.5 space-y-1 text-xs leading-snug text-ink">
-              {printed.map((line) => (
-                <li key={line} className={line.startsWith('      ') ? 'pl-3 text-muted' : ''}>
+              {/* Keyed by position: two arguments of a printed call can be the same string, and
+                  keying by content collapsed them into one line. */}
+              {printed.map((line, i) => (
+                <li key={`${i}-${line}`} className={line.startsWith('      ') ? 'pl-3 text-muted' : ''}>
                   {line.trim()}
                 </li>
               ))}
             </ul>
           </div>
         )}
-        {last ? (
-          <Verdict last={last} />
+        {runs.length > 0 ? (
+          /**
+           * Every run, not only the newest.
+           *
+           * A fix has a shape - the suite is red, a change is made, the suite is green - and only
+           * the last of those was ever on screen. The badge said "2/5 test runs", so the panel
+           * admitted there had been more while showing none of them, and the one piece of evidence
+           * that makes a fix believable was the piece it dropped. The newest is open; the ones
+           * before it are there to be opened.
+           */
+          runs.map((run, i) => (
+            <Verdict key={`${run.command ?? 'run'}-${i}`} last={run} ordinal={i + 1} of={runs.length} />
+          ))
         ) : (
           <Empty hint="Fix the failing test in ledger. Run it first.">
             No test run recorded yet. Until one is, anything the agent says about tests passing is
@@ -214,7 +261,7 @@ export function StatusRail() {
   );
 }
 
-function Verdict({ last }: { last: Run }) {
+function Verdict({ last, ordinal, of }: { last: Run; ordinal: number; of: number }) {
   const [expanded, setExpanded] = useState(false);
   const [enlarged, setEnlarged] = useState(false);
   // The shared rule, not a copy of it. The copy had already drifted: it treated any "N failed" as
@@ -252,15 +299,35 @@ function Verdict({ last }: { last: Run }) {
         >
           {green ? <CheckIcon /> : <CrossIcon />}
         </span>
-        {green ? 'Last run passed' : 'Last run did not pass'}
+        {/* "Last run" was accurate when only one was shown. With the whole sequence on screen it
+            was wrong about every card but one, so each says which run it is. Built as one string
+            rather than adjacent nodes, so it reads as a phrase to anything that reads phrases. */}
+        {of > 1
+          ? `Run ${ordinal} of ${of} ${green ? 'passed' : 'did not pass'}`
+          : green
+            ? 'Last run passed'
+            : 'Last run did not pass'}
         {last.exitCode !== null && (
           <span className="qm-nums ml-auto text-2xs font-normal text-muted">exit {last.exitCode}</span>
         )}
       </p>
 
+      {/**
+       * Focusable, because it scrolls.
+       *
+       * A scrollable region that cannot be focused cannot be scrolled from the keyboard at all -
+       * the content is simply unreachable without a mouse. A tabindex and an accessible name are
+       * what make it a region a screen reader will announce and a keyboard can enter.
+       */}
       <pre
+        tabIndex={0}
+        role="region"
+        aria-label={`Output of run ${ordinal} of ${of}`}
         className={[
-          'mt-3 overflow-auto rounded-md border border-line-soft bg-bg/60 p-2.5 font-mono text-2xs leading-relaxed whitespace-pre-wrap break-words text-ink',
+          // border-line, not border-line-soft: this became focusable, and the boundary of
+          // something you can tab into has to clear 3:1 (WCAG 1.4.11). The soft token is 1.18:1.
+          'mt-3 overflow-auto rounded-md border border-line bg-bg/60 p-2.5 font-mono text-2xs leading-relaxed whitespace-pre-wrap break-words text-ink',
+          'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
           expanded ? 'max-h-80' : 'max-h-40',
         ].join(' ')}
       >
@@ -310,6 +377,7 @@ function ApprovalPrompt({
   respond?: (r: { approvalId: string; approved: boolean; reason?: string }) => void;
 }) {
   const [pending] = approvals;
+  const ToolIcon = iconForTool(pending?.toolName);
   const [sent, setSent] = useState<'allow' | 'deny' | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
 
@@ -385,7 +453,19 @@ function ApprovalPrompt({
       </p>
 
       <p className="mt-3 mb-2 text-sm text-muted">
-        It wants to run <code className="font-mono text-ink">{pending.toolName}</code>
+        It wants to run{' '}
+        {/*
+          * The icon says what kind of thing is about to happen, which is most of what the one
+          * glance before a decision is for: a shell command, a write to a repository, a message
+          * somebody receives, an irreversible remediation. Decorative - the tool name beside it
+          * carries the same fact for anyone who cannot see it.
+          */}
+        <span className="inline-flex items-center gap-1.5 align-middle">
+          <span aria-hidden className="text-accent">
+            <ToolIcon />
+          </span>
+          <code className="font-mono text-ink">{pending.toolName}</code>
+        </span>
         {approvals.length > 1 && ` and ${approvals.length - 1} more`}. Nothing happens until you choose.
       </p>
 
@@ -440,18 +520,11 @@ function OutputDialog({ run, green, onClose }: { run: Run; green: boolean; onClo
    * commit every few hundred milliseconds, so focus was dragged back into the dialog continuously
    * and its own controls could not be reached.
    */
-  const dialogRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    dialogRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  /**
+   * Focus, Escape, the trap and the scroll lock all come from one place now. This dialog had the
+   * first two and the sheet had neither, which is what two copies of a behaviour turn into.
+   */
+  const dialogRef = useDialog<HTMLDivElement>(true, onClose);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

@@ -81,6 +81,10 @@
 
   /* Warm-tinted, as the reference has them - a neutral grey shadow over greige reads as dirt. */
   --qm-shadow: 0 1px 2px rgb(27 26 24 / 0.04), 0 8px 24px -12px rgb(27 26 24 / 0.14);
+  /* Behind the sheet and the enlarged output. It was read with a `rgba(0,0,0,0.5)` fallback and
+     never declared, so both themes got flat black over warm greige - the one colour this palette
+     avoids everywhere else. The values are theme.ts's, because the SDK dims with those. */
+  --qm-overlay: rgba(27, 26, 24, 0.4);
 }
 
 :root.dark {
@@ -103,6 +107,7 @@
   --qm-waiting: #e0b15c;
 
   --qm-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -12px rgb(0 0 0 / 0.5);
+  --qm-overlay: rgba(10, 9, 8, 0.72);
 }
 
 @theme inline {
@@ -212,7 +217,7 @@
   border: 1px solid var(--qm-border-soft);
   border-radius: 0.5rem;
   background: transparent;
-  color: var(--qm-muted);
+  color: var(--qm-text-muted);
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -261,7 +266,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--qm-muted);
+  color: var(--qm-text-muted);
 }
 
 .qm-reasoning-meta,
@@ -269,7 +274,7 @@
   flex: none;
   margin-left: auto;
   font-variant-numeric: tabular-nums;
-  color: var(--qm-muted);
+  color: var(--qm-text-muted);
 }
 
 .qm-reasoning-body {
@@ -278,7 +283,7 @@
   margin-top: 0.35rem;
   padding: 0.6rem 0.75rem;
   border-left: 2px solid var(--qm-border);
-  color: var(--qm-muted);
+  color: var(--qm-text-muted);
   white-space: pre-wrap;
   line-height: 1.55;
 }

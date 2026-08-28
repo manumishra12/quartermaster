@@ -1,3 +1,5 @@
+import type React from 'react';
+
 /**
  * Inline SVG, not emoji. An emoji renders differently on every platform, cannot inherit colour,
  * and reads as a picture of a thing rather than a control.
@@ -130,3 +132,79 @@ export const PencilIcon = ({ className }: { className?: string }) => (
     <path d="M10.2 4.1 11.9 5.8" />
   </svg>
 );
+
+/** Something irreversible. A one-way door, not a dustbin: rollback and close are not deletions. */
+export const OneWayIcon = ({ className }: { className?: string }) => (
+  <svg {...base} className={className}>
+    <path d="M2.5 8h9" />
+    <path d="M8.5 4.5 12 8l-3.5 3.5" />
+    <path d="M13.5 3v10" />
+  </svg>
+);
+
+/** A branch: anything that writes to a repository. */
+export const BranchIcon = ({ className }: { className?: string }) => (
+  <svg {...base} className={className}>
+    <circle cx="4.5" cy="3.5" r="1.5" />
+    <circle cx="4.5" cy="12.5" r="1.5" />
+    <circle cx="11.5" cy="6.5" r="1.5" />
+    <path d="M4.5 5v6" />
+    <path d="M10 6.5H8.5A4 4 0 0 0 4.5 10.5" />
+  </svg>
+);
+
+/** A ticket or issue. */
+export const TicketIcon = ({ className }: { className?: string }) => (
+  <svg {...base} className={className}>
+    <path d="M2.5 5.5h11v2a1.5 1.5 0 0 0 0 3v2h-11v-2a1.5 1.5 0 0 0 0-3Z" />
+    <path d="M6.5 5.5v7" />
+  </svg>
+);
+
+/** An alert. */
+export const AlertIcon = ({ className }: { className?: string }) => (
+  <svg {...base} className={className}>
+    <path d="M8 2.5 14 12.5H2Z" />
+    <path d="M8 6.5v3" />
+    <path d="M8 11.4v.1" />
+  </svg>
+);
+
+/** Sending something somebody else receives. */
+export const SendIcon = ({ className }: { className?: string }) => (
+  <svg {...base} className={className}>
+    <path d="M13.5 2.5 7 9" />
+    <path d="M13.5 2.5 9.5 13.5 7 9l-4.5-2.5Z" />
+  </svg>
+);
+
+/**
+ * The icon for a tool, chosen from what the tool does rather than from which server it came from.
+ *
+ * Every tool call rendered with the same dot, which is a waste of the one glance a person gives an
+ * approval prompt before deciding. What matters at that moment is the *kind* of thing about to
+ * happen - a shell command, a write to a repository, a message somebody receives, an irreversible
+ * remediation - and that is legible from the name.
+ *
+ * Ordered most specific first: `close_issue` is a one-way door before it is a ticket, and
+ * `rollback_deploy` is a one-way door before it is anything else.
+ */
+/** Every icon here takes an optional className; the older ones take no props at all. */
+type IconComponent = (props: { className?: string }) => React.JSX.Element;
+
+const TOOL_ICONS: Array<[RegExp, IconComponent]> = [
+  [/rollback|restart|delete|close_|revert|drop|destroy/i, OneWayIcon],
+  [/send|message|email|notify|comment/i, SendIcon],
+  [/branch|commit|push|pull_request|repo|file|fork|merge/i, BranchIcon],
+  [/issue|ticket|project|task/i, TicketIcon],
+  [/alert|incident|deploy|health|service/i, AlertIcon],
+  [/search|fetch|web|wiki|browse|crawl|url/i, GlobeIcon],
+  [/sql|query|database|warehouse|table/i, DatabaseIcon],
+  [/exec|shell|command|run|bash|sandbox/i, TerminalIcon],
+];
+
+export function iconForTool(name?: string): IconComponent {
+  const found = TOOL_ICONS.find(([pattern]) => pattern.test(String(name ?? '')));
+  // A tool this does not recognise gets the neutral mark rather than a guess.
+  return found ? found[1] : (DotIcon as IconComponent);
+}

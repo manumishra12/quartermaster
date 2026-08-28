@@ -43,6 +43,18 @@ export default tseslint.config(
       // reads before approving an irreversible action. It is an error here.
       'react-hooks/exhaustive-deps': 'error',
       ...jsxA11y.flatConfigs.recommended.rules,
+      /**
+       * A scrollable region is allowed to be focusable, and has to be.
+       *
+       * The rule's default list is ['tabpanel'], so it flagged the recorded-output block - which is
+       * a `role="region"` that scrolls. WCAG 2.1.1 is the reason that block has a tabIndex at all:
+       * a scrollable container that cannot be focused cannot be scrolled from the keyboard, and
+       * its content is then simply unreachable without a mouse.
+       *
+       * Widened by exactly one role rather than switched off, so the rule still catches a tabIndex
+       * on a div that is not going anywhere.
+       */
+      'jsx-a11y/no-noninteractive-tabindex': ['error', { tags: [], roles: ['tabpanel', 'region'] }],
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'error',
       eqeqeq: ['error', 'always', { null: 'ignore' }],

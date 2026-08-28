@@ -17,6 +17,18 @@ import { resultOf } from '@evidence';
  * tool-call parts carrying a result.
  */
 
+/**
+ * How the last turn ended, as assistant-ui records it.
+ *
+ * `incomplete` carries the interesting part in `reason`: a turn somebody stopped and a turn that
+ * failed are both not-running, and calling either of them finished is a small lie in the panel
+ * whose entire job is saying what happened.
+ */
+export type RunStatus = {
+  type: 'running' | 'complete' | 'incomplete' | 'requires-action' | 'unknown';
+  reason?: string;
+};
+
 export type Execution = {
   toolName: string;
   command: string | null;
@@ -101,9 +113,30 @@ export function useAgentState() {
     return '';
   }, [messages]);
 
+  /**
+   * The status of the newest assistant message.
+   *
+   * Without this the rail had only "is the composer busy", so anything not currently running read
+   * as Finished - including a turn the user cancelled and a turn that died on a provider error.
+   * Both of those had executions behind them, so the panel showed a tidy record of work under a
+   * heading that was wrong about how it ended.
+   */
+  const runStatus = useMemo<RunStatus>(() => {
+    const list = Array.isArray(messages) ? messages : [];
+    for (let i = list.length - 1; i >= 0; i -= 1) {
+      const message = list[i] as { role?: string; status?: { type?: string; reason?: string } };
+      if (message?.role !== 'assistant') continue;
+      const status = message.status;
+      if (!status?.type) return { type: 'unknown' };
+      return { type: status.type as RunStatus['type'], reason: status.reason };
+    }
+    return { type: 'unknown' };
+  }, [messages]);
+
   return {
     executions,
     finalText,
+    runStatus,
     pendingApprovals: approvals?.pending ?? [],
     respondToApproval: approvals?.respond,
     pendingQuestions: questions?.pending ?? [],
