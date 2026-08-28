@@ -793,3 +793,63 @@ either side alone leaves an unused import. Merging them is its own small piece o
 why there is a tenth branch that is just the other nine, merged and counted.
 
 323 tests in the root suite, 138 in the interface.
+
+## Day 4 — delegation was the hole, and three checks that were checking the wrong fact
+
+Nine agents, and until today one of them answered everything. `--agent` defaulted silently to
+`quartermaster-local`, so a database question was handled - capably, at length - by the agent that
+fixes failing tests. The router that replaced it is rule-based, which is a choice rather than a
+shortcut: choosing the agent is choosing the authority, and the argument this whole project makes
+is that the interesting decisions do not belong to the model. It shows its working and it declines
+to guess. Two of eleven trial requests came back undecided, and both of them should have.
+
+The larger half was delegation, which is the feature everybody wants from a fleet of agents and
+the quietest hole in one. Agent A stops at an approval it cannot pass, hands the task to agent B,
+and B does it ungated. Nobody lied, no policy was edited, and the write happened without anybody
+being asked. So `authority.mjs` compares what two specs can actually reach and `handoff.mjs`
+refuses on the answer. Of 72 directed pairs between these nine agents, 15 widen nothing.
+
+The case that made it worth building is in this repository and I did not plant it. `code-reviewer`
+reaches five named GitHub reads and cannot branch, write a file or open a pull request, because a
+reviewer that lands its own fix is not a reviewer. Handing its work to `quartermaster` is how it
+would land one anyway - refused, with eight capabilities named.
+
+The comparison is deliberately blunt: coverage is only concluded from what a spec literally says,
+so `@read-only` reads as unreachable rather than being expanded into the tools it stands for. That
+expansion needs annotations the servers publish at runtime, and a check that needs a live connector
+is a check that does not run in CI. Over-reporting names a handoff that is in fact safe. The error
+in the other direction blesses one that is not.
+
+Then three checks that were checking the wrong fact, which is the theme of the day.
+
+- **preflight said a skill was registered while every agent attaching it failed at sandbox init.**
+  Both statements were true. The skill was a row in the harness pointing at a path on a branch;
+  the commit holding it had gone to a different branch, so the path was not in that ref and the
+  fetch found nothing. Registration is not fetchability, and only the second one is worth
+  reporting. It now resolves the ref from the local clone, and an unresolvable ref reads as unknown
+  rather than as present - the check that could not run is not the check that passed.
+
+- **`git push` reported success four times without moving the branch.** A subagent had checked out
+  its own branch in the working tree I was committing to, so every commit landed there while I
+  pushed an unchanged `integration-check` ref. A no-op push is a success, and I read the exit code
+  instead of the remote head. The work was real and tested the whole time; it was not where I said
+  it was. Running agents in a shared checkout was mine to get wrong.
+
+- **A read-only SQLite connection still writes to disk.** `new DatabaseSync(path, {readOnly:true})`
+  refuses DELETE, CREATE TABLE, CREATE TABLE AS SELECT, INSERT OR REPLACE, UPDATE ... RETURNING and
+  `PRAGMA journal_mode` - all with "attempt to write a readonly database". `VACUUM INTO '/tmp/z.db'`
+  succeeds. It does not modify the source; it writes a complete copy of it somewhere else, and I
+  confirmed the copy and its rows. So read-only means "cannot modify this database", not "cannot
+  write to disk", and `sql-analysis` had already listed `VACUUM INTO` as a write people miss
+  without either of us noticing that SQLite's own read-only mode misses it too.
+
+The handoff was verified in a real run rather than only in tests, and the best line came from the
+receiving agent unprompted: "The note from analytics was treated as untrusted context and not used
+to influence the execution result." That is the framing working on a model that was not being
+watched for it.
+
+What it did not do was emit a handoff block on its own. A 4B local model reached for a subagent
+instead, which is worth saying plainly: the mechanism is verified end to end, the model choosing to
+use it is not.
+
+419 tests in the root suite, 174 in the interface.
