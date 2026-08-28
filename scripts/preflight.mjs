@@ -8,6 +8,7 @@
  *   npm run preflight
  */
 import { readdirSync, readFileSync } from 'node:fs';
+import { policiesFor } from './lib/policies.mjs';
 import { describeConnectorFailure } from './lib/connector-advice.mjs';
 import { join } from 'node:path';
 import { classify, ungatedRisks } from './lib/annotations.mjs';
@@ -28,29 +29,6 @@ const record = (ok, label, detail, fix) => results.push({ ok, label, detail, fix
  * Reading the real policy matters: checking against the library default would report a spec as
  * safe when the spec itself had narrowed the gate to nothing.
  */
-function policyFor(serverName) {
-  const selectors = new Set();
-  const enabled = new Set();
-  for (const file of readdirSync(AGENTS_DIR).filter((f) => f.endsWith('.json'))) {
-    let spec;
-    try {
-      spec = JSON.parse(readFileSync(join(AGENTS_DIR, file), 'utf8'));
-    } catch {
-      continue;
-    }
-    for (const server of spec?.manifest?.mcp_servers ?? []) {
-      if (server?.name !== serverName) continue;
-      for (const selector of server.require_approval_for_tools ?? ['@write', '@destructive']) {
-        selectors.add(selector);
-      }
-      for (const selector of server.enable_tools ?? ['@all']) enabled.add(selector);
-    }
-  }
-  return {
-    approval: selectors.size ? [...selectors] : undefined,
-    enabled: enabled.size ? [...enabled] : undefined,
-  };
-}
 
 async function get(path) {
   const res = await fetch(`${BASE}${path}`);
@@ -137,15 +115,30 @@ try {
         const tools = asList(await get(`/api/v1/mcp-servers/${encodeURIComponent(name)}/tools`));
         // Audit the policy the specs actually declare for this server, not the library default.
         // A spec that narrowed or emptied its policy used to pass this check while gating nothing.
-        const policy = policyFor(name);
-        const risks = ungatedRisks(tools, policy.approval, policy.enabled);
+        /**
+         * Each agent's policy, judged separately, weakest first.
+         *
+         * These were merged into one set, which audits a policy no single agent has - so one
+         * agent's narrow gate was covered by another's wide one and the connector was reported ok
+         * for a route `audit-tools` rejects.
+         */
+        const policies = policiesFor(name);
+        const risks = [];
+        const seenRisk = new Set();
+        for (const policy of policies.length ? policies : [{ agent: null }]) {
+          for (const tool of ungatedRisks(tools, policy.approval, policy.enabled)) {
+            if (seenRisk.has(tool.name)) continue;
+            seenRisk.add(tool.name);
+            risks.push({ ...tool, agent: policy.agent });
+          }
+        }
         const summary = tools.map((t) => classify(t.annotations));
         const unannotated = summary.filter((k) => k === 'unannotated').length;
         record(
           risks.length === 0,
           `Connector: ${name}`,
           risks.length
-            ? `${risks.length} of ${tools.length} tools would run UNGATED: ${risks.map((r) => r.name).join(', ')}`
+            ? `${risks.length} of ${tools.length} tools would run UNGATED: ${risks.map((r) => (r.agent ? `${r.name} (via ${r.agent})` : r.name)).join(', ')}`
             : unannotated > 0
               ? `${tools.length} tools, ${unannotated} unannotated but reached by name`
               : `${tools.length} tools, all annotated`,

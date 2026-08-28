@@ -17,8 +17,7 @@
  * Exits non-zero if any reachable tool would run ungated under the default policy.
  */
 import { classify, ungatedRisks, UNANNOTATED } from './lib/annotations.mjs';
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { policiesFor } from './lib/policies.mjs';
 import { loadEnv } from './lib/env.mjs';
 import { fromModule } from './lib/paths.mjs';
 import { httpProblem } from './lib/http.mjs';
@@ -26,27 +25,8 @@ import { httpProblem } from './lib/http.mjs';
 loadEnv();
 
 const BASE = process.env.TRUEFORGE_BASE_URL ?? 'http://localhost:8790';
-const AGENTS_DIR = fromModule(import.meta.url, '../agents/');
 
 /** What the specs actually declare for a connector, rather than the library default. */
-function specFor(serverName) {
-  const approval = new Set();
-  const enabled = new Set();
-  for (const file of readdirSync(AGENTS_DIR).filter((f) => f.endsWith('.json'))) {
-    let spec;
-    try {
-      spec = JSON.parse(readFileSync(join(AGENTS_DIR, file), 'utf8'));
-    } catch {
-      continue;
-    }
-    for (const server of spec?.manifest?.mcp_servers ?? []) {
-      if (server?.name !== serverName) continue;
-      for (const s of server.require_approval_for_tools ?? ['@write', '@destructive']) approval.add(s);
-      for (const s of server.enable_tools ?? ['@all']) enabled.add(s);
-    }
-  }
-  return { approval: approval.size ? [...approval] : undefined, enabled: enabled.size ? [...enabled] : undefined };
-}
 
 const get = async (path) => {
   const res = await fetch(`${BASE}${path}`);
@@ -93,8 +73,19 @@ for (const server of list) {
     continue;
   }
 
-  const policy = specFor(name);
-  const risks = new Set(ungatedRisks(tools, policy.approval, policy.enabled).map((t) => t.name));
+  /**
+   * Judged against the weakest policy any agent uses, and the agent named.
+   *
+   * Reporting the union hid a narrow gate behind a wide one. What matters is whether *some* agent
+   * can reach this tool ungated, and which - that is the sentence somebody has to act on.
+   */
+  const policies = policiesFor(name);
+  const risks = new Map();
+  for (const policy of policies.length ? policies : [{ agent: null, approval: undefined, enabled: undefined }]) {
+    for (const tool of ungatedRisks(tools, policy.approval, policy.enabled)) {
+      if (!risks.has(tool.name)) risks.set(tool.name, policy.agent);
+    }
+  }
 
   console.log(`\n${name} - ${tools.length} tools`);
   for (const tool of tools) {
@@ -109,16 +100,26 @@ for (const server of list) {
         : kind === UNANNOTATED
           ? 'allowed'
           : '  free ';
-    console.log(`  ${label}  ${String(tool.name).padEnd(30)} ${kind}`);
+    const via = risky && risks.get(tool.name) ? ` - via ${risks.get(tool.name)}` : '';
+    console.log(`  ${label}  ${String(tool.name).padEnd(30)} ${kind}${via}`);
   }
 }
 
 if (ungated > 0) {
+  /**
+   * Say what was found, not what used to be the only thing findable.
+   *
+   * This read "unannotated tool(s) ... under the default policy" whatever it had found. Once
+   * annotated write and destructive tools could be reported too, that sentence described neither
+   * the cause nor the policy actually audited - and the fix it recommends is the wrong one for a
+   * tool whose annotations are perfectly good and simply is not gated.
+   */
   console.log(
-    `\n${ungated} unannotated tool(s) would execute with no approval under the default policy.\n` +
-      'Fix by making the spec fail closed: restrict `enable_tools` to ["@read-only", ...literal write tools you\n' +
-      'actually want], and name those same tools in `require_approval_for_tools` so the gate does not depend\n' +
-      'on the server annotating them correctly.',
+    `\n${ungated} tool(s) would execute with no approval under the policy some agent declares.\n` +
+      'For a tool with no annotations, the fix is to restrict `enable_tools` to ["@read-only", ...the literal\n' +
+      'write tools you actually want], so a tool the server adds later is not enabled at all.\n' +
+      'For an annotated write or destructive tool, the allowlist is not the fix: name it in\n' +
+      '`require_approval_for_tools` as well, because admitting a tool is not the same as gating it.',
   );
   process.exit(1);
 }
