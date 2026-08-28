@@ -147,9 +147,23 @@ event stream rather than the transcript - turns out to generalise, and each is o
 | `research-desk` | Exa web search | read-only throughout | **yes** |
 | `incident-responder` | `ops-desk` (ships here) | every remediation | **yes** |
 | `desk-assistant` | `front-desk` (ships here) | every create, edit, close and send | **yes** |
+| `code-reviewer` | GitHub, read-only + comments | every comment it posts | needs a PAT |
 | `gate-demo` | + GitHub | its one tool | needs the GitHub connector |
 
 Start with `quartermaster-local`. It needs no token and touches nothing outside the sandbox.
+
+`code-reviewer` reads a pull request, runs its suite in the sandbox, and comments on what it found.
+It is the one agent here whose output *is* a claim about a test run, which makes it the sharpest
+case for the verifier: a review saying "tests pass" without a run is worth less than no review,
+because somebody will believe it. Its GitHub reach is deliberately narrower than `quartermaster`'s -
+it can read anything and post comments, and `merge_pull_request`, `push_files`,
+`create_or_update_file` and `delete_file` are **not enabled for it at all**. A reviewer that can
+merge is not a reviewer.
+
+It also runs with `dynamic_sub_agents` disabled. Reviewing several files at once is a real use for
+subagents, but every write this agent has is gated, and whether a subagent inherits that gate is not
+something this project has verified. Until it is, the agent that can propose a write is the one you
+can see.
 
 `gate-demo` exists to make the approval gate visible on its own. Its only tool is
 `add_issue_comment` and that tool is gated, so a single turn is enough to show the harness stopping

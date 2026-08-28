@@ -124,6 +124,23 @@ const CASES = [
     // Likewise: `convention` appears on a real project and never in a not-found payload's id list.
     expect: /"convention"[\s\S]*CHK|CHK[\s\S]*"convention"/,
   },
+  {
+    agent: 'code-reviewer',
+    what: 'reads a pull request',
+    /**
+     * Points at this repository's own review history, which is public and does not move. A smoke
+     * case whose fixture is somebody else's open pull request passes until they merge it.
+     *
+     * Read-only by construction: every tool that writes to a repository is gated for this agent,
+     * so a smoke run cannot post anything even if the model decides it wants to.
+     */
+    prompt:
+      'Read pull request 19 of manumishra12/quartermaster and tell me its title and whether it is open or merged. Do not comment on it.',
+    // The title is the fixture. A not-found payload cannot contain it.
+    expect: /both halves of its own proof/i,
+    /** Needs the GitHub connector, like gate-demo and quartermaster. */
+    needsConnector: 'github',
+  },
 ];
 
 const client = new TrueForge({ baseUrl: BASE, timeoutInSeconds: 900 });
@@ -315,6 +332,30 @@ async function runCase(testCase) {
   };
 }
 
+/**
+ * Which connectors this harness actually has, so a case that needs one can say it was skipped
+ * rather than fail.
+ *
+ * Most agents here run with no account at all - that is deliberate, and it is why ops-desk and
+ * front-desk exist. The two that reach GitHub need a token somebody has to paste in. Reporting
+ * "FAILED" for a connector nobody configured says the agent is broken when the truth is that this
+ * machine was never given a key, and those are different problems with different fixes.
+ */
+async function configuredConnectors() {
+  try {
+    const res = await fetch(`${BASE}/api/v1/settings/mcp-servers`);
+    if (!res.ok) return null;
+    const body = await res.json();
+    const list = Array.isArray(body) ? body : (body.data ?? body.servers ?? []);
+    return new Set(list.map((s) => s?.name ?? s?.manifest?.name).filter(Boolean));
+  } catch {
+    // Unknown is not the same as none. A case is only skipped when we positively know the
+    // connector is absent; otherwise it runs and fails honestly.
+    return null;
+  }
+}
+
+const connectors = await configuredConnectors();
 const selected = only ? CASES.filter((c) => c.agent === only) : CASES;
 if (!selected.length) {
   console.error(`No smoke case for "${only}". Known: ${CASES.map((c) => c.agent).join(', ')}`);
@@ -325,6 +366,13 @@ console.log(`\nSmoke testing ${selected.length} agent(s) against ${BASE}\n`);
 const results = [];
 for (const testCase of selected) {
   process.stdout.write(`  ${testCase.agent.padEnd(20)} ${testCase.what} ... `);
+
+  if (testCase.needsConnector && connectors && !connectors.has(testCase.needsConnector)) {
+    console.log(`skipped - no ${testCase.needsConnector} connector configured`);
+    results.push({ ...testCase, ok: true, skipped: true });
+    continue;
+  }
+
   let result = await runCase(testCase);
   /**
    * One retry, and only for a sandbox that was not ready - never for a wrong answer.
@@ -362,7 +410,14 @@ for (const testCase of selected) {
 }
 
 const failed = results.filter((r) => !r.ok);
-console.log(`\n  ${results.length - failed.length}/${results.length} agents reached their tools\n`);
+const skipped = results.filter((r) => r.skipped);
+const ran = results.length - skipped.length;
+console.log(`\n  ${ran - failed.length}/${ran} agents reached their tools\n`);
+// Named rather than folded into the total. A suite that counts a skip as a pass and says nothing
+// reports coverage it did not have.
+if (skipped.length) {
+  console.log(`  ${skipped.length} skipped for want of a connector: ${skipped.map((r) => r.agent).join(', ')}\n`);
+}
 
 if (failed.length) {
   console.log('  A failure here is one of three things:');

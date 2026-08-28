@@ -19,7 +19,7 @@ Everything Quartermaster is allowed to touch, and what is gated. Kept in sync wi
 
 | Server | Auth | Agent | Tools enabled | Approval |
 | --- | --- | --- | --- | --- |
-| **GitHub** (shipped catalog) | header (PAT) | `quartermaster`, `gate-demo` | `@read-only` + 5 named writes (see section 7); `gate-demo` gets one | `["@write", "@destructive"]` + those writes by name |
+| **GitHub** (shipped catalog) | header (PAT) | `quartermaster`, `code-reviewer`, `gate-demo` | `@read-only` + named writes, different per agent (see section 7); `gate-demo` gets one | `["@write", "@destructive"]` + those writes by name |
 | **Exa** (shipped catalog) | none | `research-desk` | `@read-only` | `["@write", "@destructive"]` - nothing it exposes is a write |
 | **deepwiki** (shipped catalog) | none | both quartermasters | 3 tools by name | `["@write", "@destructive"]` |
 | **ops-desk** (ours, `mcp/ops-desk`) | none | `incident-responder` | `@read-only` + `rollback_deploy`, `restart_service` | both writes by name, plus `["@write", "@destructive"]` |
@@ -116,6 +116,8 @@ is relevant, then the whole pack is materialized in the sandbox at `/opt/tfy/ski
 | Create branch / commit / push | GitHub, real | **approval required** |
 | Open or update a pull request | GitHub, real | **approval required** |
 | Comment on an issue or PR | GitHub, real | **approval required** |
+| Submit a pull request review | GitHub, real | **approval required** |
+| Merge a pull request, push files, delete a file | GitHub, real | not enabled for any agent here |
 | Read repo, issues, CI status | GitHub, real | no gate — read-only |
 | Roll back a deploy, restart a service | ops-desk | **approval required** |
 | File, edit or close an issue; send a message | front-desk | **approval required** |
