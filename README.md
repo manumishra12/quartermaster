@@ -359,10 +359,10 @@ had to ask about. The real case in this repository:
     deepwiki                                  -  the sender does not have this connector at all
 ```
 
-`code-reviewer` reaches five named GitHub reads and nothing else - it cannot branch, write a file or
+`code-reviewer` reaches five named GitHub reads and three gated comment tools - it cannot branch, write a file or
 open a pull request, because a reviewer that can land its own fix is not a reviewer. Delegating the
 fix to the agent that can push is how it would land one anyway. Of the 72 directed pairs between
-these nine agents, 15 are handoffs that widen nothing.
+these nine agents, 10 are handoffs that widen nothing.
 
 The last two lines are the check being blunt rather than clever, and it is worth seeing. `@read-only`
 is reported as unreachable because `covers` will not expand a selector into the tools it stands for -
@@ -462,7 +462,7 @@ from recorded tool responses, never from the agent's narration.
 ## Development
 
 ```bash
-npm run check             # lint, typecheck, 437 tests, and the fixture check - what CI runs
+npm run check             # lint, typecheck, 438 tests, and the fixture check - what CI runs
 npm test                  # the root suite alone
 npm run fixtures:check    # the fixtures must still fail
 npm run tools:audit       # every reachable tool is gated as claimed

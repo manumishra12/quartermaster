@@ -1,6 +1,6 @@
 # Testing
 
-437 tests in the root suite, 174 in the UI across 21 files, one mount test, and a fixture check. What follows is
+438 tests in the root suite, 174 in the UI across 21 files, one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
 
@@ -47,7 +47,7 @@ flowchart TD
     SK["skills.test.mjs<br/>14 - the skill registry"]
     AR["artifacts.test.mjs<br/>3 - files fetched out of the sandbox"]
     LG["ledger.test.mjs<br/>5 - every gate decision, in one file"]
-    AU["authority.test.mjs<br/>8 - what an agent may reach"]
+    AU["authority.test.mjs<br/>9 - what an agent may reach"]
     HO["handoff.test.mjs<br/>17 - delegation that cannot widen"]
     RT["route.test.mjs<br/>11 - which agent, and why"]
     RY["retry.test.mjs<br/>10 - when running it again is honest"]

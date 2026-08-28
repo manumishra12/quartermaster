@@ -41,9 +41,10 @@ An agent hands work to another by emitting a `handoff` block naming the receiver
 handoff is refused if the receiver can reach anything the sender could not, or can reach ungated
 what the sender would have had to ask about. That second case is the one worth the machinery:
 delegation is otherwise a way around the gate that requires nobody to lie and no policy to be
-edited. **Of the 72 directed pairs between these nine agents, 15 widen nothing.**
+edited. **Of the 72 directed pairs between these nine agents, 10 widen nothing.**
 
-The clearest case is in the table above. `code-reviewer` reaches five named GitHub reads and cannot
+The clearest case is in the table above. `code-reviewer` reaches five named GitHub reads, three gated
+comment tools, and cannot
 branch, write a file or open a pull request, because a reviewer that lands its own fix is not a
 reviewer. Handing its work to `quartermaster` is how it would land one anyway, and that handoff is
 refused with the eight capabilities it would have gained.

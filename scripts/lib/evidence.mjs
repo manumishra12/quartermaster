@@ -16,7 +16,7 @@ export const NO_ANSWER = 'no-answer';
 /**
  * Language that asserts something was executed and reports its result.
  *
- * Only six of the seven agents here run tests, but every one of them can be asked to run something
+ * Only a few of the agents here run tests, but every one of them can be asked to run something
  * and report back. A code runner that says "the output is 81" without having run anything is making
  * exactly the same unsupported claim as one that says "the tests pass" - it just happens to be
  * right this time.

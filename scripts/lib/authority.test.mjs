@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { authorityOf, covers, isGated, widening } from './authority.mjs';
 
 const spec = (mcp_servers, config = {}) => ({ manifest: { mcp_servers, config: { sandbox: { enabled: false }, dynamic_sub_agents: { enabled: false }, ...config } } });
@@ -89,4 +92,47 @@ test('a connector named twice is the union of both entries', () => {
   ]));
   assert.deepEqual([...both.servers.get('github').enabled].sort(), ['create_branch', 'get_file_contents']);
   assert.ok(both.servers.get('github').gated.has('create_branch'));
+});
+
+test('the handoff count in the documents is the count the specs produce', () => {
+  /**
+   * It said 15 in four documents and the answer was 10. Nothing was wrong when it was written -
+   * giving `analytics` the warehouse connector removed five safe pairs, and no document knows when
+   * a spec changes. A number stated in prose and computed nowhere is a number that drifts, and this
+   * project's whole argument is against exactly that, so the prose is now checked against the code.
+   *
+   * Deliberately not asserting 10. The count is whatever the specs say today; what must hold is
+   * that every document agrees with them.
+   */
+  const dir = fileURLToPath(new URL('../../agents/', import.meta.url));
+  const names = readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5));
+  const authority = (n) => authorityOf(JSON.parse(readFileSync(join(dir, `${n}.json`), 'utf8')));
+
+  let clean = 0;
+  let pairs = 0;
+  for (const from of names) {
+    for (const to of names) {
+      if (from === to) continue;
+      pairs += 1;
+      if (widening(authority(from), authority(to)).length === 0) clean += 1;
+    }
+  }
+
+  const root = fileURLToPath(new URL('../../', import.meta.url));
+  const stated = [];
+  for (const file of readdirSync(root).filter((f) => f.endsWith('.md'))) {
+    const text = readFileSync(join(root, file), 'utf8');
+    for (const match of text.matchAll(/(\d+)\s+(?:are handoffs that )?widen nothing/g)) {
+      stated.push({ file, count: Number(match[1]) });
+    }
+    for (const match of text.matchAll(/(\d+) directed pairs/g)) {
+      // The denominator drifts too - adding an agent changes it and nothing would have said so.
+      assert.equal(Number(match[1]), pairs, `${file} says ${match[1]} directed pairs; there are ${pairs}`);
+    }
+  }
+
+  assert.ok(stated.length > 0, 'no document states the count any more, so this check is watching nothing');
+  for (const { file, count } of stated) {
+    assert.equal(count, clean, `${file} says ${count} handoffs widen nothing; the specs give ${clean}`);
+  }
 });
