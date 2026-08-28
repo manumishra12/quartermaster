@@ -4,6 +4,7 @@ import { describeConnectorFailure, isUnreachable } from './connector-advice.mjs'
 
 const OPS = 'http://localhost:8795/mcp';
 const DESK = 'http://localhost:8796/mcp';
+const WAREHOUSE = 'http://localhost:8797/mcp';
 
 /**
  * Advice that cannot work is worse than no advice: it sends someone looking for credentials for a
@@ -17,6 +18,11 @@ test('a refused connection is the only thing that means nothing is listening', (
   assert.equal(refused.cause, 'refused');
   assert.equal(refused.reason, 'nothing is listening at its URL');
   assert.equal(refused.advice, 'start it: npm run ops-desk');
+
+  // Every local server this repo ships has to be in the table, or the advice for the newest one
+  // is the generic sentence about credentials it does not have.
+  const warehouse = describeConnectorFailure('warehouse', 'connect ECONNREFUSED 127.0.0.1:8797', WAREHOUSE);
+  assert.equal(warehouse.advice, 'start it: npm run warehouse');
 });
 
 test('a remote server that refuses does not get a command it has no way to run', () => {

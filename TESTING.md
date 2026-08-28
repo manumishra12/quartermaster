@@ -1,6 +1,6 @@
 # Testing
 
-419 tests in the root suite, 174 in the UI across 21 files, one mount test, and a fixture check. What follows is
+437 tests in the root suite, 174 in the UI across 21 files, one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
 
@@ -58,6 +58,7 @@ flowchart TD
     SV["lib/serve.test.mjs<br/>5 - the shared HTTP shell"]
     OD["ops-desk/server.test.mjs<br/>21 - incident fixture server"]
     FD["front-desk/server.test.mjs<br/>24 - workspace fixture server"]
+    WH["warehouse/server.test.mjs<br/>18 - read-only SQL connector"]
   end
 
   subgraph ui["ui - vitest, two projects"]
@@ -86,6 +87,7 @@ flowchart TD
 | `turn-state.test.mjs` | Why a turn ended, and what the process then tells CI - a run that crashed, stalled or died on the plumbing must not exit 0. |
 | `flags.test.mjs`, `paths.test.mjs`, `settle.test.mjs`, `http.test.mjs` | Four one-line mistakes that each cost a real behaviour: a flag consumed as another flag's value, a percent-encoded path, a promise raced and abandoned, and an error page parsed as data. |
 | `mcp/front-desk/server.test.mjs` | The workspace server: every write tool refuses what it cannot honestly do and records nothing when it refuses, and the planted prompt injection is still in the fixture - if it is ever removed, the demonstration that the gate holds against a persuaded model silently stops demonstrating anything. |
+| `mcp/warehouse/server.test.mjs` | The read-only SQL connector, tested mostly by what it refuses. Two layers have to hold separately: the read-only connection, which is proved by submitting a write the statement check deliberately admits (`WITH x AS (...) DELETE FROM orders`) and watching SQLite refuse it; and the statement check, which covers what a read-only connection still permits. `VACUUM INTO` has a test of its own and asserts no copy of the database appears on disk - it succeeds on a read-only connection, and that is the finding the check was written for. The published answers from the fixture README are asserted here too, so the connector and the fixture cannot drift apart. |
 | `mcp/ops-desk/server.test.mjs` | The fixture MCP server, tested over the wire: every tool publishes the annotations the selectors resolve from, the destructive ones genuinely mutate, and the fixture still tells a story an investigation can get right. The log tests pin the correlation - alert, deploy and log lines all naming the same 2000ms - and the two ways a search can lie about an empty result. |
 | `env.test.mjs` (8), `contrast.test.mjs` (28) | Config loading, and that every colour pair in both themes clears 4.5:1 — the reference design's own muted grey was 3.37:1 and had to be darkened. |
 

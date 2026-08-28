@@ -6,7 +6,7 @@ them is a spec file sharing the same safety discipline rather than re-deciding i
 | # | Their card | Their "reaches" | Our agent | What it reaches here | Account needed |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Approval-gated assistant | Gmail or Slack | `desk-assistant` | `front-desk` - ships in this repo | **no** |
-| 2 | Analytics agent | Your database | `analytics` | a SQLite warehouse in the sandbox | **no** |
+| 2 | Analytics agent | Your database | `analytics` | `warehouse` - ships in this repo, read-only | **no** |
 | 3 | Code review agent | GitHub | `code-reviewer` | GitHub - eight named tools | a PAT |
 | 4 | Research desk | Web search | `research-desk` | Exa **and** parallel-web | **no** |
 | 5 | Incident responder | Your cloud | `incident-responder` | `ops-desk` - ships in this repo | **no** |
@@ -94,7 +94,7 @@ guaranteed to do - and section 2a of `TOOLS.md` explains why that matters more t
 | --- | --- |
 | `quartermaster-local` | nothing |
 | `code-runner` | nothing |
-| `analytics` | nothing |
+| `analytics` | nothing - `npm run warehouse`, after building the fixture |
 | `research-desk` | nothing - neither Exa nor parallel-web needs auth |
 | `incident-responder` | nothing - `npm run ops-desk` |
 | `desk-assistant` | nothing - `npm run front-desk` |

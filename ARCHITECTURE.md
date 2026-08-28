@@ -23,6 +23,7 @@ flowchart LR
   subgraph outside["reached, not mocked"]
     GH["GitHub"]
     OPS["ops-desk<br/>local MCP"]
+    WH["warehouse<br/>local MCP, read-only"]
     WEB["Exa / deepwiki"]
   end
 
@@ -33,6 +34,7 @@ flowchart LR
   GATE -->|"allowed by a person"| GH
   GATE -->|"allowed by a person"| OPS
   LOOP -->|"read-only, ungated"| WEB
+  LOOP -->|"read-only by the connection, not by a gate"| WH
   LOOP -.->|"event stream"| EV["evidence verifier<br/>scripts/lib/evidence.mjs"]
   EV --> REP["evidence/&lt;session&gt;/report.md"]
 ```
