@@ -16,6 +16,10 @@ export default defineConfig({
       // rules, not a stand-in, or they would only prove the interface agrees with a copy of itself.
       '@evidence': fileURLToPath(new URL('../scripts/lib/evidence.mjs', import.meta.url)),
       '@render-call': fileURLToPath(new URL('../scripts/lib/render-call.mjs', import.meta.url)),
+      // The handoff envelope, parsed by the same module that writes it. A wording change in one
+      // would otherwise stop the other recognising a handoff, and the untrusted framing would
+      // render as ordinary prose - which is the one thing that framing exists to prevent.
+      '@handoff': fileURLToPath(new URL('../scripts/lib/handoff-envelope.mjs', import.meta.url)),
       '@report': fileURLToPath(new URL('../scripts/lib/report.mjs', import.meta.url)),
     },
   },

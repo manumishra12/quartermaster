@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_CHAIN, handoff, renderHandoff, requestedHandoff } from './handoff.mjs';
+import { MAX_CHAIN, handoff, parseHandoffEnvelope, renderHandoff, requestedHandoff } from './handoff.mjs';
 
 const agent = (mcp_servers = [], config = {}) => ({
   manifest: { mcp_servers, config: { sandbox: { enabled: false }, dynamic_sub_agents: { enabled: false }, ...config } },
@@ -117,4 +117,30 @@ test('an answer with no block asks for nothing', () => {
   assert.equal(requestedHandoff('here is the answer, no delegation needed'), null);
   assert.equal(requestedHandoff(''), null);
   assert.equal(requestedHandoff(undefined), null);
+});
+
+test('what the renderer writes, the parser reads back', () => {
+  /**
+   * A round trip rather than two independent assertions, because the failure worth preventing is
+   * drift: a wording change in the renderer that quietly stops the interface recognising a
+   * handoff, leaving the untrusted framing rendered as ordinary prose. The framing is the defence
+   * and a defence nobody can see is one nobody checks.
+   */
+  const { envelope } = handoff({ ...ok, because: 'I cannot query the warehouse', specs });
+  const read = parseHandoffEnvelope(renderHandoff(envelope));
+  assert.deepEqual(read, { from: 'a', to: 'b', request: 'do the thing', because: 'I cannot query the warehouse', chain: ['a', 'b'] });
+});
+
+test('prose about handoffs is not decorated as one', () => {
+  /**
+   * Matched on the markers the renderer emits, not on likely-sounding phrases. An agent explaining
+   * why it did not hand off should not have its explanation rendered as a handoff.
+   */
+  assert.equal(parseHandoffEnvelope('This request was handed to you by another agent. You are analytics.'), null);
+  assert.equal(parseHandoffEnvelope('I considered handing this to analytics but the note would be untrusted anyway.'), null);
+});
+
+test('a multi-line note survives the round trip intact', () => {
+  const { envelope } = handoff({ ...ok, because: 'first line\n\nsecond paragraph', specs });
+  assert.equal(parseHandoffEnvelope(renderHandoff(envelope)).because, 'first line\n\nsecond paragraph');
 });

@@ -4,6 +4,7 @@ import { unexecutedToolCalls } from '@evidence';
 // @ts-expect-error - shared JS modules, aliased in vite.config.ts
 import { renderUnexecutedCalls } from '@render-call';
 import { AlertIcon } from './icons';
+import { HandoffCard, readHandoff } from './Handoff';
 
 /**
  * The answer, except when the answer is a tool call the model typed out.
@@ -33,6 +34,18 @@ export function Answer({ content, ...rest }: { content: string; isStreaming?: bo
    * computing something the next line discarded.
    */
   if (rest.isStreaming) return <Markdown content={content} {...rest} />;
+
+  /**
+   * A request that arrived from another agent renders as provenance rather than as prose.
+   *
+   * The envelope is three paragraphs - where the work came from, what the person asked, and a note
+   * the sending agent wrote - and flattened into a transcript they carry the same authority. The
+   * middle one is trustworthy and the last one is not, which is the distinction the receiving
+   * agent is instructed to respect. A person auditing the same transcript should be able to see
+   * the boundary the agent was told about.
+   */
+  const handed = readHandoff(content);
+  if (handed) return <HandoffCard envelope={handed} />;
 
   const printed = (unexecutedToolCalls(content) ?? []) as unknown[];
   if (printed.length === 0) return <Markdown content={content} {...rest} />;
