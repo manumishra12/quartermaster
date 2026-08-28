@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { checkRegistry, readSkill, skillDirs, UNIVERSAL } from './skills.mjs';
 import { specFiles } from './spec.mjs';
 
@@ -70,5 +71,30 @@ test('the guardrail skill names the shapes an injection actually takes', () => {
   const body = readSkill('untrusted-input').body.toLowerCase();
   for (const shape of ['pre-approved', 'standing grant', 'quote it', 'urgency', 'authority']) {
     assert.ok(body.includes(shape), `the untrusted-input skill no longer mentions ${shape}`);
+  }
+});
+
+test('the warehouse fixture still contains every trap its README claims', () => {
+  /**
+   * The README publishes exact answers so an agent can be checked against them rather than merely
+   * observed to have run something. That only works while the numbers are true, and a fixture is
+   * the easiest thing in a repository to edit by hand and forget.
+   */
+  const seed = readFileSync(fileURLToPath(new URL('../../fixtures/warehouse/seed.sql', import.meta.url)), 'utf8');
+  const readme = readFileSync(fileURLToPath(new URL('../../fixtures/warehouse/README.md', import.meta.url)), 'utf8');
+
+  const rows = (table) => seed.split('\n').filter((l) => l.startsWith(`INSERT INTO ${table} `)).length;
+  assert.equal(rows('customers'), 180);
+  assert.equal(rows('orders'), 638);
+
+  // The traps, checked in the data rather than trusted from the prose.
+  assert.equal((seed.match(/, 'cancelled', /g) ?? []).length, 120, 'cancelled orders');
+  assert.equal((seed.match(/INSERT INTO customers VALUES \(\d+, '[^']*', NULL,/g) ?? []).length, 2, 'null countries');
+  assert.ok(seed.includes("INSERT INTO customers VALUES (92, 'Customer 041'"), 'the shared name');
+  assert.ok(seed.includes("'2026-04-30T23:59:59Z'") && seed.includes("'2026-05-01T00:00:01Z'"), 'the month boundary');
+
+  // And the README's headline numbers are the ones the generator computed.
+  for (const claim of ['518', '13,775,026', '595,204', '13,179,822', '43']) {
+    assert.ok(readme.includes(claim), `README no longer states ${claim}`);
   }
 });

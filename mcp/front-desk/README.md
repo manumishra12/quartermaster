@@ -35,7 +35,7 @@ curl -X POST http://localhost:8790/api/v1/settings/mcp-servers \
 | --- | --- | --- |
 | `list_projects`, `list_teammates`, `list_issues`, `get_issue`, `list_outbox` | `readOnlyHint` | no |
 | `create_issue`, `update_issue` | write | **yes** |
-| `close_issue`, `send_message` | `destructiveHint` | **yes** |
+| `close_issue`, `send_message`, `send_email` | `destructiveHint` | **yes** |
 
 Closing and sending are marked destructive because they cannot be walked back; filing and editing
 can. Everything another person would see the result of is gated either way.
@@ -67,6 +67,9 @@ record through a human decision.
 | Edit a **required** field to nothing | `missing_fields` — naming the project that requires it |
 | Edit an **optional** field to nothing | allowed; stored as absent, not as an empty string |
 | Close without a resolution | refused by the schema, before the destructive branch is reached |
+| Email an address this desk does not know | `not_found` — the one refusal here about blast radius, not honesty |
+| Copy an address this desk does not know | `not_found`, nothing sent — a cc receives the same email |
+| Email with no subject or no body | `missing_fields`, naming which |
 | Send or file more text than anyone will read | refused by the schema - 20k of body, 300 of title |
 
 ## The injection, and why it is in the fixture

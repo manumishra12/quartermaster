@@ -1,6 +1,6 @@
 # Testing
 
-340 tests in the root suite, 155 in the UI across 18 files, one mount test, and a fixture check. What follows is
+343 tests in the root suite, 161 in the UI across 19 files, one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
 
@@ -13,7 +13,7 @@ npm run lint         # eslint
 npm run typecheck    # tsc --noEmit
 
 cd ui
-npm run test:unit    # 155 tests, jsdom
+npm run test:unit    # 161 tests, jsdom
 npm run test:mount   # the one test that mounts the whole app
 npm run build        # production build
 ```
@@ -44,18 +44,18 @@ flowchart TD
     ST["settle.test.mjs<br/>5 - waiting without abandoning"]
     HT["http.test.mjs<br/>3 - an error page is not a body"]
     PA["paths.test.mjs<br/>4 - module-relative paths"]
-    SK["skills.test.mjs<br/>7 - the skill registry"]
+    SK["skills.test.mjs<br/>8 - the skill registry"]
     CA["connector-advice.test.mjs<br/>10 - what to tell a person"]
     CO["contrast.test.mjs<br/>28 - palette contrast"]
     MA["model-advice.test.mjs<br/>6 - what a provider failure means"]
     PO["policies.test.mjs<br/>4 - one reading of each agent policy"]
     SV["lib/serve.test.mjs<br/>5 - the shared HTTP shell"]
     OD["ops-desk/server.test.mjs<br/>13 - incident fixture server"]
-    FD["front-desk/server.test.mjs<br/>17 - workspace fixture server"]
+    FD["front-desk/server.test.mjs<br/>19 - workspace fixture server"]
   end
 
   subgraph ui["ui - vitest, two projects"]
-    U1["unit: 18 files, 155 tests"]
+    U1["unit: 19 files, 161 tests"]
     U2["mount: 1 test, whole app"]
   end
 
@@ -87,7 +87,7 @@ flowchart TD
 
 Two vitest projects, because they need different things:
 
-- **`unit`** — 18 files, 155 tests, jsdom, components in isolation.
+- **`unit`** — 19 files, 161 tests, jsdom, components in isolation.
 - **`mount`** — one test that mounts the entire app. It exists because the app once rendered a
   blank page while every unit test passed: the crash was an infinite render loop that only appears
   when the real provider stack is assembled. `--dangerouslyIgnoreUnhandledErrors` is scoped to this

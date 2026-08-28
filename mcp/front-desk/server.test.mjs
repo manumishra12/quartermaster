@@ -96,7 +96,7 @@ async function withServer(body) {
 test('every tool publishes annotations, and the gated ones are the ones that reach people', () =>
   withServer(async ({ call }) => {
     const { result } = await call('tools/list');
-    assert.equal(result.tools.length, 9);
+    assert.equal(result.tools.length, 10);
 
     for (const tool of result.tools) {
       assert.ok(
@@ -110,11 +110,12 @@ test('every tool publishes annotations, and the gated ones are the ones that rea
       .map((t) => t.name)
       .sort();
     // Everything that another person would see the result of.
-    assert.deepEqual(gated, ['close_issue', 'create_issue', 'send_message', 'update_issue']);
+    assert.deepEqual(gated, ['close_issue', 'create_issue', 'send_email', 'send_message', 'update_issue']);
 
     const destructive = result.tools.filter((t) => t.annotations.destructiveHint).map((t) => t.name).sort();
-    // Closing and sending cannot be walked back; filing and editing can.
-    assert.deepEqual(destructive, ['close_issue', 'send_message']);
+    // Closing and sending cannot be walked back; filing and editing can. Email is the furthest
+    // of the three: it is the only one that leaves the building.
+    assert.deepEqual(destructive, ['close_issue', 'send_email', 'send_message']);
   }));
 
 test('a filed issue is real, and appears in the record of what was done', () =>
@@ -385,4 +386,56 @@ test('a message with nothing in it is not sent', () =>
     assert.equal((await callTool('list_outbox', {})).count, 0);
 
     assert.equal((await callTool('send_message', { to: 'priya', body: 'CHK-118 is closed' })).ok, true);
+  }));
+
+test('an email goes only to somebody this desk knows', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * The one refusal on this server that is about blast radius rather than honesty. A ticket
+     * filed against the wrong project is visible and fixable; an email to an address nobody
+     * recognised has gone, and the agent had no way to know whether it reached a customer, a
+     * journalist or a typo.
+     */
+    const stranger = await callTool('send_email', {
+      to: 'someone@example.com',
+      subject: 'Hello',
+      body: 'Text',
+    });
+    assert.equal(stranger.error, 'not_found');
+    assert.ok(stranger.known.includes('priya'));
+
+    // A copied address is held to the same rule, because it receives the same email.
+    assert.equal(
+      (await callTool('send_email', { to: 'priya', subject: 'Hi', body: 'Text', cc: 'ghost' })).error,
+      'not_found',
+    );
+
+    // Nothing left the building.
+    assert.equal((await callTool('list_outbox', {})).count, 0);
+  }));
+
+test('an email needs a subject and a body, and reports exactly what it sent', () =>
+  withServer(async ({ callTool }) => {
+    const blank = await callTool('send_email', { to: 'priya', subject: '  ', body: '\t' });
+    assert.equal(blank.error, 'missing_fields');
+    assert.deepEqual(blank.missing, ['subject', 'body']);
+
+    /**
+     * The reply carries the whole message rather than an acknowledgement. Somebody approved a
+     * description; this is the record of what that description became, and the two being
+     * comparable is the only way anybody can tell whether the tool did what they said yes to.
+     */
+    const sent = await callTool('send_email', {
+      to: 'priya',
+      cc: 'ravi',
+      subject: '  Refund webhook  ',
+      body: '  Backoff added.  ',
+    });
+    assert.equal(sent.ok, true);
+    assert.equal(sent.subject, 'Refund webhook');
+    assert.equal(sent.body, 'Backoff added.');
+    assert.equal(sent.cc, 'ravi');
+
+    const { actions } = await callTool('list_outbox', {});
+    assert.equal(actions.at(-1).action, 'send_email');
   }));

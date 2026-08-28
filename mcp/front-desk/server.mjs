@@ -45,7 +45,6 @@ const PORT = Number(process.env.FRONT_DESK_PORT ?? 8796);
  */
 const HOST = process.env.FRONT_DESK_HOST ?? "127.0.0.1";
 
-
 /** Loaded once and mutated in memory: filing an issue has to change what the next read sees. */
 const state = JSON.parse(readFileSync(FIXTURE, "utf8"));
 let counter = 1000;
@@ -449,6 +448,89 @@ function buildServer() {
         state: "closed",
         resolution,
         note: "Closed, with the resolution recorded beside the issue. The body was not touched, and this desk cannot reopen it.",
+      });
+    },
+  );
+
+  register(
+    server,
+    "send_email",
+    {
+      title: "Send an email",
+      description:
+        "Send an email on the operator's behalf. It leaves the building and cannot be unsent.",
+      inputSchema: {
+        to: NAME,
+        subject: TITLE,
+        body: BODY,
+        cc: NAME.optional(),
+      },
+      /**
+       * Destructive, and the most destructive thing on this desk.
+       *
+       * An issue filed wrongly is embarrassing inside the team. An email sent wrongly has left,
+       * and the recipient may be outside the company entirely - so this is the tool where the gap
+       * between "what the approver was shown" and "what actually goes" matters most, and the reply
+       * therefore states the whole of what was sent rather than acknowledging it.
+       */
+      annotations: DESTRUCTIVE,
+    },
+    async ({ to, subject, body, cc }) => {
+      const known = state.teammates.map((t) => t.handle);
+      const person = state.teammates.find((t) => t.handle === to);
+
+      /**
+       * An address this desk does not know is refused rather than sent.
+       *
+       * This is the one refusal on this server that is not about honesty but about blast radius.
+       * A ticket filed against the wrong project is visible and fixable; an email to an address
+       * nobody recognised is gone, and the agent had no way to know whether it went to a customer,
+       * a journalist or a typo. If a real recipient is missing, a person adds them.
+       */
+      if (!person) {
+        return notFound(
+          `No recipient called ${to}. Nothing was sent - an unrecognised address is the one mistake ` +
+            "here that cannot be walked back.",
+          known,
+        );
+      }
+
+      if (cc !== undefined && !state.teammates.some((t) => t.handle === cc)) {
+        return notFound(
+          `No recipient called ${cc} to copy. Nothing was sent.`,
+          known,
+        );
+      }
+
+      const missing = [];
+      if (!given(subject)) missing.push("subject");
+      if (!given(body)) missing.push("body");
+      if (missing.length) {
+        return text({
+          error: "missing_fields",
+          message: `An email needs ${missing.join(" and ")}. Whitespace is not a value, and nothing was sent.`,
+          missing,
+        });
+      }
+
+      const sent = {
+        action: "send_email",
+        to,
+        ...(cc ? { cc } : {}),
+        subject: subject.trim(),
+        body: body.trim(),
+        at: tick(),
+      };
+      state.outbox.push(sent);
+      return text({
+        ok: true,
+        ...sent,
+        /**
+         * The whole message back, not an acknowledgement. Somebody approved a description; this is
+         * the record of what that description turned into, and the two being comparable is the
+         * only way anyone can tell whether the tool did what they said yes to.
+         */
+        note: "Sent, exactly as shown. It cannot be unsent.",
       });
     },
   );
