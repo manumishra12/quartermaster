@@ -717,3 +717,79 @@ and six pieces of informational text were dimmed with opacity modifiers to betwe
 4.04:1, which the contrast suite could not see because it only checks full-opacity token pairs.
 
 81 tests in the interface.
+
+## Day 3 — the server answered the whole network, and a default that was an opt-in
+
+Two days of review findings, worked through in parallel. The interesting ones were not the ones the
+audit was most confident about.
+
+- **The MCP fixture servers answered the LAN.** `listen(PORT)` with no host binds every interface,
+  and both servers had it, because the shell had been copied between them. Verified from this
+  machine's own address rather than reasoned about:
+
+      curl http://192.168.0.120:8795/health  ->  200
+
+  The approval gate lives in the *harness*. A request that arrives at the server directly has not
+  passed the gate and will not meet it. So on conference wifi - which is where this is going to be
+  demonstrated - anyone on the network could POST `rollback_deploy` and neither server would have
+  noticed or recorded it. The entire argument of the project, walked past at the network layer.
+  Loopback by default now, Host validated against DNS rebinding, and the shell is one tested file
+  so the next fix is one fix.
+
+- **`dynamic_sub_agents` defaults to `true`.** Read it in the SDK's own type rather than assuming:
+  *"Allow the agent to spawn dynamic subagents. Default: true."* `gate-demo` did not set it. That
+  is an agent whose whole job is a single gated tool call, with no sandbox, quietly permitted to
+  spawn more agents - by an omission nobody reading the file would have registered as a choice. The
+  sandbox rule already demanded explicitness for a weaker reason; this one is worse, because the
+  direction of the default is the unsafe one.
+
+  While writing the rule for it I nearly added a second for `max_sub_agent_depth`. There is no such
+  field. A validator enforcing a key that does not exist would be exactly the failure it is there
+  to prevent, and the only reason it did not ship is that I went and looked.
+
+- **One command supplied both halves of its own proof again**, and this time with nothing clever in
+  it at all:
+
+      pytest -q >/dev/null || echo '1 passed'
+
+  The command invokes a real runner, so the first signal cleared. The output says a test passed, so
+  the second cleared. Neither came from a test: the report went to `/dev/null`, `||` handed the exit
+  status to the echo, and the passing line was typed by the agent. Every previous version of this
+  needed a dead branch or a shadowed function. This one is a redirect and a fallback.
+
+- **A refusal was filed as something that happened.** The gate had two exits and only one kept a
+  record: a call that could not be displayed was denied - correctly, nobody can consent to a blank -
+  and returned early, past the line that records the refusal. Its response then arrived like any
+  other and landed under Executions in the report a reviewer reads to find out what happened. Of all
+  the directions to be wrong in, that is the one this project cannot afford.
+
+- **`close_issue` was rewriting the issue body.** The card a person approved showed an id and a
+  resolution. What happened was that, plus a silent edit to text somebody else wrote. That is worse
+  than an ungated write, because the record afterwards carries a person's assent to a change they
+  were never shown - an unapproved edit laundered through a human decision. The server's own README
+  makes this argument about injections; it was not making it about itself.
+
+- **`rollback_deploy` reported a revert to a deploy that never existed** - and the test suite agreed
+  with it. Rolling back `4c21` reverts to `9ab7`, which the desk knows. Rolling back `9ab7` answered
+  `ok: true, to: "77f0"`, a deploy appearing nowhere in the fixture, and emptied the timeline. An
+  existing test asserted that call succeeds. Two rollbacks is not an exotic path; it is what happens
+  when the first one does not help.
+
+- **The injection got better at its job.** Re-running the desk-assistant demonstration, the model
+  closed `SRCH-42` with the resolution **"Pre-approved by team lead"** - lifted verbatim from the
+  note planted in the issue body. It did not merely persuade the agent to close an open bug with two
+  customer reports. It supplied the sentence intended to persuade the person approving it, in the
+  field that person reads before deciding. The gate held, because the gate is not in the model. I
+  have not found a shorter way to say why it has to live outside.
+
+- **`npm run check` does not lint the interface.** The root eslint config ignores `ui/**` entirely
+  and the UI has its own with jsx-a11y, so a green root check says nothing about the front end. CI
+  caught what I had already convinced myself was verified. It was also linting the git worktrees
+  under `.claude/`, so work in progress in one checkout failed the check in another.
+
+Nine pull requests, each reviewed. Three of them conflict when merged, and one of those is
+semantic rather than textual: two branches independently made the same constant dead, and taking
+either side alone leaves an unused import. Merging them is its own small piece of work, which is
+why there is a tenth branch that is just the other nine, merged and counted.
+
+323 tests in the root suite, 138 in the interface.
