@@ -113,7 +113,12 @@ function render(r, runs) {
           e.exitCode === null ? '' : ` - exit ${e.exitCode}`
         }`,
         '',
-        e.command ? `\`${e.command}\`` : '_command not recorded_',
+        // The command is model-controlled, and it was interpolated between two plain backticks.
+        // Anything with a backtick in it closed its own span, and a newline ended the line - so a
+        // command could write headings, a fenced block, or a reassuring verdict into the report a
+        // person reads to decide whether to believe the run. The refusal list two sections down
+        // had already been fixed for exactly this; the executions had not.
+        e.command ? inlineCode(e.command) : '_command not recorded_',
         '',
         // Fence longer than any run of backticks in the content. Output containing ``` used to
         // close the block early, letting recorded output render as markdown and forge an entire

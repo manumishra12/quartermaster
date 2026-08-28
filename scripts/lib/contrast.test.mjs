@@ -4,8 +4,9 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { contrast, luminance, readThemes, PAIRS } from './contrast.mjs';
+import { fromModule } from './paths.mjs';
 
-const THEMES = readThemes(new URL('../../ui/src/styles/tokens.css', import.meta.url).pathname);
+const THEMES = readThemes(fromModule(import.meta.url, '../../ui/src/styles/tokens.css'));
 
 test('the stylesheet declares both themes', () => {
   assert.deepEqual(Object.keys(THEMES).sort(), ['dark', 'light']);

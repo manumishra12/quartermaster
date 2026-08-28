@@ -11,6 +11,8 @@
 import { TrueForge, isEventDelta } from '@truefoundry/trueforge-sdk';
 import { resultOf, unexecutedToolCalls } from './lib/evidence.mjs';
 import { loadEnv } from './lib/env.mjs';
+import { readFlag } from './lib/flags.mjs';
+import { settledWithin } from './lib/settle.mjs';
 
 loadEnv();
 
@@ -18,11 +20,9 @@ const BASE = process.env.TRUEFORGE_BASE_URL ?? 'http://localhost:8790';
 const argv = process.argv.slice(2);
 /** A flag given as the final argument has no value; that must be an error, not a silent NaN. */
 function flagValue(name) {
-  const i = argv.indexOf(`--${name}`);
-  if (i === -1) return null;
-  const value = argv[i + 1];
-  if (value === undefined || value.startsWith('--')) {
-    console.error(`--${name} needs a value`);
+  const { value, problem } = readFlag(argv, name);
+  if (problem) {
+    console.error(problem);
     process.exit(2);
   }
   return value;
@@ -49,6 +49,13 @@ if (!Number.isFinite(BUDGET_SECONDS) || BUDGET_SECONDS <= 0) {
   process.exit(2);
 }
 const BUDGET_MS = BUDGET_SECONDS * 1000;
+/**
+ * How long a cancelled turn gets to stop streaming before the case is judged anyway.
+ *
+ * Bounded rather than open-ended: waiting for a reader that will never end turns one stuck case
+ * into a suite that never returns, which is the failure the budget above exists to prevent.
+ */
+const CANCEL_GRACE_MS = 5000;
 
 /**
  * Prompts are deliberately direct and single-step. This is a test of the harness wiring - can this
@@ -178,24 +185,28 @@ async function runCase(testCase) {
     }
   };
 
-  let timer;
-  try {
-    await Promise.race([
-      drain(),
-      new Promise((resolve) => {
-        timer = setTimeout(() => {
-          timedOut = true;
-          resolve();
-        }, BUDGET_MS);
-      }),
-    ]);
-  } catch (err) {
-    return { ...testCase, ok: false, why: `turn failed: ${err.message}` };
-  } finally {
-    clearTimeout(timer);
-    // The turn keeps running on the server after we stop reading, so tell it to stop.
-    if (timedOut) await client.sessions.cancel(session.id).catch(() => {});
+  /**
+   * The reader is held, not abandoned.
+   *
+   * `Promise.race([drain(), timeout])` looks like a budget and is not one: the race settles, the
+   * stream does not stop. On a timeout it went on appending to `recorded` and `said` while the
+   * judgement below was being read off them, so what a case reported depended on where the stream
+   * happened to be. Worse, a failure arriving after the race had been decided was an unhandled
+   * rejection, which ends the whole process - one slow agent taking down every case after it.
+   */
+  let readerFailure = null;
+  const draining = drain().catch((err) => {
+    readerFailure = err ?? new Error('the event stream failed');
+  });
+
+  if (!(await settledWithin(draining, BUDGET_MS))) {
+    timedOut = true;
+    // The turn keeps running on the server after we stop reading, so tell it to stop - and then
+    // wait for the reader to notice, so nothing is still being written while it is being judged.
+    await client.sessions.cancel(session.id).catch(() => {});
+    await settledWithin(draining, CANCEL_GRACE_MS);
   }
+  if (readerFailure) return { ...testCase, ok: false, why: `turn failed: ${readerFailure.message}` };
 
   const seconds = ((Date.now() - started) / 1000).toFixed(0);
 

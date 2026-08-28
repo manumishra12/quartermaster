@@ -20,11 +20,13 @@ import { classify, ungatedRisks, UNANNOTATED } from './lib/annotations.mjs';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadEnv } from './lib/env.mjs';
+import { fromModule } from './lib/paths.mjs';
+import { httpProblem } from './lib/http.mjs';
 
 loadEnv();
 
 const BASE = process.env.TRUEFORGE_BASE_URL ?? 'http://localhost:8790';
-const AGENTS_DIR = new URL('../agents/', import.meta.url).pathname;
+const AGENTS_DIR = fromModule(import.meta.url, '../agents/');
 
 /** What the specs actually declare for a connector, rather than the library default. */
 function specFor(serverName) {
@@ -48,13 +50,26 @@ function specFor(serverName) {
 
 const get = async (path) => {
   const res = await fetch(`${BASE}${path}`);
+  // The status comes first. An error page is often valid JSON with no `error` field in it, and
+  // reading one as a tool list gave the audit an empty list - which is indistinguishable from a
+  // connector with nothing risky on it, so it cleared a server it had never read.
+  const problem = httpProblem(res, path);
+  if (problem) throw new Error(problem);
   const body = await res.json();
   if (body.error) throw new Error(`${path}: ${body.error.message}`);
   return body.data ?? body;
 };
 
-
-const servers = await get('/api/v1/settings/mcp-servers');
+let servers;
+try {
+  servers = await get('/api/v1/settings/mcp-servers');
+} catch (err) {
+  // Naming the failure, because the alternative here was an unhandled throw: a stack trace about
+  // JSON parsing, for a server that was simply not running.
+  console.error(`Could not list the MCP servers - ${err.message}`);
+  console.error(`Is the harness running at ${BASE}?`);
+  process.exit(1);
+}
 const list = Array.isArray(servers) ? servers : (servers.items ?? []);
 if (!list.length) {
   console.log('No MCP servers configured.');

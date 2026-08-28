@@ -15,10 +15,12 @@ import { TrueForge, type TrueForgeApi } from '@truefoundry/trueforge-sdk';
 import { loadEnv } from './lib/env.mjs';
 // @ts-expect-error - plain JS helper, no types needed
 import { validateSpec } from './lib/spec.mjs';
+// @ts-expect-error - plain JS helper, no types needed
+import { fromModule } from './lib/paths.mjs';
 
 loadEnv();
 
-const AGENTS_DIR = new URL('../agents/', import.meta.url).pathname;
+const AGENTS_DIR = fromModule(import.meta.url, '../agents/');
 const BASE_URL = process.env.TRUEFORGE_BASE_URL ?? 'http://localhost:8790';
 const MODEL = process.env.TRUEFORGE_MODEL;
 
