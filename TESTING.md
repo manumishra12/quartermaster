@@ -1,6 +1,6 @@
 # Testing
 
-484 tests in the root suite, 183 in the UI across 22 files, one mount test, and a fixture check. What follows is
+538 tests in the root suite, 183 in the UI across 22 files, one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
 
@@ -53,6 +53,11 @@ flowchart TD
     HO["handoff.test.mjs<br/>17 - delegation that cannot widen"]
     RT["route.test.mjs<br/>11 - which agent, and why"]
     RY["retry.test.mjs<br/>10 - when running it again is honest"]
+    ID["idempotency.test.mjs<br/>11 - has this already been done"]
+    EX["expiry.test.mjs<br/>9 - is this still the decision that was made"]
+    LI["limits.test.mjs<br/>13 - loops and ceilings"]
+    ES["escalation.test.mjs<br/>8 - the third outcome"]
+    DR["dry-run.test.mjs<br/>13 - what the call would do"]
     CA["connector-advice.test.mjs<br/>10 - what to tell a person"]
     CO["contrast.test.mjs<br/>28 - palette contrast"]
     MA["model-advice.test.mjs<br/>6 - what a provider failure means"]
