@@ -29,6 +29,7 @@ import { renderUnexecutedCalls } from './lib/render-call.mjs';
 import { positionals, readFlag } from './lib/flags.mjs';
 import { advance, blankCheckpoint, parseCheckpoint, sessionDirName, writeCheckpoint } from './lib/checkpoint.mjs';
 import { decideApproval } from './lib/approval.mjs';
+import { record as recordDecision } from './lib/ledger.mjs';
 
 const argv = process.argv.slice(2);
 /** The flags that take a value, named once so the prompt and the readers agree on them. */
@@ -401,6 +402,25 @@ try {
           checkpoint.denied = [...denied];
           save();
         }
+        /**
+         * Recorded whichever way it went, and that is the point.
+         *
+         * The report has always counted refusals and never approvals, which is backwards for a
+         * system built on this gate: a refusal is the case where nothing happened. What somebody
+         * needs later is what was let through, and `by` is the field that makes it auditable -
+         * a pipe may refuse and may never approve, so `allowed` beside anything but `terminal`
+         * would be a broken invariant rather than a statistic.
+         */
+        recordDecision({
+          session: checkpoint.sessionId,
+          agent: checkpoint.agentName,
+          tool: call?.toolInfo?.name ?? null,
+          args: call?.function?.arguments,
+          refused: wasRefused,
+          by: denyAll ? 'deny-all' : piped ? 'pipe' : 'terminal',
+          reason: approval.reason ?? null,
+        });
+
         console.log(`  -> ${wasRefused ? 'denied' : 'allowed'}\n`);
       }
     }
