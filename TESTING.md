@@ -1,6 +1,6 @@
 # Testing
 
-233 tests in the root suite, 123 in the UI, one mount test, and a fixture check. What follows is
+276 tests in the root suite, 123 in the UI, one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
 
@@ -30,13 +30,20 @@ error or a type error, and both have reached a pull request from here before.
 ```mermaid
 flowchart TD
   subgraph root["root suite - node --test"]
-    EV["evidence.test.mjs<br/>83 - the verifier"]
-    DC["describe-call.test.mjs<br/>12 - the approval display"]
+    EV["evidence.test.mjs<br/>105 - the verifier"]
+    DC["describe-call.test.mjs<br/>13 - the approval display"]
     SP["spec.test.mjs<br/>13 - agent spec rules"]
     AN["annotations.test.mjs<br/>15 - tool selectors"]
-    RP["report.test.mjs<br/>9 - the written evidence"]
+    RP["report.test.mjs<br/>11 - the written evidence"]
+    RC["render-call.test.mjs<br/>8 - a call printed, not made"]
     EN["env.test.mjs<br/>8 - config loading"]
-    TS["turn-state.test.mjs<br/>7 - why a turn ended"]
+    TS["turn-state.test.mjs<br/>12 - why a turn ended, and what CI is told"]
+    AP["approval.test.mjs<br/>7 - what the gate decides"]
+    CK["checkpoint.test.mjs<br/>11 - the file --resume trusts"]
+    FL["flags.test.mjs<br/>6 - argv"]
+    ST["settle.test.mjs<br/>5 - waiting without abandoning"]
+    HT["http.test.mjs<br/>3 - an error page is not a body"]
+    PA["paths.test.mjs<br/>4 - module-relative paths"]
     CA["connector-advice.test.mjs<br/>10 - what to tell a person"]
     CO["contrast.test.mjs<br/>23 - palette contrast"]
     OD["ops-desk/server.test.mjs<br/>9 - incident fixture server"]
@@ -63,7 +70,11 @@ flowchart TD
 | `describe-call.test.mjs` | What the operator sees before approving. Every case is "the display must not hide or misrepresent what will be sent." |
 | `spec.test.mjs` | Rules agent specs must satisfy — no fail-open approval policy, no promise of a gate that nothing enforces, no sandbox setting by omission. |
 | `annotations.test.mjs` | How `@read-only`, `@write` and `@destructive` resolve from tool annotations, including that an unannotated tool matches none of them. |
-| `report.test.mjs` | The written report: counts, refusals, fenced output, and why a turn failed. |
+| `report.test.mjs` | The written report: counts, refusals, fenced output, why a turn failed, and that a model-controlled command cannot forge a section of it. |
+| `approval.test.mjs` | The gate's two invariants, in the one place both can be checked: a pipe may deny but never approve, and every outcome that is not an exact allowing word is recorded as a refusal. |
+| `checkpoint.test.mjs` | The file `--resume` trusts. Read as if somebody else wrote it, written whole or not at all, and never allowed to choose where the report is filed. |
+| `turn-state.test.mjs` | Why a turn ended, and what the process then tells CI - a run that crashed, stalled or died on the plumbing must not exit 0. |
+| `flags.test.mjs`, `paths.test.mjs`, `settle.test.mjs`, `http.test.mjs` | Four one-line mistakes that each cost a real behaviour: a flag consumed as another flag's value, a percent-encoded path, a promise raced and abandoned, and an error page parsed as data. |
 | `mcp/front-desk/server.test.mjs` | The workspace server: every write tool refuses what it cannot honestly do and records nothing when it refuses, and the planted prompt injection is still in the fixture - if it is ever removed, the demonstration that the gate holds against a persuaded model silently stops demonstrating anything. |
 | `mcp/ops-desk/server.test.mjs` | The fixture MCP server, tested over the wire: every tool publishes the annotations the selectors resolve from, the destructive ones genuinely mutate, and the fixture still tells a story an investigation can get right. |
 | `env.test.mjs` (8), `contrast.test.mjs` (23) | Config loading, and that every colour pair in both themes clears 4.5:1 — the reference design's own muted grey was 3.37:1 and had to be darkened. |
