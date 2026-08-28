@@ -25,6 +25,25 @@ Everything Quartermaster is allowed to touch, and what is gated. Kept in sync wi
 | **ops-desk** (ours, `mcp/ops-desk`) | none | `incident-responder` | `@read-only` + `rollback_deploy`, `restart_service` | both writes by name, plus `["@write", "@destructive"]` |
 | **front-desk** (ours, `mcp/front-desk`) | none | `desk-assistant` | `@read-only` + `create_issue`, `update_issue`, `close_issue`, `send_message` | all four by name, plus `["@write", "@destructive"]` |
 
+### Why there is no Gmail or Slack
+
+The hackathon describes its approval-gated assistant as reaching "Gmail or Slack". TrueForge ships
+neither: the fourteen servers in the catalog are `github`, `tavily`, `bright-data`, `deepwiki`,
+`exa`, `parallel-web`, `linear`, `notion`, `sentry`, `supabase`, `stripe`, `confluence`, `jira` and
+`posthog`. Reaching a real inbox would mean writing an MCP server against Gmail's API, with OAuth
+credentials and a real mailbox behind it.
+
+That is the wrong trade here, and not only for the time it would cost. The rules require that
+anything the agent touches is yours to touch and that private and login-protected information stays
+out of the repository and the demo - and a mailbox is the most private thing anybody would connect.
+A demonstration of an approval gate does not need real mail to be convincing; it needs the gate to
+fire on something irreversible, in front of a person, on camera. `front-desk` gives that:
+`send_email` is gated, refuses an address the desk does not know, and reports the whole message back
+so an approver can compare what they said yes to against what was sent. No account, no OAuth, and
+nothing in frame that should not be.
+
+The same reasoning replaced Sentry and Linear.
+
 Sentry and Linear used to sit in the last two rows. Both needed an account, so `agents:apply`
 skipped the two agents that used them and the hackathon's own "easiest start" agent was one nobody
 could run. `ops-desk` and `front-desk` replaced them: same shape of surface, every write gated, no
