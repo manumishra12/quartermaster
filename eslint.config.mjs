@@ -7,7 +7,13 @@ import tseslint from 'typescript-eslint';
  * costs more than it saves, and none of it changes what the code does.
  */
 export default tseslint.config(
-  { ignores: ['node_modules/**', 'ui/**', 'fixtures/**', 'evidence/**', 'design-system/**'] },
+  /**
+   * `.claude/` holds git worktrees, each a second full checkout of this repository. Without it
+   * here, `npm run check` lints every worktree as though it were part of the tree you are in - so
+   * work in progress somewhere else fails the check where you are, over rules the file being
+   * linted is not even configured for.
+   */
+  { ignores: ['node_modules/**', 'ui/**', 'fixtures/**', 'evidence/**', 'design-system/**', '.claude/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -15,7 +21,7 @@ export default tseslint.config(
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'module',
-      globals: { process: 'readonly', console: 'readonly', fetch: 'readonly', URL: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly', TextEncoder: 'readonly' },
+      globals: { process: 'readonly', console: 'readonly', fetch: 'readonly', URL: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly', TextEncoder: 'readonly', AbortSignal: 'readonly', AbortController: 'readonly', Buffer: 'readonly', Response: 'readonly' },
     },
     rules: {
       // A promise nobody waits for is how a run finishes before its work does.

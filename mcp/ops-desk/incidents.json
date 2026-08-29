@@ -59,19 +59,166 @@
       "author": "priya",
       "summary": "Bump analyzer dictionary",
       "previous": "0cc2"
+    },
+    {
+      "id": "77f0",
+      "service": "checkout-api",
+      "shipped_at": "2026-08-22T09:40:00Z",
+      "author": "ravi",
+      "summary": "Retry refunds on gateway 5xx",
+      "previous": null
+    },
+    {
+      "id": "0cc2",
+      "service": "search-api",
+      "shipped_at": "2026-08-19T10:15:00Z",
+      "author": "sam",
+      "summary": "Index rebuild after schema change",
+      "previous": null
     }
   ],
   "health": {
     "checkout-api": [
-      { "at": "2026-08-26T13:40:00Z", "error_rate": 0.004, "p99_ms": 310 },
-      { "at": "2026-08-26T13:50:00Z", "error_rate": 0.004, "p99_ms": 305 },
-      { "at": "2026-08-26T14:00:00Z", "error_rate": 0.021, "p99_ms": 1980 },
-      { "at": "2026-08-26T14:10:00Z", "error_rate": 0.117, "p99_ms": 2010 },
-      { "at": "2026-08-26T14:20:00Z", "error_rate": 0.117, "p99_ms": 2005 }
+      {
+        "at": "2026-08-26T13:40:00Z",
+        "error_rate": 0.004,
+        "p99_ms": 310
+      },
+      {
+        "at": "2026-08-26T13:50:00Z",
+        "error_rate": 0.004,
+        "p99_ms": 305
+      },
+      {
+        "at": "2026-08-26T14:00:00Z",
+        "error_rate": 0.021,
+        "p99_ms": 1980
+      },
+      {
+        "at": "2026-08-26T14:10:00Z",
+        "error_rate": 0.117,
+        "p99_ms": 2010
+      },
+      {
+        "at": "2026-08-26T14:20:00Z",
+        "error_rate": 0.117,
+        "p99_ms": 2005
+      }
     ],
     "search-api": [
-      { "at": "2026-08-26T13:40:00Z", "error_rate": 0.001, "p99_ms": 815 },
-      { "at": "2026-08-26T14:20:00Z", "error_rate": 0.001, "p99_ms": 822 }
+      {
+        "at": "2026-08-26T13:40:00Z",
+        "error_rate": 0.001,
+        "p99_ms": 815
+      },
+      {
+        "at": "2026-08-26T14:20:00Z",
+        "error_rate": 0.001,
+        "p99_ms": 822
+      }
+    ]
+  },
+  "logs": {
+    "checkout-api": [
+      {
+        "at": "2026-08-26T13:47:03Z",
+        "level": "info",
+        "message": "payment-gateway answered in 2404ms, inside the 5000ms budget; order ord_88123 captured"
+      },
+      {
+        "at": "2026-08-26T13:51:19Z",
+        "level": "warn",
+        "message": "deprecated header X-Checkout-Legacy on 3.1% of requests"
+      },
+      {
+        "at": "2026-08-26T13:55:41Z",
+        "level": "info",
+        "message": "payment-gateway answered in 2371ms, inside the 5000ms budget; order ord_88190 captured"
+      },
+      {
+        "at": "2026-08-26T13:58:12Z",
+        "level": "info",
+        "message": "config reloaded from deploy 4c21: payment_gateway.timeout_ms 5000 -> 2000"
+      },
+      {
+        "at": "2026-08-26T14:00:07Z",
+        "level": "error",
+        "message": "UpstreamTimeout: payment-gateway did not respond within 2000ms; the gateway replied at 2412ms, after the client had given up"
+      },
+      {
+        "at": "2026-08-26T14:00:44Z",
+        "level": "warn",
+        "message": "deprecated header X-Checkout-Legacy on 3.0% of requests"
+      },
+      {
+        "at": "2026-08-26T14:02:11Z",
+        "level": "error",
+        "message": "UpstreamTimeout: payment-gateway did not respond within 2000ms; the gateway replied at 2388ms, after the client had given up"
+      },
+      {
+        "at": "2026-08-26T14:05:02Z",
+        "level": "warn",
+        "message": "session cache hit rate 71%, below the 80% target"
+      },
+      {
+        "at": "2026-08-26T14:07:35Z",
+        "level": "error",
+        "message": "UpstreamTimeout: payment-gateway did not respond within 2000ms; the gateway replied at 2455ms, after the client had given up"
+      },
+      {
+        "at": "2026-08-26T14:11:20Z",
+        "level": "info",
+        "message": "circuit breaker open for payment-gateway after 40 consecutive timeouts"
+      },
+      {
+        "at": "2026-08-26T14:15:09Z",
+        "level": "error",
+        "message": "UpstreamTimeout: payment-gateway did not respond within 2000ms; the gateway replied at 2401ms, after the client had given up"
+      },
+      {
+        "at": "2026-08-26T14:19:52Z",
+        "level": "error",
+        "message": "UpstreamTimeout: payment-gateway did not respond within 2000ms; the gateway replied at 2430ms, after the client had given up"
+      }
+    ],
+    "search-api": [
+      {
+        "at": "2026-08-26T11:59:31Z",
+        "level": "error",
+        "message": "AnalyzerDictionaryReload: checksum mismatch, kept the previous dictionary"
+      },
+      {
+        "at": "2026-08-26T12:59:31Z",
+        "level": "error",
+        "message": "AnalyzerDictionaryReload: checksum mismatch, kept the previous dictionary"
+      },
+      {
+        "at": "2026-08-26T13:59:31Z",
+        "level": "error",
+        "message": "AnalyzerDictionaryReload: checksum mismatch, kept the previous dictionary"
+      },
+      {
+        "at": "2026-08-26T14:12:44Z",
+        "level": "warn",
+        "message": "query queue depth 18, p99 822ms against a 500ms objective"
+      }
+    ],
+    "reporting": [
+      {
+        "at": "2026-08-26T02:11:04Z",
+        "level": "error",
+        "message": "S3PutObject: SlowDown, retrying in 30s (attempt 1 of 4)"
+      },
+      {
+        "at": "2026-08-26T02:38:52Z",
+        "level": "warn",
+        "message": "S3PutObject: SlowDown, retrying in 30s (attempt 3 of 4)"
+      },
+      {
+        "at": "2026-08-26T02:44:18Z",
+        "level": "info",
+        "message": "nightly export uploaded on attempt 4; 1.2GB in 33m"
+      }
     ]
   }
 }

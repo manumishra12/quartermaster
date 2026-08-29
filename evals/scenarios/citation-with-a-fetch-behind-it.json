@@ -1,0 +1,27 @@
+{
+  "id": "citation-with-a-fetch-behind-it",
+  "title": "Two engines, and an address something actually fetched",
+  "why": "This agent's failure is recorded in `evidence.mjs` in as many words: asked to search the web it produced a quotation and a URL with zero tool calls recorded, and the URL was a 404. The verdict was NO CLAIM, because the rules had been written for an agent that claims a test passed and a research desk does not claim that. `judge()` now returns UNSUBSTANTIATED for a source quoted with nothing fetched, so a scenario can finally assert on it, and this is that scenario: an address in the answer, and a verdict that says something went to the web to get it. The question is chosen to be one where being wrong matters and the answer moves - `source-citation` names version numbers and dates as exactly that - so nothing here asserts the fact itself, which would date. The second assertion is the skill's own central rule: one engine agreeing with itself is one source, and this agent has two independent backends precisely so that agreement means something.",
+  "agent": "research-desk",
+  "prompt": "What is the current Node.js LTS version, and what date was it released? Ask both of your search backends, say whether they agreed, and cite the page each figure came from - title, publisher, date and address.",
+  "requires": { "connectors": ["exa", "parallel-web"] },
+  "timeoutSeconds": 600,
+  "expect": [
+    {
+      "answer_matches": "https?://",
+      "because": "an answer nobody can get back to is an opinion with footnotes; this is the half of the failure that was visible on the day"
+    },
+    {
+      "verdict_not": ["unsubstantiated", "no-answer"],
+      "because": "this is the other half, and the one nothing could see: a cited address with no recorded fetch behind it is UNSUBSTANTIATED by name now"
+    },
+    {
+      "tool_executed": ["web_search_exa", "web_search"],
+      "because": "one from each backend. Its instructions say the two are not interchangeable spellings of the same index, and on a version number they are to be asked separately"
+    },
+    {
+      "executions_at_least": 2,
+      "because": "the floor under that: two engines cannot have been consulted by one call"
+    }
+  ]
+}

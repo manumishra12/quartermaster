@@ -11,6 +11,8 @@
 import { TrueForge, isEventDelta } from '@truefoundry/trueforge-sdk';
 import { resultOf, unexecutedToolCalls } from './lib/evidence.mjs';
 import { loadEnv } from './lib/env.mjs';
+import { readFlag } from './lib/flags.mjs';
+import { settledWithin } from './lib/settle.mjs';
 
 loadEnv();
 
@@ -18,11 +20,9 @@ const BASE = process.env.TRUEFORGE_BASE_URL ?? 'http://localhost:8790';
 const argv = process.argv.slice(2);
 /** A flag given as the final argument has no value; that must be an error, not a silent NaN. */
 function flagValue(name) {
-  const i = argv.indexOf(`--${name}`);
-  if (i === -1) return null;
-  const value = argv[i + 1];
-  if (value === undefined || value.startsWith('--')) {
-    console.error(`--${name} needs a value`);
+  const { value, problem } = readFlag(argv, name);
+  if (problem) {
+    console.error(problem);
     process.exit(2);
   }
   return value;
@@ -49,6 +49,13 @@ if (!Number.isFinite(BUDGET_SECONDS) || BUDGET_SECONDS <= 0) {
   process.exit(2);
 }
 const BUDGET_MS = BUDGET_SECONDS * 1000;
+/**
+ * How long a cancelled turn gets to stop streaming before the case is judged anyway.
+ *
+ * Bounded rather than open-ended: waiting for a reader that will never end turns one stuck case
+ * into a suite that never returns, which is the failure the budget above exists to prevent.
+ */
+const CANCEL_GRACE_MS = 5000;
 
 /**
  * Prompts are deliberately direct and single-step. This is a test of the harness wiring - can this
@@ -109,6 +116,31 @@ const CASES = [
      * alerts had been listed. The assertion has to be something only a successful read produces.
      */
     expect: /"first_seen"[\s\S]*ALRT-4471|ALRT-4471[\s\S]*"first_seen"/,
+    /** The case reads a firing alert, so it needs a desk nobody has remediated on yet. */
+    freshFixture: { port: 8795, name: 'ops-desk' },
+  },
+  {
+    agent: 'incident-responder',
+    what: 'reads the metrics store',
+    /**
+     * The second connector, checked on its own, because the case above passes with it absent.
+     *
+     * There is no fixture staleness to guard against here - nothing on this server writes - and no
+     * gate to sit on, so the whole case is one read with a number in it.
+     */
+    prompt:
+      'Using the observability connector, run query_range for latency_p99_ms on checkout-api from ' +
+      '2026-08-26T13:50:00Z to 2026-08-26T14:05:00Z and tell me the value at 14:00. Do not remediate anything.',
+    /**
+     * The value and a field only a successful query_range reply carries.
+     *
+     * 1980 alone would match a model reciting it out of the alert's own text, and `truncated`
+     * appears in no refusal on that tool - so the pair is a read that happened rather than a
+     * number that was recalled. Same lesson as the alert case above, where matching the id alone
+     * passed on a call that had failed.
+     */
+    expect: /"truncated"[\s\S]*1980|1980[\s\S]*"truncated"/,
+    needsConnector: 'observability',
   },
   {
     agent: 'desk-assistant',
@@ -116,6 +148,88 @@ const CASES = [
     prompt: 'List the projects on the front desk and tell me the key of the checkout project.',
     // Likewise: `convention` appears on a real project and never in a not-found payload's id list.
     expect: /"convention"[\s\S]*CHK|CHK[\s\S]*"convention"/,
+  },
+  {
+    agent: 'code-reviewer',
+    what: 'reads a pull request',
+    /**
+     * Points at this repository's own review history, which is public and does not move. A smoke
+     * case whose fixture is somebody else's open pull request passes until they merge it.
+     *
+     * Read-only by construction: every tool that writes to a repository is gated for this agent,
+     * so a smoke run cannot post anything even if the model decides it wants to.
+     */
+    prompt:
+      'Read pull request 19 of manumishra12/quartermaster and tell me its title and whether it is open or merged. Do not comment on it.',
+    // The title is the fixture. A not-found payload cannot contain it.
+    expect: /both halves of its own proof/i,
+    /** Needs the GitHub connector, like gate-demo and quartermaster. */
+    needsConnector: 'github',
+  },
+  {
+    agent: 'requirements-analyst',
+    what: 'parses a document through the documents connector',
+    /**
+     * The connector rather than the shell, which is the first line of this agent's own spec. The
+     * same reader sits behind both, and the difference is that the connector answers with the
+     * extraction report as fields and refuses a path outside its root.
+     */
+    prompt:
+      'Use the documents connector to run parse_requirements on tools/documents/fixture/requirements.txt ' +
+      'and tell me how many requirements it found. Do not draft or file anything.',
+    /**
+     * The count and the id of the planted directive, which only a parse can produce together.
+     *
+     * Matching `REQ-007` alone would pass on a run that quoted the agent's own instructions back -
+     * they name that line - and matching the count alone would pass on any sentence with a 7 in
+     * it. A refusal payload from this server carries `error` and a message and neither of these.
+     */
+    expect: /"requirements":\s*7[\s\S]*REQ-007|REQ-007[\s\S]*"requirements":\s*7/,
+    needsConnector: 'documents',
+  },
+  {
+    agent: 'release-notes',
+    what: 'reads a merged pull request',
+    /**
+     * Points at this repository's own history, for the reason the code-reviewer case gives: a
+     * smoke case whose fixture is somebody else's open pull request passes until they merge it.
+     * 18 is merged and will not move.
+     *
+     * Read-only by construction: the one write this agent has is `add_issue_comment` and it is
+     * gated, so a smoke run cannot post anything whatever the model decides.
+     *
+     * "Do not delegate" is not politeness. This agent may spawn subagents, and a subagent's tool
+     * responses arrive on its own session - so a delegated read would leave this stream with no
+     * recorded execution and the case would report that the agent never reached its tools.
+     */
+    prompt:
+      'Read pull request 18 of manumishra12/quartermaster yourself, without delegating, and tell me its ' +
+      'title. Do not draft or post anything.',
+    expect: /first thing a stranger runs/i,
+    needsConnector: 'github',
+  },
+  {
+    agent: 'policy-auditor',
+    what: 'reaches the sandbox its checks run in',
+    /**
+     * No connector, and nothing to skip on: this agent has none by design, because giving an
+     * auditor of approval policies the ability to reach anything gated would be an odd thing to do.
+     * The sandbox is the whole of what it reaches, so the sandbox is the whole of what this checks.
+     *
+     * `git --version` rather than `node --version`, and the reason is a finding rather than a
+     * preference. **There is no Node in this sandbox image** - `node --version` comes back exit 127,
+     * `node: command not found` - and every check the spec names is a Node command: `npm run
+     * tools:audit`, `npm run preflight`, `npm test`, `node --test scripts/lib/authority.test.mjs`.
+     * A smoke case asserting on one of those would fail for good, and it would be reporting the
+     * image rather than the agent.
+     *
+     * So this asserts the one prerequisite that is actually there: the shell, and the tool the
+     * repository would have to arrive through, since nothing mounts this checkout into a sandbox.
+     * Be clear about how narrow that is. Reaching the sandbox is not being able to complete an
+     * audit inside it, and `EVALS.md` states the rest of what stands between the two.
+     */
+    prompt: 'Use the sandbox shell to run exactly: git --version',
+    expect: /git version \d+\.\d+/,
   },
 ];
 
@@ -154,6 +268,8 @@ async function runCase(testCase) {
   let said = '';
   let status;
   let timedOut = false;
+  /** Whether the reader had actually finished by the time the verdict below was read off it. */
+  let stopped = true;
 
   const drain = async () => {
     const stream = await client.sessions.createTurnStream(session.id, {
@@ -178,26 +294,58 @@ async function runCase(testCase) {
     }
   };
 
-  let timer;
-  try {
-    await Promise.race([
-      drain(),
-      new Promise((resolve) => {
-        timer = setTimeout(() => {
-          timedOut = true;
-          resolve();
-        }, BUDGET_MS);
-      }),
-    ]);
-  } catch (err) {
-    return { ...testCase, ok: false, why: `turn failed: ${err.message}` };
-  } finally {
-    clearTimeout(timer);
-    // The turn keeps running on the server after we stop reading, so tell it to stop.
-    if (timedOut) await client.sessions.cancel(session.id).catch(() => {});
+  /**
+   * The reader is held, not abandoned.
+   *
+   * `Promise.race([drain(), timeout])` looks like a budget and is not one: the race settles, the
+   * stream does not stop. On a timeout it went on appending to `recorded` and `said` while the
+   * judgement below was being read off them, so what a case reported depended on where the stream
+   * happened to be. Worse, a failure arriving after the race had been decided was an unhandled
+   * rejection, which ends the whole process - one slow agent taking down every case after it.
+   */
+  let readerFailure = null;
+  const draining = drain().catch((err) => {
+    readerFailure = err ?? new Error('the event stream failed');
+  });
+
+  if (!(await settledWithin(draining, BUDGET_MS))) {
+    timedOut = true;
+    // The turn keeps running on the server after we stop reading, so tell it to stop - and then
+    // wait for the reader to notice, so nothing is still being written while it is being judged.
+    // Whether it noticed is the answer that matters and it used to be discarded; see below.
+    await client.sessions.cancel(session.id).catch(() => {});
+    stopped = await settledWithin(draining, CANCEL_GRACE_MS);
   }
+  if (readerFailure) return { ...testCase, ok: false, why: `turn failed: ${readerFailure.message}` };
 
   const seconds = ((Date.now() - started) / 1000).toFixed(0);
+
+  /**
+   * A reader that has not stopped is evidence still being written, and there is no verdict to read
+   * off it.
+   *
+   * `settledWithin` says whether the work finished; it does not stop it. The answer from the grace
+   * wait above was thrown away, so a cancelled turn whose stream was still delivering events was
+   * judged anyway - on whatever had arrived by the instant the grace expired. The same event stream
+   * then reported `no tool response` or a pass depending on where the stream happened to be, and a
+   * verdict decided by timing is not a verdict. It is reported as its own outcome rather than as a
+   * failure of the agent, because what it actually says is that this runner could not establish
+   * either answer.
+   *
+   * Not retried. The two retryable causes are known to come good on a second attempt with a small
+   * local model; a stream that will not close after a cancel is not one of them, and trying again
+   * would spend another whole budget to learn the same thing.
+   */
+  if (!stopped) {
+    return {
+      ...testCase,
+      ok: false,
+      seconds,
+      why:
+        `the event stream was still delivering events ${CANCEL_GRACE_MS / 1000}s after the turn was cancelled, so ` +
+        'what it had recorded was still changing. This case has no verdict rather than one decided by timing',
+    };
+  }
 
   if (timedOut && recorded.length === 0) {
     /**
@@ -294,6 +442,16 @@ async function runCase(testCase) {
     ...testCase,
     ok: matched,
     seconds,
+    /**
+     * A pass after a cancelled turn is still a pass, and it is not the same fact as a pass inside
+     * the budget.
+     *
+     * The recorded execution matched, which is the whole question this suite asks, and failing the
+     * case for having been slow would be the false negative the budget's own comment warns about -
+     * a loaded machine is not a broken agent. But the stream was cut off mid-turn, and printing
+     * that identically to a clean run hides the one thing whoever raises the budget needs to know.
+     */
+    cancelled: timedOut,
     why: matched
       ? `${recorded.length} execution(s) recorded, one matched`
       : `${recorded.length} execution(s) recorded, none matched ${testCase.expect}\n` +
@@ -304,6 +462,52 @@ async function runCase(testCase) {
   };
 }
 
+/**
+ * Which connectors this harness actually has, so a case that needs one can say it was skipped
+ * rather than fail.
+ *
+ * Most agents here run with no account at all - that is deliberate, and it is why ops-desk and
+ * front-desk exist. The two that reach GitHub need a token somebody has to paste in. Reporting
+ * "FAILED" for a connector nobody configured says the agent is broken when the truth is that this
+ * machine was never given a key, and those are different problems with different fixes.
+ */
+async function configuredConnectors() {
+  try {
+    const res = await fetch(`${BASE}/api/v1/settings/mcp-servers`);
+    if (!res.ok) return null;
+    const body = await res.json();
+    const list = Array.isArray(body) ? body : (body.data ?? body.servers ?? []);
+    return new Set(list.map((s) => s?.name ?? s?.manifest?.name).filter(Boolean));
+  } catch {
+    // Unknown is not the same as none. A case is only skipped when we positively know the
+    // connector is absent; otherwise it runs and fails honestly.
+    return null;
+  }
+}
+
+/**
+ * Whether a fixture server has been written to since it started.
+ *
+ * Read from its own journal rather than inferred from the data: both servers report what they have
+ * done, and a count above zero is the fixture saying so itself.
+ */
+async function staleFixture({ port, name }) {
+  try {
+    const res = await fetch(`http://localhost:${port}/health`);
+    if (!res.ok) return null;
+    const health = await res.json();
+    const written = health.actions ?? 0;
+    if (written > 0) {
+      return `${name} has ${written} recorded action(s) - restart it (npm run ${name}) so the fixture is the one the case expects`;
+    }
+    return null;
+  } catch {
+    // Unreachable is a different failure, and the case itself will report it properly.
+    return null;
+  }
+}
+
+const connectors = await configuredConnectors();
 const selected = only ? CASES.filter((c) => c.agent === only) : CASES;
 if (!selected.length) {
   console.error(`No smoke case for "${only}". Known: ${CASES.map((c) => c.agent).join(', ')}`);
@@ -314,6 +518,33 @@ console.log(`\nSmoke testing ${selected.length} agent(s) against ${BASE}\n`);
 const results = [];
 for (const testCase of selected) {
   process.stdout.write(`  ${testCase.agent.padEnd(20)} ${testCase.what} ... `);
+
+  /**
+   * A fixture somebody has already used is not an agent that failed.
+   *
+   * ops-desk and front-desk hold their state in memory and the write tools genuinely mutate it -
+   * that is deliberate, because a gate in front of an operation that does nothing proves nothing.
+   * It also means a demo, or one curl, leaves the fixture changed, and the next smoke run then
+   * reports that the agent could not find an alert that somebody resolved twenty minutes ago.
+   *
+   * Blaming the agent for that sends whoever is debugging to the spec and the connector. So the
+   * suite looks first, and says which it is.
+   */
+  if (testCase.freshFixture) {
+    const stale = await staleFixture(testCase.freshFixture);
+    if (stale) {
+      console.log(`skipped - ${stale}`);
+      results.push({ ...testCase, ok: true, skipped: true });
+      continue;
+    }
+  }
+
+  if (testCase.needsConnector && connectors && !connectors.has(testCase.needsConnector)) {
+    console.log(`skipped - no ${testCase.needsConnector} connector configured`);
+    results.push({ ...testCase, ok: true, skipped: true });
+    continue;
+  }
+
   let result = await runCase(testCase);
   /**
    * One retry, and only for a sandbox that was not ready - never for a wrong answer.
@@ -346,15 +577,29 @@ for (const testCase of selected) {
     result.retried = true;
   }
   results.push(result);
-  console.log(result.ok ? `ok (${result.seconds}s)${result.retried ? ' after one retry' : ''}` : 'FAILED');
+  console.log(
+    result.ok
+      ? `ok (${result.seconds}s)${result.retried ? ' after one retry' : ''}` +
+          (result.cancelled
+            ? ` - but the turn was cancelled at the ${BUDGET_SECONDS}s budget and this is the execution recorded before that; raise --budget to see the agent finish`
+            : '')
+      : 'FAILED',
+  );
   if (!result.ok) console.log(`  ${' '.repeat(20)} ${result.why}`);
 }
 
 const failed = results.filter((r) => !r.ok);
-console.log(`\n  ${results.length - failed.length}/${results.length} agents reached their tools\n`);
+const skipped = results.filter((r) => r.skipped);
+const ran = results.length - skipped.length;
+console.log(`\n  ${ran - failed.length}/${ran} agents reached their tools\n`);
+// Named rather than folded into the total. A suite that counts a skip as a pass and says nothing
+// reports coverage it did not have.
+if (skipped.length) {
+  console.log(`  ${skipped.length} skipped for want of a connector: ${skipped.map((r) => r.agent).join(', ')}\n`);
+}
 
 if (failed.length) {
-  console.log('  A failure here is one of three things:');
+  console.log('  A failure here is one of these:');
   console.log('    - the agent is not applied      -> npm run agents:apply');
   console.log('    - its connector is unconfigured -> npm run preflight');
   console.log('    - the model printed the call    -> named as such above; the wiring is fine, the model is not');

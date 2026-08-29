@@ -1,8 +1,23 @@
+import type React from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
 import { SheetContext } from './SheetContext';
 import { ThreadList, ThreadRow } from './ThreadRow';
+
+/**
+ * The SDK boundary, mocked as it is everywhere else in these tests.
+ *
+ * ThreadListPrimitive.New reads the assistant runtime and throws without its provider, and these
+ * are unit tests of the shell's own behaviour - the count, the ordering, the empty state. Mounting
+ * the whole provider stack to render one button would make them integration tests of the SDK, and
+ * the mount test already covers that tree for real.
+ */
+vi.mock('@assistant-ui/react', () => ({
+  ThreadListPrimitive: {
+    New: ({ children }: { children: React.ReactNode; asChild?: boolean }) => children,
+  },
+}));
 
 describe('ThreadRow', () => {
   const base = { title: 'Fix the ledger test', active: false, onSelect: vi.fn() };
@@ -111,5 +126,27 @@ describe('the narrow-screen sheet', () => {
     render(<ThreadRow title="Fix the ledger test" active={false} onSelect={onSelect} />);
     await user.click(screen.getByRole('button', { name: /fix the ledger test/i }));
     expect(onSelect).toHaveBeenCalledOnce();
+  });
+});
+
+describe('starting a conversation', () => {
+  test('the column offers it, above the list', () => {
+    /**
+     * Starting a new conversation was possible and invisible: the SDK exposes it and nothing in
+     * this layout offered it, so the only route was to finish or abandon the one you were in. It
+     * sits above the list because the list can be long enough to scroll the action off screen.
+     */
+    render(<ThreadList header={null}>{[]}</ThreadList>);
+    const start = screen.getByRole('button', { name: /new conversation/i });
+    expect(start).toBeInTheDocument();
+
+    const heading = screen.getByText('Conversations');
+    // Comparing document order: the action must come first.
+    expect(start.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  test('and is reachable by thumb', () => {
+    render(<ThreadList header={null}>{[]}</ThreadList>);
+    expect(screen.getByRole('button', { name: /new conversation/i }).className).toMatch(/\bqm-tap\b/);
   });
 });

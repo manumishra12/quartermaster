@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 /**
@@ -134,12 +134,50 @@ describe('the connectivity claim is not hardcoded', () => {
     expect(screen.getByText('harness connected')).toBeInTheDocument();
   });
 
-  test('says it is not answering when there are no capabilities', async () => {
+  test('says it is not answering once it has actually waited', async () => {
     // It used to render a green dot and "harness connected" unconditionally, including while the
     // harness was down - and on a narrow screen that is the only connectivity statement visible.
+    vi.useFakeTimers();
+    try {
+      const { FooterLinks } = await import('./Sidebar');
+      capabilities = null;
+      render(<FooterLinks />);
+
+      /**
+       * Null means two things - still loading, and failed - and the SDK offers nothing to tell
+       * them apart. Reading it as failure meant every fresh page load accused a running harness of
+       * being down for as long as the first request took. Saying a working server is broken is a
+       * worse error than saying nothing yet, and it is the one somebody sees first.
+       */
+      expect(screen.getByText('checking harness')).toBeInTheDocument();
+      expect(screen.queryByText('harness not answering')).not.toBeInTheDocument();
+
+      act(() => void vi.advanceTimersByTime(2500));
+      expect(screen.getByText('harness not answering')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('finding the keyboard', () => {
+  test('the sidebar offers the shortcuts, because a key nobody knows is not an affordance', async () => {
+    /**
+     * `?` opens the list, which only helps somebody who already knows to press it. The reference
+     * design puts Shortcuts in the sidebar for the same reason.
+     */
     const { FooterLinks } = await import('./Sidebar');
-    capabilities = null;
+    const onShowShortcuts = vi.fn();
+    render(<FooterLinks onShowShortcuts={onShowShortcuts} />);
+    screen.getByRole('button', { name: 'Shortcuts' }).click();
+    expect(onShowShortcuts).toHaveBeenCalledTimes(1);
+  });
+
+  test('and stays out of the way where nothing can open them', async () => {
+    // Rendered without the handler - as the tests for the rest of this footer do - it must not
+    // offer a control that does nothing.
+    const { FooterLinks } = await import('./Sidebar');
     render(<FooterLinks />);
-    expect(screen.getByText('harness not answering')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Shortcuts' })).not.toBeInTheDocument();
   });
 });

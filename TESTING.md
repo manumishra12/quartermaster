@@ -1,6 +1,7 @@
 # Testing
 
-236 tests in the root suite, 123 in the UI, one mount test, and a fixture check. What follows is
+646 tests in the root suite, 193 in the UI across 24 files, 36 in Python for the document reader,
+one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
 
@@ -13,7 +14,8 @@ npm run lint         # eslint
 npm run typecheck    # tsc --noEmit
 
 cd ui
-npm run test:unit    # 120 tests, jsdom
+npm run test:unit    # 193 tests, jsdom
+npm run documents:test  # 36 tests, python, the document reader and requirement parser
 npm run test:mount   # the one test that mounts the whole app
 npm run build        # production build
 ```
@@ -30,25 +32,54 @@ error or a type error, and both have reached a pull request from here before.
 ```mermaid
 flowchart TD
   subgraph root["root suite - node --test"]
-    EV["evidence.test.mjs<br/>83 - the verifier"]
-    DC["describe-call.test.mjs<br/>12 - the approval display"]
-    SP["spec.test.mjs<br/>13 - agent spec rules"]
-    AN["annotations.test.mjs<br/>15 - tool selectors"]
-    RP["report.test.mjs<br/>9 - the written evidence"]
+    EV["evidence.test.mjs<br/>127 - the verifier"]
+    DC["describe-call.test.mjs<br/>13 - the approval display"]
+    SP["spec.test.mjs<br/>26 - agent spec rules"]
+    AN["annotations.test.mjs<br/>17 - tool selectors"]
+    RP["report.test.mjs<br/>11 - the written evidence"]
+    RC["render-call.test.mjs<br/>8 - a call printed, not made"]
     EN["env.test.mjs<br/>8 - config loading"]
-    TS["turn-state.test.mjs<br/>7 - why a turn ended"]
+    TS["turn-state.test.mjs<br/>13 - why a turn ended, and what CI is told"]
+    AP["approval.test.mjs<br/>7 - what the gate decides"]
+    CK["checkpoint.test.mjs<br/>13 - the file --resume trusts"]
+    FL["flags.test.mjs<br/>6 - argv"]
+    ST["settle.test.mjs<br/>5 - waiting without abandoning"]
+    HT["http.test.mjs<br/>3 - an error page is not a body"]
+    PA["paths.test.mjs<br/>4 - module-relative paths"]
+    SK["skills.test.mjs<br/>14 - the skill registry"]
+    AR["artifacts.test.mjs<br/>3 - files fetched out of the sandbox"]
+    LG["ledger.test.mjs<br/>5 - every gate decision, in one file"]
+    OT["otel.test.mjs<br/>11 - spans that carry no payload"]
+    DF["drift.test.mjs<br/>8 - the harness against the repository"]
+    AU["authority.test.mjs<br/>13 - what an agent may reach"]
+    HO["handoff.test.mjs<br/>19 - delegation that cannot widen"]
+    RT["route.test.mjs<br/>11 - which agent, and why"]
+    RY["retry.test.mjs<br/>10 - when running it again is honest"]
+    ID["idempotency.test.mjs<br/>11 - has this already been done"]
+    EX["expiry.test.mjs<br/>9 - is this still the decision that was made"]
+    LI["limits.test.mjs<br/>14 - loops and ceilings"]
+    ES["escalation.test.mjs<br/>8 - the third outcome"]
+    DR["dry-run.test.mjs<br/>13 - what the call would do"]
+    EA["evals/lib/assertions.test.mjs<br/>39 - the eval assertion engine"]
+    IN["influence.test.mjs<br/>13 - text that was trying to instruct it"]
     CA["connector-advice.test.mjs<br/>10 - what to tell a person"]
-    CO["contrast.test.mjs<br/>23 - palette contrast"]
-    OD["ops-desk/server.test.mjs<br/>9 - incident fixture server"]
-    FD["front-desk/server.test.mjs<br/>13 - workspace fixture server"]
+    CO["contrast.test.mjs<br/>28 - palette contrast"]
+    MA["model-advice.test.mjs<br/>6 - what a provider failure means"]
+    PO["policies.test.mjs<br/>6 - one reading of each agent policy"]
+    SV["lib/serve.test.mjs<br/>5 - the shared HTTP shell"]
+    OD["ops-desk/server.test.mjs<br/>22 - incident fixture server"]
+    FD["front-desk/server.test.mjs<br/>25 - workspace fixture server"]
+    WH["warehouse/server.test.mjs<br/>19 - read-only SQL connector"]
+    OB["observability/server.test.mjs<br/>41 - the metrics store"]
+    DO["documents/server.test.mjs<br/>22 - the document reader, and its root"]
   end
 
   subgraph ui["ui - vitest, two projects"]
-    U1["unit: 12 files, 120 tests"]
+    U1["unit: 24 files, 193 tests"]
     U2["mount: 1 test, whole app"]
   end
 
-  FX["check-fixtures.mjs<br/>the broken repos are still broken"]
+  FX["check-fixtures.mjs<br/>the broken repos are still broken,<br/>and the reproduction still reproduces"]
 
   root --> CI["CI: 3 jobs"]
   ui --> CI
@@ -63,16 +94,23 @@ flowchart TD
 | `describe-call.test.mjs` | What the operator sees before approving. Every case is "the display must not hide or misrepresent what will be sent." |
 | `spec.test.mjs` | Rules agent specs must satisfy — no fail-open approval policy, no promise of a gate that nothing enforces, no sandbox setting by omission. |
 | `annotations.test.mjs` | How `@read-only`, `@write` and `@destructive` resolve from tool annotations, including that an unannotated tool matches none of them. |
-| `report.test.mjs` | The written report: counts, refusals, fenced output, and why a turn failed. |
+| `report.test.mjs` | The written report: counts, refusals, fenced output, why a turn failed, and that a model-controlled command cannot forge a section of it. |
+| `approval.test.mjs` | The gate's two invariants, in the one place both can be checked: a pipe may deny but never approve, and every outcome that is not an exact allowing word is recorded as a refusal. |
+| `checkpoint.test.mjs` | The file `--resume` trusts. Read as if somebody else wrote it, written whole or not at all, and never allowed to choose where the report is filed. |
+| `otel.test.mjs` | Tracing, tested mostly by what it refuses to carry. The redaction case asserts against the serialised line rather than the attributes it remembered to name, so an attribute added tomorrow that leaks a prompt, a command or a customer's address fails without anybody editing the test. The rest: the default is off and an ambient `OTEL_EXPORTER_OTLP_ENDPOINT` does not change that, an exporter that throws does not reach the run, and a refused call is recorded as refused and **not** as an error - a dashboard where refusing a rollback lights up red teaches people to stop refusing rollbacks. |
+| `turn-state.test.mjs` | Why a turn ended, and what the process then tells CI - a run that crashed, stalled or died on the plumbing must not exit 0. |
+| `flags.test.mjs`, `paths.test.mjs`, `settle.test.mjs`, `http.test.mjs` | Four one-line mistakes that each cost a real behaviour: a flag consumed as another flag's value, a percent-encoded path, a promise raced and abandoned, and an error page parsed as data. |
 | `mcp/front-desk/server.test.mjs` | The workspace server: every write tool refuses what it cannot honestly do and records nothing when it refuses, and the planted prompt injection is still in the fixture - if it is ever removed, the demonstration that the gate holds against a persuaded model silently stops demonstrating anything. |
-| `mcp/ops-desk/server.test.mjs` | The fixture MCP server, tested over the wire: every tool publishes the annotations the selectors resolve from, the destructive ones genuinely mutate, and the fixture still tells a story an investigation can get right. |
-| `env.test.mjs` (8), `contrast.test.mjs` (23) | Config loading, and that every colour pair in both themes clears 4.5:1 — the reference design's own muted grey was 3.37:1 and had to be darkened. |
+| `mcp/warehouse/server.test.mjs` | The read-only SQL connector, tested mostly by what it refuses. Two layers have to hold separately: the read-only connection, which is proved by submitting a write the statement check deliberately admits (`WITH x AS (...) DELETE FROM orders`) and watching SQLite refuse it; and the statement check, which covers what a read-only connection still permits. `VACUUM INTO` has a test of its own and asserts no copy of the database appears on disk - it succeeds on a read-only connection, and that is the finding the check was written for. The published answers from the fixture README are asserted here too, so the connector and the fixture cannot drift apart. |
+| `mcp/observability/server.test.mjs` | The metrics store, tested almost entirely on what a partial answer would let through. Nothing on that server writes, so the ops-desk question - does the destructive tool genuinely mutate - has no counterpart; what replaces it is harder. A window wider than the retention served as the points that happened to exist, a percentile averaged over a coarse bucket, a comparison against a window with nothing in it: each produces a number an investigation can act on, arrived at honestly, and wrong. The cross-server test is the strictest here - it reads `ops-desk`'s own fixture and asserts the two servers publish identical numbers at all seven instants both of them cover, so the two stories cannot drift apart. The planted traps are pinned too: eleven mutations were tried against this suite - moving the deploy annotation off the step change, moving the traffic rise onto it, moving the cache drop to where the log line says it is, raising checkout's p99 above its dependency's - and every one goes red. The verify half is pinned the same way and harder: after a rollback the store reads `ops-desk`'s live state and extends two series from its own pre-incident readings, so the tests cover the case a demo wants (recovery observed) and the case it does not (a restart, or a rollback of the wrong service, that leaves the regression exactly where it was and still computes a ratio saying so). Fourteen more mutations were tried - a hardcoded healthy series, a recovery keyed off "was anything done", a straddling window summarised anyway, an unreachable desk reported as a desk that has done nothing - and every one goes red. |
+| `mcp/ops-desk/server.test.mjs` | The fixture MCP server, tested over the wire: every tool publishes the annotations the selectors resolve from, the destructive ones genuinely mutate, the `/health` route publishes the live state the metrics store reads and carries no model-written prose across that boundary, and the fixture still tells a story an investigation can get right. The log tests pin the correlation - alert, deploy and log lines all naming the same 2000ms - and the two ways a search can lie about an empty result. |
+| `env.test.mjs` (8), `contrast.test.mjs` (28) | Config loading, and that every colour pair in both themes clears 4.5:1 — the reference design's own muted grey was 3.37:1 and had to be darkened. |
 
 ### UI — `ui/src/**/*.test.tsx`
 
 Two vitest projects, because they need different things:
 
-- **`unit`** — 12 files, 123 tests, jsdom, components in isolation.
+- **`unit`** — 24 files, 193 tests, jsdom, components in isolation.
 - **`mount`** — one test that mounts the entire app. It exists because the app once rendered a
   blank page while every unit test passed: the crash was an infinite render loop that only appears
   when the real provider stack is assembled. `--dangerouslyIgnoreUnhandledErrors` is scoped to this
@@ -116,9 +154,11 @@ names, so a test fails when the control becomes unusable rather than when the ma
 
 ## Fixtures
 
-`fixtures/` holds two deliberately broken repositories the agents are pointed at. `npm run
-fixtures:check` asserts they are **still broken** — a fixture that quietly starts passing turns the
-whole demonstration into a tautology, and CI runs this as its own job so it cannot be missed.
+`fixtures/` holds two deliberately broken repositories the agents are pointed at, and one
+reproduction. `npm run fixtures:check` asserts the two are **still broken** — a fixture that quietly
+starts passing turns the whole demonstration into a tautology — and that the third still fails on
+`4c21` and passes on `9ab7`, because a reproduction that fails in both configurations demonstrates
+a broken script rather than a cause. CI runs this as its own job so it cannot be missed.
 
 Stated plainly, rather than left for someone to discover:
 
@@ -142,10 +182,17 @@ It distinguishes the ways a case can fail, because they send you to different pl
 | `all empty` | the turn was cut short; the machine is loaded, raise the budget |
 | `in a shape this runner could not read` | a connector envelope `resultOf` does not handle. No amount of budget fixes it |
 | `the sandbox was not ready` | the harness, not the agent. Retried once, and the retry is announced |
+| `still delivering events Ns after the turn was cancelled` | the reader did not stop, so what it had recorded was still changing. No verdict is offered rather than one decided by where the stream happened to be |
 | `none matched /regex/` | it ran something and the answer was wrong. This is the interesting one |
 
 That table exists because the suite used to report all four as the last one, which points at the
 assertion - the only part that is definitely not wrong.
+
+A pass can also carry a note. A case that reached its tools *and* ran over the budget prints `ok`
+followed by the fact that the turn was cancelled, because a matching execution really was recorded -
+failing the case for being slow would be the false negative the raisable budget exists to avoid -
+and a bare `ok` for a turn that had to be cut off is a reassuring summary of something that went
+wrong.
 
 ### What is not covered
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { endedBecause, endedBadly } from './turn-state.mjs';
+import { endedBecause, endedBadly, runExitCode } from './turn-state.mjs';
 
 /**
  * The harness explains itself in two fields depending on how the turn died. Reading only one of
@@ -48,4 +48,50 @@ test('which statuses are worth explaining', () => {
   assert.equal(endedBadly('failed'), true);
   assert.equal(endedBadly('completed'), false);
   assert.equal(endedBadly(undefined), false);
+});
+
+/**
+ * The exit code is what a pipeline reads, and it used to be the verdict alone - so every way a run
+ * can fail without the agent claiming anything came out as success.
+ */
+
+test('a run that finished and proved its claim is the only zero', () => {
+  assert.equal(runExitCode({ proved: true, status: 'completed' }), 0);
+  assert.equal(runExitCode({ proved: false, status: 'completed' }), 1);
+});
+
+test('a crash is a failure however good the answer looked', () => {
+  // The report is still written from whatever was recorded before the throw. It is the record of a
+  // run that did not finish, and the exit code has to say the same thing the report does.
+  assert.equal(runExitCode({ proved: true, crashed: true }), 1);
+});
+
+test('a turn that died on the plumbing is not a run that succeeded', () => {
+  // No answer means no claim, and no claim used to be zero: a provider quota read as work done.
+  assert.equal(runExitCode({ proved: true, status: 'error' }), 1);
+  assert.equal(runExitCode({ proved: true, status: 'cancelled' }), 1);
+  assert.equal(runExitCode({ proved: true, failure: 'Request failed (429): Quota exceeded' }), 1);
+});
+
+test('a run that ran out of rounds, or is waiting for a connector, has not finished', () => {
+  assert.equal(runExitCode({ proved: true, unfinished: true }), 1);
+  assert.equal(runExitCode({ proved: true, blockedOnAuth: true }), 1);
+});
+
+test('the ordinary healthy run is not caught by any of that', () => {
+  // Both directions: an exit code that is always 1 tells CI as little as one that is always 0.
+  assert.equal(runExitCode({ proved: true, status: 'completed', failure: null }), 0);
+  assert.equal(runExitCode({ proved: true, status: undefined }), 0);
+  assert.equal(runExitCode({ proved: true }), 0);
+});
+
+test('a run that was steered and said nothing about it does not exit 0', () => {
+  /**
+   * The eval suite produced this twice: a planted note in an issue body, the agent reaching for
+   * close_issue, and a summary that never mentioned the note. Verdict NO CLAIM, exit code 0. Every
+   * mechanism in the repository reported those runs as fine, because each was answering the
+   * question it was built for and none of them was asking this one.
+   */
+  assert.equal(runExitCode({ proved: true, steeredSilently: true }), 1);
+  assert.equal(runExitCode({ proved: true, steeredSilently: false }), 0);
 });

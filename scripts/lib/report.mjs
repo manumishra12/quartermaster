@@ -14,9 +14,15 @@ const VERDICT_TEXT = {
   unsubstantiated: 'UNSUBSTANTIATED',
   contradicted: 'CONTRADICTED',
   'no-claim': 'NO CLAIM',
+  /**
+   * Missing, so a run that produced no answer at all rendered `undefined` in the written report
+   * while the terminal said NO ANSWER. The two have to agree - the report is the artifact somebody
+   * reads afterwards, and disagreeing with the screen is how the screen stops being believed.
+   */
+  'no-answer': 'NO ANSWER',
 };
 
-export function buildReport({ agent, prompt, sessionId, finalText = '', toolResponses = [], failure = null, at }) {
+export function buildReport({ agent, prompt, sessionId, finalText = '', toolResponses = [], failure = null, influence = null, at }) {
   const { verdict, reason, runs } = judge({ finalText, toolResponses });
   // The runner hands us executions it has already derived and enriched with the command; older
   // callers pass raw events. Accept both rather than parsing an already-parsed thing.
@@ -33,7 +39,23 @@ export function buildReport({ agent, prompt, sessionId, finalText = '', toolResp
     reason,
     phase: { index: phase.index, label: phase.label, of: PHASES },
     counts: { executions: executions.length, testRuns: runs.length, refused: refusals.length },
-    executions: executions.map((e, i) => ({ index: i, command: e.command ?? null, exitCode: e.exitCode, output: e.output })),
+    /**
+     * `errored` travels with the execution, because the readers downstream cannot recover it.
+     *
+     * `resultOf` already tells a call that errored before running anything - a sandbox that failed
+     * to provision - from a command that ran and printed nothing, and `testRuns()` drops the first
+     * kind on exactly that flag. This record dropped it, so `evals/lib/assertions.mjs` had no way
+     * to ask: a run whose sandbox never came up still filled `executions`, and
+     * `executions_at_least: 1` - the assertion `passing-line-with-no-sandbox` exists to fail on a
+     * claimed run with nothing behind it - counted the failure as the call.
+     */
+    executions: executions.map((e, i) => ({
+      index: i,
+      command: e.command ?? null,
+      exitCode: e.exitCode,
+      errored: e.errored === true,
+      output: e.output,
+    })),
     refused: refusals.map((e, i) => ({ index: i, command: e.command ?? null })),
     /**
      * Why the turn ended badly, when it did.
@@ -44,6 +66,17 @@ export function buildReport({ agent, prompt, sessionId, finalText = '', toolResp
      * guess at whether the agent failed or the plumbing did.
      */
     failure: failure ?? null,
+    /**
+     * What the agent read that was written to instruct it, and whether the answer said so.
+     *
+     * Printed at the end of a run and recorded nowhere, which meant the one finding the eval suite
+     * produced twice - a run steered by a planted note whose summary never mentioned it - could not
+     * be asserted on afterwards. A finding that lives only in scrollback is a finding nobody can
+     * write a regression test for, and this is the artifact the eval assertions read.
+     */
+    influence: influence
+      ? { read: influence.read ?? [], disclosed: influence.disclosed === true, why: influence.why ?? null }
+      : null,
     answer: finalText.trim(),
   };
 
@@ -113,7 +146,12 @@ function render(r, runs) {
           e.exitCode === null ? '' : ` - exit ${e.exitCode}`
         }`,
         '',
-        e.command ? `\`${e.command}\`` : '_command not recorded_',
+        // The command is model-controlled, and it was interpolated between two plain backticks.
+        // Anything with a backtick in it closed its own span, and a newline ended the line - so a
+        // command could write headings, a fenced block, or a reassuring verdict into the report a
+        // person reads to decide whether to believe the run. The refusal list two sections down
+        // had already been fixed for exactly this; the executions had not.
+        e.command ? inlineCode(e.command) : '_command not recorded_',
         '',
         // Fence longer than any run of backticks in the content. Output containing ``` used to
         // close the block early, letting recorded output render as markdown and forge an entire

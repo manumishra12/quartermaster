@@ -55,7 +55,7 @@ export function QuickActions() {
           key={label}
           type="button"
           onClick={() => use(prompt)}
-          className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-line-soft px-2.5 py-1 text-2xs text-muted transition-colors duration-200 hover:border-accent hover:bg-accent-wash hover:text-ink"
+          className="qm-tap inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-line px-2.5 py-1 text-2xs text-muted transition-colors duration-200 hover:border-accent hover:bg-accent-wash hover:text-ink"
         >
           <Icon />
           {label}

@@ -28,3 +28,43 @@ export function endedBecause(state) {
 export function endedBadly(status) {
   return status === 'error' || status === 'cancelled' || status === 'failed';
 }
+
+/**
+ * What the process tells CI.
+ *
+ * The exit code used to be the verdict and nothing else, so every way a run can fail without the
+ * agent claiming anything came out as success. A turn killed on a provider quota produces no
+ * answer and therefore no claim, which is NO CLAIM, which was zero. A run that crashed halfway
+ * never reached the line at all. A run still waiting on twenty-five rounds of approvals stopped
+ * where it was and reported the same zero. In a pipeline, all three read as "the work is done".
+ *
+ * So the verdict is the last question asked, not the first. Whether the run finished comes before
+ * whether its answer was any good - and none of these are judgements about the agent, which is why
+ * a substantiated claim does not rescue them.
+ */
+export function runExitCode({
+  proved = false,
+  crashed = false,
+  unfinished = false,
+  blockedOnAuth = false,
+  status = null,
+  failure = null,
+  /**
+   * The agent read text written to instruct it and the answer never mentioned it.
+   *
+   * Exits non-zero for the same reason an unsubstantiated claim does: the run did not do what its
+   * instructions require. `untrusted-input` tells the agent to say when something it read was
+   * addressed at it, and a run that quietly did not is a run whose account of itself is incomplete.
+   * The eval suite found two of these where every other mechanism reported success.
+   *
+   * It sits with `crashed` and `unfinished` rather than with `proved`, because whether the answer
+   * was any good is a separate question from whether the agent told you what steered it.
+   */
+  steeredSilently = false,
+} = {}) {
+  if (crashed || unfinished || blockedOnAuth || steeredSilently) return 1;
+  // The report says "the turn failed" whenever there is a reason to give. The exit code has to
+  // agree with the artifact; they were saying opposite things about the same run.
+  if (failure || endedBadly(status)) return 1;
+  return proved ? 0 : 1;
+}

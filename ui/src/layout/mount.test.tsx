@@ -46,6 +46,15 @@ test('the real App mounts, with no render loop', async () => {
   expect(screen.getAllByRole('heading', { level: 1, name: 'Quartermaster' }).length).toBeGreaterThan(0);
 
   /**
+   * The dictation control is registered through the SDK's own `ComposerRightSection` slot, and this
+   * is the only place that claim is checked against the real component tree. A slot name the SDK
+   * stops honouring would not fail a unit test - the component would still render perfectly well,
+   * on its own, nowhere. jsdom has no Web Speech API, so here it is the unsupported variant.
+   */
+  const mic = screen.getByRole('button', { name: /dictation unavailable/i });
+  expect(mic.closest('[data-slot="aui_composer-shell"]'), 'the mic is not in the composer').not.toBeNull();
+
+  /**
    * Two different things share wording here, and only one is fatal.
    *
    * "The result of getSnapshot should be cached" on its own is a one-time development warning from

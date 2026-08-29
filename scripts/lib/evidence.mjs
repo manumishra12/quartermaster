@@ -16,7 +16,7 @@ export const NO_ANSWER = 'no-answer';
 /**
  * Language that asserts something was executed and reports its result.
  *
- * Only six of the seven agents here run tests, but every one of them can be asked to run something
+ * Only a few of the agents here run tests, but every one of them can be asked to run something
  * and report back. A code runner that says "the output is 81" without having run anything is making
  * exactly the same unsupported claim as one that says "the tests pass" - it just happens to be
  * right this time.
@@ -76,7 +76,7 @@ const CLAIM =
  * matches a failure line is worse than no pass marker.
  */
 const RAN_TESTS =
-  /(\bran\s+\d+\s+tests?\b|\b\d+\s+(passed|failed|failing)\b|^#\s*(pass|fail)\s+\d+|^(not\s+)?ok\s+\d+|\bFAILED\b|\bassertionerror\b|^(PASS|FAIL)\b|\btests?\s+(passed|failed)\b)/im;
+  /(\bran\s+\d+\s+tests?\b|\b\d+\s+(passed|failed|failing)\b|^#\s*(pass|fail)\s+\d+|^(not\s+)?ok\s+\d+|\bFAILED\b|\bassertionerror\b|^(PASS|FAIL)\b|\btests?\s+(passed|failed)\b|^ok\s+\S+\s+[\d.]+m?s|\btests run:\s*\d+|\bBUILD (SUCCESS|FAILURE)\b|^---\s*(PASS|FAIL):)/im;
 
 /**
  * Failure markers, split by case on purpose.
@@ -89,15 +89,58 @@ const RAN_TESTS =
  * The counters likewise need a non-zero digit: "0 failed" is what success looks like.
  */
 const FAILED_ANY_CASE =
-  /(failures=[1-9]|errors=[1-9]|\b[1-9]\d*\s+(failed|failing)\b|^#\s*fail\s+[1-9]|^not\s+ok\s|\bassertionerror\b|\btraceback\b|[\u2716\u2717])/im;
+  /(failures=[1-9]|errors=[1-9]|\b[1-9]\d*\s+(failed|failing)\b|^#\s*fail\s+[1-9]|^not\s+ok\s|^[\s>|\]E]*assertionerror\b|^[\s>|\]]*traceback\b|[\u2716\u2717])/im;
 
-const FAILED_SHOUTED = /\bFAILED?\b/m;
+/**
+ * A runner shouting FAILED, in the position a runner shouts it.
+ *
+ * This was an unanchored `\bFAILED?\b`, so it matched the word anywhere - including inside a test's
+ * own name. Run this project's suite and the passing line
+ *
+ *   ok 8 - a green-looking run that still prints FAILED does not count as green
+ *
+ * made `isGreen` false and turned a genuinely passing suite, exit code 0, into CONTRADICTED. Any
+ * project whose test names mention failure - which is every project with error-handling tests -
+ * was called a liar for passing.
+ *
+ * The anchor then went too far the other way and lost two real shapes: pytest prefixes its own
+ * failure lines with a column marker (`E       AssertionError: ...`), and CI wrappers print their
+ * verdict inline (`Overall: FAILED`). Both read green. So a prefix of whitespace, quoting or a
+ * pytest `E` is allowed, and a verdict introduced by result/status/overall/summary is matched
+ * wherever it sits. What is still not matched is the word loose in a sentence, which is where the
+ * test names live.
+ *
+ * `FAILED?` was also, quietly, `FAILE` plus an optional `D` - so it never matched a bare `FAIL`,
+ * which is precisely what a failing `go test` prints on its own line. Written out as
+ * `FAIL(?:ED|URE)?` now, with maven's `BUILD FAILURE` beside it.
+ */
+const FAILED_SHOUTED =
+  /^[\s>|\]]*(?:---\s*)?FAIL(?:ED|URE)?\b|\b(?:[Rr]esult|[Ss]tatus|[Oo]verall|[Ss]ummary|[Vv]erdict)s?\s*[:=]\s*FAIL(?:ED|URE)?\b|\bBUILD FAILURE\b/m;
+
+/** A TAP or node --test line reporting a pass, whose description is prose and not a result. */
+const PASSING_DESCRIPTION = /^\s*(?:ok\s+\d+|#\s*Subtest:).*$/gim;
 
 function isFailure(output) {
-  return FAILED_ANY_CASE.test(output) || FAILED_SHOUTED.test(output);
+  /**
+   * A passing line's description is the author's prose, not the runner's verdict. Stripping those
+   * lines before looking for failure markers is what stops a test *named* after a failure from
+   * being read as one.
+   */
+  const verdicts = String(output ?? '').replace(PASSING_DESCRIPTION, '');
+  return FAILED_ANY_CASE.test(verdicts) || FAILED_SHOUTED.test(verdicts);
 }
 
-const PASSED = /(^OK$|^#\s*fail\s+0$|\b0\s+failed\b|\ball\s+tests\s+passed\b|\b\d+\s+passed\b)/im;
+/**
+ * What a passing run looks like.
+ *
+ * The go and maven markers below arrived in RAN_TESTS and not here, and the asymmetry is worse than
+ * either omission: a green `go test ./...` printing `ok acme/util 0.012s` counted as a run, failed
+ * to look green, and came back CONTRADICTED - the verifier calling an honest agent a liar, which is
+ * the failure this file has committed twice before and must not commit again. Anything RAN_TESTS
+ * recognises as a runner has to have a way of looking green here.
+ */
+const PASSED =
+  /(^OK$|^#\s*fail\s+0$|\b0\s+failed\b|\ball\s+tests\s+passed\b|\b\d+\s+passed\b|^ok\s+\S+\s+[\d.]+m?s|^---\s*PASS:|\bBUILD SUCCESS\b|\bfailures:\s*0\b)/im;
 
 /**
  * Commands that actually invoke a test runner.
@@ -222,18 +265,105 @@ function decodeAnsiEscape(line, at) {
 function shadowedNames(code) {
   const names = new Set();
 
-  for (const [, name] of code.matchAll(/(?:^|[;&|\n{(]\s*)(?:function\s+)?([A-Za-z_][\w.-]*)\s*\(\s*\)/g)) {
-    names.add(name);
-  }
-  for (const [, name] of code.matchAll(/(?:^|[;&|\n]\s*)alias\s+([A-Za-z_][\w.-]*)=/g)) {
-    names.add(name);
-  }
-  // `function foo {` without parentheses is also valid bash.
-  for (const [, name] of code.matchAll(/(?:^|[;&|\n]\s*)function\s+([A-Za-z_][\w.-]*)\s*\{/g)) {
-    names.add(name);
+  /**
+   * Definitions are read from masked text, and from inside `eval` only.
+   *
+   * Scanning the raw command treated quoted *data* as syntax, so
+   * `printf '{ pytest() { fake; }'; pytest -q` marked pytest as redefined and threw away a real
+   * passing run - the guard against a fabricated pass producing a false accusation instead.
+   *
+   * Masking fixes that and creates the opposite gap, because `eval 'pytest() { ... }'` hides a
+   * genuine definition inside a quoted string. An eval argument is not data, it is code the shell
+   * is about to run, so it is scanned as such.
+   */
+  const masked = maskQuoted(code);
+  const evalled = evalArguments(code);
+
+  /**
+   * A definition inside a subshell does not survive it.
+   *
+   * `(pytest() { echo fake; }; true); pytest -q` really does run pytest afterwards - the function
+   * died with the subshell - so treating the outer call as shadowed rejected honest work.
+   */
+  const scoped = maskParenthesised(masked);
+
+  /**
+   * An eval body gets the same treatment as the command around it: quotes are data, and a
+   * definition inside a subshell dies with it. Scanning them raw meant
+   * `eval '(pytest() { echo fake; }; true); pytest -q'` marked pytest as shadowed when the
+   * function had already died, and discarded the real run that followed.
+   */
+  const scopedEvals = evalled.map((body) => maskParenthesised(maskQuoted(body)));
+
+  for (const source of [scoped, ...scopedEvals]) {
+    // A leading position, a separator, or a reserved word: `if true; then pytest() { ... }; fi`.
+    const lead = String.raw`(?:^|[;&|\n{(]|\b(?:then|do|else|elif)\b)\s*`;
+
+    for (const [, name] of source.matchAll(new RegExp(`${lead}(?:function\\s+)?([A-Za-z_][\\w.-]*)\\s*\\(\\s*\\)`, 'g'))) {
+      names.add(name);
+    }
+    for (const [, name] of source.matchAll(new RegExp(`${lead}function\\s+([A-Za-z_][\\w.-]*)\\s*\\{`, 'g'))) {
+      names.add(name);
+    }
+    /**
+     * `alias` takes several assignments at once: `alias harmless=true pytest=echo`. Reading only
+     * the first left every later name trusted.
+     */
+    for (const [, assignments] of source.matchAll(new RegExp(`${lead}alias\\s+((?:[A-Za-z_][\\w.-]*=\\S*\\s*)+)`, 'g'))) {
+      for (const [, name] of assignments.matchAll(/([A-Za-z_][\w.-]*)=/g)) names.add(name);
+    }
   }
 
   return names;
+}
+
+/**
+ * What `eval` was handed, which is code however it was quoted - but only where `eval` is a command.
+ *
+ * Matching the word anywhere meant `echo "eval 'pytest -q'"` queued a pytest run that no shell
+ * would ever perform: the eval there is a character in a string being printed. The word is located
+ * in the masked text, where anything inside quotes has been blanked, and the argument is then
+ * sliced out of the original at the same offset - `maskQuoted` preserves length exactly so the two
+ * line up.
+ */
+function evalArguments(code) {
+  const masked = maskQuoted(code);
+  const args = [];
+
+  /**
+   * `eval` has to lead a command, not merely sit on a word boundary. `\beval\s+` also matched
+   * `node --eval "pytest -q"`, which runs no test at all - and with a non-zero exit that was
+   * recorded as a *failed* test run, able to contradict an honest answer elsewhere in the turn.
+   */
+  for (const match of masked.matchAll(/(?:^|[;&|\n(]\s*)eval\s+/g)) {
+    const from = match.index + match[0].length;
+    const rest = code.slice(from);
+    const quoted = /^(?:"([^"]*)"|'([^']*)'|(\S+))/.exec(rest);
+    if (quoted) args.push(quoted[1] ?? quoted[2] ?? quoted[3] ?? '');
+  }
+
+  return args;
+}
+
+/** Blank the contents of parenthesised groups, keeping length so offsets still line up. */
+function maskParenthesised(text) {
+  const out = [...text];
+  let depth = 0;
+
+  for (let i = 0; i < out.length; i += 1) {
+    if (out[i] === '(') {
+      depth += 1;
+      continue;
+    }
+    if (out[i] === ')') {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    // `name()` is a definition, not a subshell - its parentheses are empty and adjacent.
+    if (depth > 0) out[i] = ' ';
+  }
+
+  return out.join('');
 }
 
 function withoutComments(text) {
@@ -671,7 +801,7 @@ function expandedSubstitutions(text) {
 }
 
 /**
- * Whether a recorded command is a test invocation.
+ * The segments of a command that invoke a test runner.
  *
  * The limit worth stating plainly: this reads a command, it does not execute one, and a shell
  * decides at runtime what a reader cannot decide at all. `$GUARD && pytest` may or may not run
@@ -682,10 +812,13 @@ function expandedSubstitutions(text) {
  * What makes that limit tolerable is that this is one of two signals, not the whole of the
  * evidence: `testRuns()` requires the command to look like a test *and* the output to look like
  * one, so neither a fabricated command nor fabricated output is sufficient alone.
+ *
+ * The segments themselves are returned, not just the fact that one exists, because the second
+ * signal has to be attributed to the same command: see `discardsRunnerOutput`.
  */
-export function looksLikeTestCommand(command = '') {
+function runnerSegments(command = '') {
   const text = String(command);
-  if (!text.trim()) return false;
+  if (!text.trim()) return [];
 
   /**
    * Everything the shell would execute, unwrapped until nothing new appears.
@@ -709,7 +842,31 @@ export function looksLikeTestCommand(command = '') {
 
     // A heredoc body is data being written, not commands being run.
     const { code: written, expandingBodies } = splitHeredocs(part);
-    const code = reachableBranches(withoutComments(written));
+    const uncomment = withoutComments(written);
+    const code = reachableBranches(uncomment);
+
+    /**
+     * Shadowing is read from the text *before* branch analysis unwraps subshell groups.
+     *
+     * `reachableBranches` recurses into `( ... )` and returns its contents at the top level, so by
+     * then a definition that died with its subshell looks like one that survived - and
+     * `(pytest() { echo fake; }; true); pytest -q`, which really does run pytest afterwards, was
+     * rejected as forged.
+     */
+    for (const name of shadowedNames(uncomment)) shadowed.add(name);
+
+    /**
+     * What `eval` is given is code, so it joins the worklist as a part in its own right. Otherwise
+     * the quoted argument collapses to a placeholder and `eval "pytest -q"` - an ordinary way to
+     * run a suite - stops looking like a run at all.
+     */
+    /**
+     * From `code`, not from the text before branch analysis: `false && eval "pytest -q"` is a
+     * branch the shell skips, and queueing its payload invented a run out of a command that
+     * never executes. Shadowing still reads the earlier text, because that is where subshell
+     * scoping is still visible - two sources, for two different questions.
+     */
+    queue.push(...evalArguments(code));
 
     // An unquoted delimiter still expands `$(...)` inside the body; a quoted one expands nothing.
     for (const body of expandingBodies) queue.push(...expandedSubstitutions(body));
@@ -729,16 +886,30 @@ export function looksLikeTestCommand(command = '') {
       .replace(/'[^']*'|"[^"]*"/g, 'Q');
 
     // Any segment of a compound command can be the real invocation: `cd repo && pytest -q`.
-    for (const name of shadowedNames(code)) shadowed.add(name);
     segments.push(...collapsed.split(/&&|\|\||;|\||\n/));
   }
 
-  return segments.some((raw) => {
-    const bare = raw
+  return segments.filter((raw) => {
+    let bare = raw
       .trim()
       .replace(/^[({\s]+/, '')
-      .replace(/^(?:\w+=\S*\s+)+/, '') // leading FOO=bar assignments
-      .replace(/^(?:sudo|time|env|nice|xargs)\s+/, '');
+      .replace(/^(?:\w+=\S*\s+)+/, ''); // leading FOO=bar assignments
+
+    /**
+     * Strip wrappers until none is left, because they stack: `sudo time timeout 300 pytest`.
+     * A single pass with the `g` flag does not do this - an anchored pattern matches once - so
+     * `sudo time pytest` kept the `time` and stopped looking like a runner.
+     */
+    for (let n = 0; n < 6; n += 1) {
+      const shorter = bare
+        .replace(/^(?:sudo|time|env|nice|xargs|retry|nohup)\s+/, '')
+        .replace(/^timeout\s+\S+\s+/, '')
+        .replace(/^stdbuf(?:\s+-\S+)+\s+/, '')
+        // A segment lifted out of a loop or conditional keeps its keyword.
+        .replace(/^(?:then|do|else|elif)\s+/, '');
+      if (shorter === bare) break;
+      bare = shorter;
+    }
 
     const segment = bare.replace(WRAPPERS, '');
     const wrapped = segment !== bare;
@@ -756,6 +927,116 @@ export function looksLikeTestCommand(command = '') {
     if (NOT_A_RUN.test(segment)) return false;
     if (RUNNERS.some((r) => r.test(segment))) return true;
     return wrapped && WRAPPED_SCRIPT.test(segment);
+  });
+}
+
+/** Whether a recorded command is a test invocation. */
+export function looksLikeTestCommand(command = '') {
+  return runnerSegments(command).length > 0;
+}
+
+/**
+ * Stdout sent somewhere, in the forms a shell accepts: `>`, `1>`, `&>`, `>&`, `>>`.
+ *
+ * `2>/dev/null` is deliberately not matched. Silencing warnings while leaving stdout alone is
+ * ordinary, and a runner whose stdout still reaches the recording can still be read.
+ */
+/**
+ * The `&` is captured with the target rather than consumed before it, because `>&1` and a file
+ * literally named `1` are different things and the earlier version could not tell them apart -
+ * which had it discarding `pytest -q >&1`, a no-op whose output reaches the recording in full.
+ */
+const REDIRECTS_STDOUT = /(?:^|\s)(?:&|1)?>>?\s*(&\s*\d+|\S+)/;
+
+/** Commands that read a file back out, which is how a redirected run legitimately reaches the recording. */
+const REPLAYS_A_FILE = new Set(['cat', 'head', 'tail', 'less', 'more', 'tee', 'type', 'bat']);
+
+/**
+ * Whether the command reads `target` back out somewhere.
+ *
+ * Two bugs sat in the first version of this, both found by review. It located the segment with
+ * `command.indexOf(segment)`, and the segment came from the *collapsed* text where quoted regions
+ * have been blanked - so any runner with a quoted argument was not found at all, indexOf returned
+ * -1, and the slice started from an arbitrary offset. And it matched the reader as a bare word
+ * anywhere, so the prose inside `echo 'no more tests to run; 1 passed'` supplied the `more`.
+ *
+ * Both are the same mistake: reading a shell command as text rather than as segments. So this
+ * walks the masked command, keeping offsets, and asks of each segment whether its *leader* is a
+ * reader and whether the original text of that segment names the file. Prose inside quotes is
+ * masked and cannot be a leader or a filename.
+ */
+function replaysFile(command, target) {
+  const masked = maskQuoted(command);
+  const bounds = [];
+  const separators = /&&|\|\||;|\||\n/g;
+  let start = 0;
+  let match;
+  while ((match = separators.exec(masked)) !== null) {
+    bounds.push([start, match.index]);
+    start = separators.lastIndex;
+  }
+  bounds.push([start, masked.length]);
+
+  return bounds.some(([from, to]) => {
+    const leader = masked.slice(from, to).trim().split(/\s+/)[0]?.replace(/^.*\//, '');
+    if (!leader || !REPLAYS_A_FILE.has(leader)) return false;
+    return command.slice(from, to).includes(target);
+  });
+}
+
+/**
+ * Whether every runner in this command sent its output somewhere nothing can read it.
+ *
+ * `pytest -q >/dev/null || echo '1 passed'` was SUBSTANTIATED. Both signals were present - the
+ * command invokes a real runner, the output says a test passed - and neither came from a test.
+ * The runner's report went to /dev/null, `||` replaced its exit status with echo's, and the
+ * passing line was typed by the agent. One command supplying both halves of its own proof is the
+ * thing the two-signal design exists to prevent, and this was the shape that did it without any
+ * shell trickery at all.
+ *
+ * So the output half is only credited to a run that could have printed it.
+ *
+ * Any sink counts, not only /dev/null. The first version of this checked for /dev/null by name and
+ * a security review pointed out the obvious way round it: `pytest -q >/tmp/out.log || echo
+ * '1 passed'` launders exactly as well, and so does `>&2`, since stderr is not part of the
+ * recording either. The property being tested is "the recorded text could have come from this
+ * runner", and where the output went matters less than that it did not come back.
+ *
+ * Came back is the exception that has to survive, because `pytest > out.log; cat out.log` is
+ * honest: the runner wrote that text and the command is showing it to you. So a redirect to a file
+ * is only a discard when nothing later in the command reads that file. /dev/null is a discard
+ * unconditionally - there is nothing to read back.
+ *
+ * Every runner has to discard, not any: `pytest -q >/dev/null; npm test` still has a run whose
+ * output reached the recording.
+ *
+ * The limit, named rather than papered over: a runner whose output goes into a pipe is not caught
+ * here, because `npm test | tail -20` is how people read a long suite, and refusing it would cost
+ * honest work. What a pipe's consumer chooses to print is beyond what reading a command can settle.
+ */
+export function discardsRunnerOutput(command = '') {
+  const runners = runnerSegments(command);
+  if (runners.length === 0) return false;
+
+  return runners.every((segment) => {
+    const redirect = REDIRECTS_STDOUT.exec(segment);
+    if (!redirect) return false;
+
+    // `> & 1` is the same redirect as `>&1`.
+    const target = redirect[1].replace(/\s+/g, '');
+    /**
+     * Nothing to read back from either of these. `>&2` sends stdout to stderr, which `resultOf`
+     * does not record; `/dev/null` is the void.
+     *
+     * `>&1` is deliberately not here, and was, which had the guard throwing away honest work:
+     * `>&1` redirects stdout to stdout and is a no-op whose output reaches the recording in full.
+     */
+    if (target === '/dev/null' || target === '&2') return true;
+    // A no-op redirect changes nothing about where the output went.
+    if (target === '&1') return false;
+
+    // A file is a discard only when nothing reads it back.
+    return !replaysFile(command, target);
   });
 }
 
@@ -808,9 +1089,28 @@ export function unexecutedToolCalls(text = '') {
   const candidates = [String(text)];
   for (const [, body] of String(text).matchAll(/```(?:json)?\n([\s\S]*?)```/g)) candidates.push(body);
   for (const [, body] of String(text).matchAll(/<tool_call>([\s\S]*?)<\/tool_call>/gi)) candidates.push(body);
+  /**
+   * `<function_call>` as well as `<tool_call>`, because a model that cannot use tools writes
+   * whichever wrapper its training suggests and neither is a standard.
+   *
+   * This one arrived from a real run: three `pull_request_read` calls printed inside
+   * `<function_call>` tags, which the interface then rendered as raw markup because nothing here
+   * recognised them. The failure the detector exists to name was on screen in its rawest form and
+   * the detector was the thing that missed it.
+   */
+  for (const [, body] of String(text).matchAll(/<function_call>([\s\S]*?)<\/function_call>/gi)) candidates.push(body);
 
   for (const candidate of candidates) {
     const trimmed = candidate.trim();
+    /**
+     * Every printed call in this candidate, not the first one.
+     *
+     * It returned as soon as one balanced value parsed into a call, so a message printing three
+     * of them was reported as printing one - and the banner then told somebody a single call had
+     * not been made while two more sat unmentioned above it. Undercounting a fabrication is a
+     * quieter version of missing it.
+     */
+    const found = [];
     /**
      * Every top-level JSON value in the text, and only those.
      *
@@ -839,16 +1139,20 @@ export function unexecutedToolCalls(text = '') {
        * unrecognised. It worked only when the JSON happened to be fenced.
        */
       const parsed = JSON.parse(value);
-      const calls = (Array.isArray(parsed) ? parsed : [parsed]).filter(
-        (c) =>
-          c &&
-          typeof c === 'object' &&
-          typeof c.name === 'string' &&
-          /^[a-z][a-z0-9_.-]*$/i.test(c.name) &&
-          ('arguments' in c || 'parameters' in c),
-      );
+      /**
+       * `function_name` as well as `name`. Same reason as the wrapper above: the key a model picks
+       * when it writes a call out instead of making it is not fixed, and reading only one spelling
+       * meant a printed call in the other went unnamed.
+       */
+      const nameOf = (c) => (typeof c?.name === 'string' ? c.name : typeof c?.function_name === 'string' ? c.function_name : null);
+      const calls = (Array.isArray(parsed) ? parsed : [parsed]).filter((c) => {
+        const name = nameOf(c);
+        return c && typeof c === 'object' && name && /^[a-z][a-z0-9_.-]*$/i.test(name) && ('arguments' in c || 'parameters' in c);
+      });
       if (calls.length > 0) {
-        return calls.map((c) => ({ name: c.name, arguments: c.arguments ?? c.parameters ?? {} }));
+        for (const c of calls) found.push({ name: nameOf(c), arguments: c.arguments ?? c.parameters ?? {} });
+        at += value.length - 1;
+        continue;
       }
       /**
        * Valid JSON is one value, so step over it - that is what stops wrapper data being read
@@ -861,6 +1165,9 @@ export function unexecutedToolCalls(text = '') {
       // Not JSON here. Advance one character so anything nested inside is still examined.
     }
     }
+    // The first candidate that yields anything wins, so a fenced block is not also counted as part
+    // of the whole-text scan that contains it.
+    if (found.length > 0) return found;
   }
   return [];
 }
@@ -1058,9 +1365,67 @@ export function testRuns(toolResponses) {
   return performed(toolResponses).filter((r) => {
     // A call that errored produced no execution to judge, whatever its message happens to contain.
     if (r.errored) return false;
-    // When the command is known it must be a test invocation AND the output must look like one.
-    // Either alone is forgeable: the command by naming a log file, the output by writing it.
-    if (r.command != null) return looksLikeTestCommand(r.command) && RAN_TESTS.test(r.output);
+    /**
+     * A recognised runner that was actually invoked is a run, whatever it printed.
+     *
+     * Requiring the output to look like a test report as well deleted two kinds of real run. A red
+     * one first: `pytest -q` exiting 1 with `ERROR: file or directory not found: tests/` reported
+     * no tests, so the run vanished and a previous green stood - the verifier hiding a failure.
+     * And honest greens: `go test ./...` prints `ok acme/util 0.012s` and `mvn test` prints
+     * `Tests run: 12`, neither of which resembled anything here, so two of the most common runners
+     * in existence produced "unsubstantiated" for work that had plainly been done.
+     *
+     * The output test stays for commandless results, where it is the only signal there is.
+     */
+    if (r.command != null) {
+      if (!looksLikeTestCommand(r.command)) return false;
+      /**
+       * A recognised runner that failed is a run, and its failure is the evidence.
+       *
+       * Requiring test-shaped output as well deleted real red runs: `pytest -q` exiting 1 with
+       * `ERROR: file or directory not found: tests/` reported nothing test-shaped, so the run
+       * vanished and an earlier green stood - the verifier hiding a failure, which is the one
+       * thing it must never do.
+       *
+       * The output test is kept for a runner that exited 0, because that is where fabrication
+       * lives: `npm test` is agent-writable, and a package script printing "hello world" and
+       * exiting 0 is not a passing suite however it is named.
+       *
+       * And the output has to be output the runner could have produced. `pytest -q >/dev/null ||
+       * echo '1 passed'` cleared both halves of this line while the run behind it was red: the
+       * report went to /dev/null and `||` handed the exit status to the echo.
+       */
+      /**
+       * `typeof` matters here, and its absence was a hole a security review found in this very
+       * guard. `resultOf` records `exitCode: null` whenever the envelope carried no numeric status,
+       * which is most of them from some servers - and `null !== 0` is true, so the whole
+       * right-hand side, including the laundering check directly above, was never evaluated. A run
+       * whose status nobody recorded is not a run that failed; it is a run that has to prove itself
+       * on its output like any other.
+       */
+      const failed = typeof r.exitCode === 'number' && r.exitCode !== 0;
+      /**
+       * `!r.structured` on the green path, for the reason already written below for the commandless
+       * case: a structured payload was serialised into that string, so a field reading "1 passed"
+       * is a value in somebody's JSON and not a suite reporting its result. Naming the command
+       * `npm test` does not change what the text is.
+       *
+       * Without it, a tool answering `{"summary":"1 passed"}` beside a recognised runner and no
+       * failing exit produced SUBSTANTIATED with no test report anywhere in the recording - a
+       * laundering path through the one mechanism this project rests on. Qodo found it, and noted
+       * that a near-identical structured-payload hole had been accepted in an earlier pull request:
+       * the guard was written for one branch and never carried across.
+       *
+       * It costs nothing real. `resultOf` marks a result structured only when the payload parsed as
+       * JSON, and no test runner prints a bare JSON object as its entire output - unittest, pytest
+       * and go test all come back as plain text and all still count, which is asserted below.
+       *
+       * The red path keeps no such condition on purpose: a recognised runner with a non-zero exit
+       * is a run whose failure is the evidence, and that status came from the envelope rather than
+       * from text anybody could compose. Fabrication lives on the green path.
+       */
+      return failed || (!r.structured && RAN_TESTS.test(r.output) && !discardsRunnerOutput(r.command));
+    }
     /**
      * With no command, only text something actually printed can stand in for one. A structured
      * payload was serialised here, so a field reading "3 passed" is a string in somebody's JSON -

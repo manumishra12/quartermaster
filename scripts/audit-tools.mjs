@@ -17,44 +17,38 @@
  * Exits non-zero if any reachable tool would run ungated under the default policy.
  */
 import { classify, ungatedRisks, UNANNOTATED } from './lib/annotations.mjs';
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { policiesFor, splitPolicies } from './lib/policies.mjs';
 import { loadEnv } from './lib/env.mjs';
+import { httpProblem } from './lib/http.mjs';
 
 loadEnv();
 
 const BASE = process.env.TRUEFORGE_BASE_URL ?? 'http://localhost:8790';
-const AGENTS_DIR = new URL('../agents/', import.meta.url).pathname;
 
 /** What the specs actually declare for a connector, rather than the library default. */
-function specFor(serverName) {
-  const approval = new Set();
-  const enabled = new Set();
-  for (const file of readdirSync(AGENTS_DIR).filter((f) => f.endsWith('.json'))) {
-    let spec;
-    try {
-      spec = JSON.parse(readFileSync(join(AGENTS_DIR, file), 'utf8'));
-    } catch {
-      continue;
-    }
-    for (const server of spec?.manifest?.mcp_servers ?? []) {
-      if (server?.name !== serverName) continue;
-      for (const s of server.require_approval_for_tools ?? ['@write', '@destructive']) approval.add(s);
-      for (const s of server.enable_tools ?? ['@all']) enabled.add(s);
-    }
-  }
-  return { approval: approval.size ? [...approval] : undefined, enabled: enabled.size ? [...enabled] : undefined };
-}
 
 const get = async (path) => {
   const res = await fetch(`${BASE}${path}`);
+  // The status comes first. An error page is often valid JSON with no `error` field in it, and
+  // reading one as a tool list gave the audit an empty list - which is indistinguishable from a
+  // connector with nothing risky on it, so it cleared a server it had never read.
+  const problem = httpProblem(res, path);
+  if (problem) throw new Error(problem);
   const body = await res.json();
   if (body.error) throw new Error(`${path}: ${body.error.message}`);
   return body.data ?? body;
 };
 
-
-const servers = await get('/api/v1/settings/mcp-servers');
+let servers;
+try {
+  servers = await get('/api/v1/settings/mcp-servers');
+} catch (err) {
+  // Naming the failure, because the alternative here was an unhandled throw: a stack trace about
+  // JSON parsing, for a server that was simply not running.
+  console.error(`Could not list the MCP servers - ${err.message}`);
+  console.error(`Is the harness running at ${BASE}?`);
+  process.exit(1);
+}
 const list = Array.isArray(servers) ? servers : (servers.items ?? []);
 if (!list.length) {
   console.log('No MCP servers configured.');
@@ -64,6 +58,12 @@ if (!list.length) {
 let ungated = 0;
 let seenUnannotated = 0;
 let unauditable = 0;
+/**
+ * Agent specs that would not parse, collected across every connector rather than printed per
+ * connector, because an unreadable file is surfaced for all of them - which servers it declares is
+ * precisely what could not be established.
+ */
+const unreadableSpecs = new Set();
 
 for (const server of list) {
   const name = server.name ?? server.manifest?.name;
@@ -78,8 +78,30 @@ for (const server of list) {
     continue;
   }
 
-  const policy = specFor(name);
-  const risks = new Set(ungatedRisks(tools, policy.approval, policy.enabled).map((t) => t.name));
+  /**
+   * Judged against the weakest policy any agent uses, and the agent named.
+   *
+   * Reporting the union hid a narrow gate behind a wide one. What matters is whether *some* agent
+   * can reach this tool ungated, and which - that is the sentence somebody has to act on.
+   */
+  /**
+   * A spec that will not parse is separated out rather than audited as one.
+   *
+   * `policiesFor` reports an unparseable file as its own entry, and this loop used to hand it to
+   * `ungatedRisks` like any other policy - where `approval` and `enabled` being absent are read as
+   * the harness defaults. Every tool on every server here is annotated, so the defaults gate all of
+   * them and the risk list came back empty: this script printed "Every reachable tool is annotated.
+   * The default policy gates what it claims to gate." and exited 0 for a repository whose agent
+   * policy nobody could read. The verdict is withheld below instead.
+   */
+  const { policies, unreadable } = splitPolicies(policiesFor(name));
+  for (const agent of unreadable) unreadableSpecs.add(agent);
+  const risks = new Map();
+  for (const policy of policies.length ? policies : [{ agent: null, approval: undefined, enabled: undefined }]) {
+    for (const tool of ungatedRisks(tools, policy.approval, policy.enabled)) {
+      if (!risks.has(tool.name)) risks.set(tool.name, policy.agent);
+    }
+  }
 
   console.log(`\n${name} - ${tools.length} tools`);
   for (const tool of tools) {
@@ -94,16 +116,45 @@ for (const server of list) {
         : kind === UNANNOTATED
           ? 'allowed'
           : '  free ';
-    console.log(`  ${label}  ${String(tool.name).padEnd(30)} ${kind}`);
+    const via = risky && risks.get(tool.name) ? ` - via ${risks.get(tool.name)}` : '';
+    console.log(`  ${label}  ${String(tool.name).padEnd(30)} ${kind}${via}`);
   }
 }
 
-if (ungated > 0) {
+/**
+ * Said before the ungated count, and not folded into it.
+ *
+ * Every label printed above was resolved from the specs that did parse, so with one of them missing
+ * the table is incomplete and the count below is a floor rather than a total. Reporting a number as
+ * though it were the answer would be the reassuring falsehood - the same one `unauditable` was
+ * added for, one layer further in. preflight records the same failure on every connector, so the
+ * two tools agree about a repository they cannot audit.
+ */
+if (unreadableSpecs.size) {
   console.log(
-    `\n${ungated} unannotated tool(s) would execute with no approval under the default policy.\n` +
-      'Fix by making the spec fail closed: restrict `enable_tools` to ["@read-only", ...literal write tools you\n' +
-      'actually want], and name those same tools in `require_approval_for_tools` so the gate does not depend\n' +
-      'on the server annotating them correctly.',
+    `\n${unreadableSpecs.size} agent spec(s) could not be parsed: ` +
+      `${[...unreadableSpecs].map((agent) => `agents/${agent}.json`).join(', ')}.\n` +
+      'What those agents let through is unknown, so the labels above are incomplete and no clean\n' +
+      'verdict is offered. Fix the JSON and run this again.',
+  );
+  process.exit(1);
+}
+
+if (ungated > 0) {
+  /**
+   * Say what was found, not what used to be the only thing findable.
+   *
+   * This read "unannotated tool(s) ... under the default policy" whatever it had found. Once
+   * annotated write and destructive tools could be reported too, that sentence described neither
+   * the cause nor the policy actually audited - and the fix it recommends is the wrong one for a
+   * tool whose annotations are perfectly good and simply is not gated.
+   */
+  console.log(
+    `\n${ungated} tool(s) would execute with no approval under the policy some agent declares.\n` +
+      'For a tool with no annotations, the fix is to restrict `enable_tools` to ["@read-only", ...the literal\n' +
+      'write tools you actually want], so a tool the server adds later is not enabled at all.\n' +
+      'For an annotated write or destructive tool, the allowlist is not the fix: name it in\n' +
+      '`require_approval_for_tools` as well, because admitting a tool is not the same as gating it.',
   );
   process.exit(1);
 }

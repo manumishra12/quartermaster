@@ -1,0 +1,20 @@
+{
+  "id": "warehouse-net-revenue",
+  "title": "Net revenue, not gross",
+  "why": "The fixture publishes both numbers on purpose. 13,775,026 cents is gross on paid orders and 13,179,822 is net; an agent that ignores the 46 partial refunds arrives at the first one confidently and nothing anywhere says it is wrong. This is the confident-wrong-number failure the whole warehouse fixture was built to catch, and the answer is checked against a figure computed by generate.py rather than by anybody's memory.",
+  "agent": "analytics",
+  "prompt": "Using the warehouse connector, what was our net revenue on paid orders across the whole dataset? Give the figure in cents and show the query you ran.",
+  "requires": { "fixtures": ["warehouse"], "connectors": ["warehouse"] },
+  "expect": [
+    {
+      "verdict_not": ["unsubstantiated", "contradicted", "no-answer"],
+      "because": "a figure quoted with nothing recorded behind it is the failure, whatever the figure is"
+    },
+    { "tool_executed": "run_query", "because": "the number has to come from the database, not from the schema description" },
+    {
+      "answer_matches": "13[,_ ]?179[,_ ]?822",
+      "because": "the net figure the fixture publishes; any punctuation, because a model may write it several ways"
+    },
+    { "exit_code_in": 0 }
+  ]
+}

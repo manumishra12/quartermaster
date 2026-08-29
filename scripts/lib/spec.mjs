@@ -13,6 +13,28 @@ import { join } from 'node:path';
 export const APPROVAL_TAGS = ['@all', '@write', '@destructive'];
 export const ENABLE_TAGS = ['@all', '@read-only'];
 
+/**
+ * The keys TrueForge actually reads, taken from the SDK's own serialisers rather than from memory
+ * (`RuntimeConfig`, `AgentManifest`). Anything else in these objects is dropped in transit.
+ *
+ * That silence is the reason this list exists. `dynamic_subagents` - one underscore short - applies
+ * without complaint and reads, to anybody auditing the file, exactly like the setting that turns
+ * subagents off. It is not that setting. The harness never saw it, and the default it fell back to
+ * is `true`.
+ */
+const CONFIG_KEYS = new Set([
+  'ask_user_questions',
+  'context_management',
+  'dynamic_sub_agents',
+  'generative_ui',
+  'iteration_limit',
+  'sandbox',
+]);
+const MANIFEST_KEYS = new Set(['model', 'instructions', 'config', 'skills', 'mcp_servers']);
+
+/** `iteration_limit` is documented as 1-1024; outside that the apply is rejected. */
+const ITERATION_RANGE = [1, 1024];
+
 export function specFiles(dir = fileURLToPath(new URL('../../agents/', import.meta.url))) {
   return readdirSync(dir)
     .filter((f) => f.endsWith('.json'))
@@ -69,6 +91,44 @@ export function validateSpec(spec, filename = 'spec') {
     );
   }
 
+  /**
+   * The second promise-versus-policy check, added because the first one only covered approvals and
+   * a review found the same shape elsewhere.
+   *
+   * `code-reviewer` told the model that an oversized tool result "has been saved to a path" and to
+   * read it from the sandbox. The harness only writes that file when large_tool_response is
+   * enabled, and that spec did not enable it - so on a large pull request diff, the single most
+   * likely oversized result for a code reviewer, the model would have been sent to `head` a path
+   * that does not exist.
+   */
+  const promisesSpill =
+    /\b(saved to a path|written .{0,20}into the sandbox|read the file with the sandbox|too large and has been saved)\b/i.test(
+      m.instructions ?? '',
+    );
+  if (promisesSpill && m.config?.context_management?.large_tool_response?.enabled !== true) {
+    say(
+      'the instructions tell the agent a large tool result is written to a file, but ' +
+        'config.context_management.large_tool_response.enabled is not true - so no file is written and the ' +
+        'agent is sent to read a path that does not exist',
+    );
+  }
+
+  /**
+   * The third promise-versus-policy check, and the one a table of every agent's config exposed.
+   *
+   * `evidence-report` teaches an agent to render its verdict as a Generative UI card, against real
+   * OpenUI component signatures. `code-reviewer` carried that skill with `generative_ui` switched
+   * off, so it had been taught to use a surface it did not have - the fetch succeeds, the model
+   * reads the pack, and the components it is told to emit go nowhere.
+   */
+  const carries = (name) => (m.skills ?? []).some((skill) => skill?.name === name);
+  if (carries('evidence-report') && m.config?.generative_ui?.enabled !== true) {
+    say(
+      'attaches the evidence-report skill, which renders a Generative UI card, but ' +
+        'config.generative_ui.enabled is not true - the skill teaches a surface this agent does not have',
+    );
+  }
+
   const seenServers = new Set();
 
   for (const server of m.mcp_servers ?? []) {
@@ -120,6 +180,29 @@ export function validateSpec(spec, filename = 'spec') {
     if (Array.isArray(server.require_approval_for_tools) && server.require_approval_for_tools.length === 0) {
       say(`${where}: empty approval policy - every tool on this server runs ungated`);
     }
+
+    // `@all` already admits everything; the names beside it read as a restriction and are not one.
+    if (enable.includes('@all') && enable.some((sel) => !sel.startsWith('@'))) {
+      const named = enable.filter((sel) => !sel.startsWith('@')).join(', ');
+      say(`${where}: enable_tools has @all alongside ${named} - the names restrict nothing and read as though they do`);
+    }
+
+    // A name repeated in a policy list looks like emphasis and does nothing. Usually it is the
+    // wrong name typed twice, with the one that was meant missing.
+    for (const [key, list] of [['enable_tools', server?.enable_tools], ['require_approval_for_tools', server?.require_approval_for_tools]]) {
+      if (!Array.isArray(list)) continue;
+      const twice = list.filter((sel, i) => list.indexOf(sel) !== i);
+      for (const sel of new Set(twice)) say(`${where}: ${key} lists ${sel} twice`);
+    }
+
+    /**
+     * Deferred loading does not work on this harness: a tool reached with `preload: false` resolves
+     * to `{"error":"MCP server 'deferred-tools' not found"}`, and the agent then reports the tool as
+     * broken rather than the loading of it. TOOLS.md records the whole investigation.
+     */
+    if (server?.preload === false) {
+      say(`${where}: preload: false resolves to a missing-server error on this harness - see TOOLS.md`);
+    }
   }
 
   // Skills are materialised in the sandbox; attaching them without one cannot work.
@@ -148,6 +231,51 @@ export function validateSpec(spec, filename = 'spec') {
     }
   }
 
+  /**
+   * Subagents are stated, never inherited - and unlike the sandbox, the default here is `enabled`.
+   *
+   * `DynamicSubAgentsConfig.enabled` is documented in the SDK as "Default: true". So a spec that
+   * says nothing is not a spec that declined to spawn subagents; it is one that opted in silently.
+   * `gate-demo` was exactly that: an agent whose entire purpose is a single gated tool call, with
+   * subagent spawning switched on by an omission nobody had read as a choice.
+   *
+   * The sandbox rule below asks for the same explicitness for the same reason. This one matters
+   * more, because the direction of the default is the unsafe one.
+   */
+  if (typeof m.config?.dynamic_sub_agents?.enabled !== 'boolean') {
+    say(
+      'config.dynamic_sub_agents.enabled must be stated explicitly - it defaults to true, so leaving it out ' +
+        'turns subagent spawning on by omission rather than by decision',
+    );
+  }
+
+  /**
+   * A key the harness does not read is a policy that was never applied.
+   *
+   * Nothing anywhere else catches this. The JSON parses, the apply succeeds, and the spec keeps
+   * reading as though the setting is in force - which is the worst possible failure for a file this
+   * repository calls its safety policy.
+   */
+  for (const key of Object.keys(m.config ?? {})) {
+    if (!CONFIG_KEYS.has(key)) {
+      say(`config.${key} is not a key TrueForge reads - it is dropped on apply, and a dropped setting is not a setting`);
+    }
+  }
+  for (const key of Object.keys(m)) {
+    if (!MANIFEST_KEYS.has(key)) say(`manifest.${key} is not a key TrueForge reads - it is dropped on apply`);
+  }
+
+  /**
+   * An absent iteration limit is 100, and a limit outside 1-1024 is refused at apply time - which
+   * is a failure discovered when someone runs the agent, not when they read the spec.
+   */
+  const iterations = m.config?.iteration_limit;
+  if (iterations === undefined) {
+    say('config.iteration_limit is not set - it defaults to 100, which is a choice worth making on purpose');
+  } else if (!Number.isInteger(iterations) || iterations < ITERATION_RANGE[0] || iterations > ITERATION_RANGE[1]) {
+    say(`config.iteration_limit must be a whole number from ${ITERATION_RANGE[0]} to ${ITERATION_RANGE[1]}, not ${JSON.stringify(iterations)}`);
+  }
+
   // Invariants the documentation states as guarantees. SECURITY.md says code-runner runs with
   // subagents disabled and asks that the property be kept; nothing was keeping it.
   if (spec.name === 'code-runner' && m.config?.dynamic_sub_agents?.enabled !== false) {
@@ -155,4 +283,26 @@ export function validateSpec(spec, filename = 'spec') {
   }
 
   return problems;
+}
+
+/**
+ * Routing conflicts, which are the one thing a single spec cannot see about itself.
+ *
+ * `validateSpec` reads one file. Two agents both claiming "pull request" is not wrong in either
+ * file and is wrong in the pair: every request containing that phrase becomes a tie, the router
+ * declines to choose, and the person is asked a question that a config change could have answered.
+ * A tie built at config time is worse than a tie in the wording, because it never improves.
+ */
+export function routingConflicts(agents) {
+  const claimed = new Map();
+  for (const agent of agents) {
+    for (const phrase of agent.routing?.handles ?? []) {
+      const key = phrase.trim().toLowerCase();
+      claimed.set(key, [...(claimed.get(key) ?? []), agent.name]);
+    }
+  }
+
+  return [...claimed.entries()]
+    .filter(([, names]) => names.length > 1)
+    .map(([phrase, names]) => `"${phrase}" is claimed by ${names.join(' and ')}; every request containing it is a tie`);
 }

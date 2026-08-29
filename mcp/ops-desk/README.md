@@ -12,9 +12,9 @@ skipped  incident-responder  - Unknown MCP server "sentry" — not configured (H
 ```
 
 So the one agent that most needed demonstrating was the one nobody could run. This is the same
-shape of surface — alerts to read, deploys to correlate them against, and remediations that cannot
-be taken without a person saying yes — backed by a fixture instead of a company's production
-estate. No account, no key, no network.
+shape of surface — alerts to read, logs to search, deploys to correlate them both against, and
+remediations that cannot be taken without a person saying yes — backed by a fixture instead of a
+company's production estate. No account, no key, no network.
 
 It is **not a mock in the testing sense.** The read tools return the fixture, but the write tools
 genuinely mutate state and genuinely cannot be undone from inside the process. An approval gate in
@@ -34,10 +34,34 @@ Register it with the harness once:
 curl -X POST http://localhost:8790/api/v1/settings/mcp-servers \
   -H 'content-type: application/json' \
   -d '{"manifest":{"type":"remote","name":"ops-desk","url":"http://localhost:8795/mcp",
-       "description":"Alerts, deploys and service health, with gated remediations."}}'
+       "description":"Alerts, logs, deploys and service health, with gated remediations."}}'
 ```
 
 Then `npm run agents:apply` and `incident-responder` applies instead of being skipped.
+
+### What `/health` carries, and who reads it
+
+Not only liveness. It also publishes this desk's live view of the estate, because the `observability`
+store needs it and a second copy of it would drift:
+
+```json
+{ "ok": true, "tools": 9, "actions": 1,
+  "now": "2026-08-26T14:21:00Z",
+  "deployed": { "checkout-api": "9ab7", "search-api": "1de9" },
+  "remediations": [
+    { "action": "rollback_deploy", "service": "checkout-api", "to": "9ab7", "at": "2026-08-26T14:21:00Z" }
+  ] }
+```
+
+That store holds readings; whether those readings are still the current world is **this desk's**
+fact - the clock, what each service is running, and the order things were done in. It reads them
+from here and works out what its own series do. See `mcp/observability/README.md`, "Verifying a fix".
+
+`actions` keeps its place and its meaning: `npm run smoke` reads it to spot a fixture somebody has
+already remediated on. And the **`reason` is deliberately absent**. It is free text a model wrote,
+and the store puts what it reads here into replies an agent reads next - passing model prose through
+one server into another server's output is the shape of every injection in this project's threat
+model, and nothing downstream needs it.
 
 ## The tools, and which side of the gate they sit on
 
@@ -47,9 +71,11 @@ Then `npm run agents:apply` and `incident-responder` applies instead of being sk
 | `get_alert` | `readOnlyHint` | no |
 | `list_deploys` | `readOnlyHint` | no |
 | `get_service_health` | `readOnlyHint` | no |
+| `search_logs` | `readOnlyHint` | no |
 | `list_actions_taken` | `readOnlyHint` | no |
 | `rollback_deploy` | `destructiveHint` | **yes** |
 | `restart_service` | `destructiveHint` | **yes** |
+| `resolve_alert` | `destructiveHint` | **yes** |
 
 Every tool publishes annotations, and that matters more here than anywhere else in the project.
 The selectors `@read-only`, `@write` and `@destructive` are resolved *from these hints*. A tool
@@ -62,21 +88,63 @@ a correctly annotated one looks like, and it is why `incident-responder` can saf
 The spec belts and braces anyway — tags *and* literal names:
 
 ```json
-"enable_tools": ["@read-only", "rollback_deploy", "restart_service"],
-"require_approval_for_tools": ["@write", "@destructive", "rollback_deploy", "restart_service"]
+"enable_tools": ["@read-only", "rollback_deploy", "restart_service", "resolve_alert"],
+"require_approval_for_tools": ["@write", "@destructive", "rollback_deploy", "restart_service", "resolve_alert"]
 ```
+
+`search_logs` is reached by `@read-only` and nothing else, which is the right shape for a read: the
+tag admits it because the annotation says what it is, rather than because somebody remembered to
+type its name.
+
+## What it refuses
+
+Every remediation refuses what it cannot honestly do, and records nothing when it refuses. A person
+approved the action **believing the description they were shown**, so a tool that reports success
+for work it did not do has laundered a false record through a human decision.
+
+The reads refuse too, and for a related reason. A search is answerable in a way a rollback is not —
+it can always come back with an empty list — so the failure mode there is not a false success but a
+false negative: a filter the desk quietly dropped, or a window nothing could be in, reported as a
+service that was quiet. An investigation acts on that the same way it acts on a lie.
+
+| Attempt | Answer |
+| --- | --- |
+| Search the logs of a service this desk does not keep any for | `not_found`, naming the ones it does |
+| Search with a `since` or `until` this desk cannot read | `bad_timestamp` — a filter silently dropped answers with every line there is |
+| Search a window that runs backwards | `bad_window` — no line can be in it, and an empty list reads as a quiet service |
+| Roll back a deploy that is not what the service is running | `not_current`, naming what is |
+| Roll back the oldest deploy there is | `unknown_previous` — it would leave the service on a version this desk cannot describe |
+| Roll back or restart with a reason of spaces | `missing_reason` — whitespace is not an explanation |
+| Restart a service the desk does not know | `not_found`, naming the ones it does |
+| Send more text than anyone will read | refused by the schema, before the handler is reached |
+| Resolve an alert whose service is still failing | `still_unhealthy`, quoting the error rate it is still at |
+| Resolve after a restart, before the series refills | `no_readings` — a restart clears them, and a desk that cannot see the service cannot say it recovered |
+| Resolve an alert already resolved, or with no reason | `already_resolved` / `missing_reason` |
+
+The second row is worth its own note, because the fixture used to make it unreachable and the test
+suite agreed with the bug. Rolling back `4c21` reverts to `9ab7`; rolling back `9ab7` then reported
+`ok: true, to: "77f0"` — a deploy that appeared nowhere in the fixture — and left the timeline
+empty. A responder reading that would have believed checkout-api was serving 77f0. Nothing was
+serving anything. Two rollbacks is not an exotic path; it is what happens when the first one does
+not help. `77f0` exists now, so the honest chain is testable, and the deploy at the end of it is
+the one that refuses.
+
+The desk's clock also advances a minute per action. It used to be a constant, so a rollback, a
+restart and another rollback all carried the same timestamp — and the order in which somebody did
+things to a production service is most of what a timeline is for.
 
 ## What the fixture describes
 
-A story with a right answer and two distractors, so an investigation can be wrong in an
-interesting way rather than only right:
+A story with a right answer, two distracting alerts and a red herring in the logs, so an
+investigation can be wrong in an interesting way rather than only right:
 
 ```mermaid
 timeline
   title checkout-api, 26 August
   13:40 : error rate 0.4%%, p99 310ms
+  13:47 : gateway answers in 2404ms, inside the 5000ms budget
   13:58 : deploy 4c21 ships - payment-gateway timeout cut 5000ms to 2000ms
-  14:00 : error rate 2.1%%, p99 1980ms
+  14:00 : error rate 2.1%%, p99 1980ms : first UpstreamTimeout - the gateway replied at 2412ms
   14:02 : ALRT-4471 starts firing
   14:10 : error rate 11.7%%
 ```
@@ -92,12 +160,50 @@ The distractors matter as much:
 - `ALRT-4455` — a nightly export that already **resolved on its own**. An alert that fixed itself
   is a finding, not a failure, and proposing a remediation for it is worse than doing nothing.
 
+## What the logs add
+
+Health and deploys together say only that something changed near 13:58 and that the errors are
+upstream timeouts. **Two explanations fit that**, and they ask for opposite things:
+
+| Explanation | What it asks for |
+| --- | --- |
+| the payment gateway got slower | escalate to whoever owns it — rolling back `4c21` fixes nothing |
+| the timeout was cut below what the gateway has always taken | roll back `4c21` |
+
+The logs are the only thing here that separates them. The gateway answers in 2404ms and 2371ms
+*before* the deploy, and in 2412ms, 2388ms and 2455ms after it. The upstream did not change; the
+deadline did. An agent that reads the alert and stops can write "the payment gateway is timing out"
+— true as far as it goes, and pointed at the wrong team.
+
+That is why `search_logs` is in the arc rather than beside it. It is not a fourth source saying the
+same thing; it is the one that makes the other two mean something.
+
+### The noise, and the red herring
+
+| What is in there | Why it is in there |
+| --- | --- |
+| A deprecated-header warning and a cache hit rate on `checkout-api` | Both sit either side of 14:00 and neither moves. An agent that names one has correlated with whatever was nearest rather than with what changed. |
+| `AnalyzerDictionaryReload: checksum mismatch` on `search-api` at **13:59:31** | One minute after `4c21` shipped and thirty seconds before the first checkout timeout. |
+
+The second is arranged around the **window**, not the message. Search the ten minutes either side of
+14:00 and it is a lone error standing next to an incident. Search the day and it is hourly — 11:59,
+12:59, 13:59 — and predates everything, which is what the flat `search-api` health series already
+said. It is also on another service, which the responder is told not to widen into; the herring is
+there so that instruction has something to be right about.
+
+`reporting` has logs and **no health series at all**, because a nightly export is not a service
+taking traffic. `get_service_health` answers `not_found` for it, and that is the truth rather than a
+gap — each tool answers for what it holds. Its three lines are the underside of `ALRT-4455`: the
+export failing at 02:11, still retrying at 02:38, uploaded on the fourth attempt at 02:44. That is
+what "it resolved on its own" looks like from below, and it is the evidence for proposing nothing.
+
 ## What a run looks like
 
 ```mermaid
 sequenceDiagram
   participant A as incident-responder
   participant O as ops-desk
+  participant S as sandbox
   participant P as person
 
   A->>O: get_alert(ALRT-4471)
@@ -107,11 +213,30 @@ sequenceDiagram
   A->>O: list_deploys(checkout-api)
   O-->>A: 4c21 at 13:58 - timeout 5000ms to 2000ms
   Note over A: correlation, not proof - and it says which
+  A->>O: search_logs(checkout-api, around 14:00)
+  O-->>A: gateway answers in 2.4s before and after - the deadline moved, not the upstream
+  A->>S: python3 repro.py --deploy 4c21
+  S-->>A: UpstreamTimeout at 2000ms, exit 1
+  A->>S: python3 repro.py --deploy 9ab7
+  S-->>A: answered in 2412ms, exit 0
+  Note over A,S: the pair is the evidence - one half is only a failure
   A->>O: rollback_deploy(4c21)
   Note over A,P: the harness stops the turn here
   P-->>A: deny
   A->>A: report the denial, propose nothing else, stop
 ```
+
+Approved instead of denied, the last two beats are the other half of the arc: the metrics store
+again, to see the p99 come down against the pre-incident baseline, `repro.py --deploy 9ab7` again
+against what the service is now running, and only then `resolve_alert`.
+
+**Which this desk will still refuse.** `get_service_health` here returns five readings ten minutes
+apart, ending at 14:20 with the error rate at 11.7%, and a rollback does not refresh them - so
+`resolve_alert` answers `still_unhealthy` even after a rollback the metrics store can show recovered
+at 14:21. Both servers are right: that store scrapes every minute and has a reading; this desk's own
+series is coarser and has not got one yet. The honest end of the run is a recovery observed on the
+metrics, a reproduction that now passes, and an alert left open with the reason named - which is
+what `incident-responder` is told to do with an alert it cannot honestly resolve.
 
 ## Notes for anyone extending it
 
@@ -119,12 +244,27 @@ sequenceDiagram
   `initialize` — a stateless transport has no session for a second exchange to attach to. State
   lives at module scope, which is what makes a rollback in one request visible to the next.
 - **State is in memory, not written back to `incidents.json`.** Restarting resets the story, which
-  is what you want when demonstrating it twice.
+  is what you want when demonstrating it twice. It is also why the `observability` store reads
+  `/health` rather than a file this desk writes: a file outlives the process and would have the
+  metrics still showing a recovery from a demo an hour ago.
+- **The clock ticks whole minutes from 14:20:00.** Which means every remediation lands exactly on
+  the metrics store's 60s scrape boundary, so a reading is never half of one world and half of
+  another. That store checks it rather than assuming it, and declines to publish anything past its
+  own last reading if it ever stops being true.
 - **A remediation must refuse what it cannot actually do.** `rollback_deploy` only accepts the
   deploy a service is currently running, and `restart_service` only accepts a service the desk
   knows. Both used to accept anything and report success — a false operator-facing record of
   something that did not happen, which is the failure this whole project exists to refuse. Review
   found both.
+- **The 2000ms appears in three places on purpose.** The alert's `sample_error`, the summary on
+  deploy `4c21`, and every `UpstreamTimeout` line in the logs all name the same number, and
+  `fixtures/checkout-timeout` reproduces against it. Change one and the correlation this whole
+  fixture exists to reward stops being available; a test pins the three here together, and
+  `npm run fixtures:check` pins the reproduction to them.
+- **A read tool has a way of lying too.** It is not a false success — a search can always come back
+  empty — it is a false negative. A dropped filter or an impossible window answered with an empty
+  list reads as a service that was quiet, and an investigation acts on that exactly as it would act
+  on a lie. `search_logs` refuses both rather than answering them.
 - **If you add a tool, give it annotations.** An unannotated tool is invisible to every selector
   the approval policy uses, and it will run ungated without anything warning you. `npm run
   tools:audit` prints what each connector actually publishes.

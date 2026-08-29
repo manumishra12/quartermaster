@@ -33,7 +33,7 @@ const SERVER = fileURLToPath(new URL('./server.mjs', import.meta.url));
  */
 async function startServer() {
   const child = spawn(process.execPath, [SERVER], {
-    env: { ...process.env, OPS_DESK_PORT: '0' },
+    env: { ...process.env, OPS_DESK_PORT: '0', OPS_DESK_HOST: '127.0.0.1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -70,7 +70,19 @@ async function startServer() {
     child.on('exit', (code) => done(new Error(`ops-desk exited with code ${code} before reporting a port`)));
   });
 
-  const endpoint = `http://localhost:${port}/mcp`;
+  /**
+   * Connect to the address the server actually bound, not to a name that may resolve elsewhere.
+   *
+   * The server binds 127.0.0.1 and the banner prints "localhost", because that is the URL every
+   * README and the connector registration use. Connecting to that name asks the resolver, and on a
+   * host where localhost is ::1 first - which is most Linux CI - that is a different address with
+   * nothing listening on it. The suite runs in six seconds here and hung for fourteen minutes
+   * there, on exactly that.
+   *
+   * The Host header stays "localhost", which is what the server's own check expects, so this
+   * exercises the same path a browser or the harness would.
+   */
+  const endpoint = `http://127.0.0.1:${port}/mcp`;
 
   /** One JSON-RPC call. The transport answers as an SSE frame, so the payload needs unwrapping. */
   async function call(method, params) {
@@ -90,7 +102,13 @@ async function startServer() {
     return JSON.parse(response.result.content[0].text);
   }
 
-  return { call, callTool, stop: () => child.kill() };
+  return {
+    call,
+    callTool,
+    /** The plain route, because the metrics store reads this desk's state from it rather than over MCP. */
+    health: () => fetch(`http://127.0.0.1:${port}/health`).then((r) => r.json()),
+    stop: () => child.kill(),
+  };
 }
 
 /** Run one test against its own server, and take it down afterwards whatever happens. */
@@ -106,7 +124,7 @@ async function withServer(body) {
 test('every tool publishes annotations, because the selectors are resolved from them', () =>
   withServer(async ({ call }) => {
     const { result } = await call('tools/list');
-    assert.equal(result.tools.length, 7);
+    assert.equal(result.tools.length, 9);
 
     for (const tool of result.tools) {
       assert.ok(
@@ -116,12 +134,17 @@ test('every tool publishes annotations, because the selectors are resolved from 
     }
   }));
 
-test('the two remediations are the destructive ones, and nothing else is', () =>
+test('the three irreversible actions are the destructive ones, and nothing else is', () =>
   withServer(async ({ call }) => {
     const { result } = await call('tools/list');
 
+    /**
+     * resolve_alert is destructive and the annotation is not a formality. It changes nothing about
+     * the system and everything about who is watching it: the page stops, the rotation moves on,
+     * and there is no undo for attention.
+     */
     const destructive = result.tools.filter((t) => t.annotations.destructiveHint).map((t) => t.name).sort();
-    assert.deepEqual(destructive, ['restart_service', 'rollback_deploy']);
+    assert.deepEqual(destructive, ['resolve_alert', 'restart_service', 'rollback_deploy']);
 
     const readOnly = result.tools.filter((t) => t.annotations.readOnlyHint).map((t) => t.name).sort();
     assert.deepEqual(readOnly, [
@@ -130,6 +153,7 @@ test('the two remediations are the destructive ones, and nothing else is', () =>
       'list_actions_taken',
       'list_alerts',
       'list_deploys',
+      'search_logs',
     ]);
   }));
 
@@ -189,9 +213,27 @@ test('an older deploy cannot be rolled back, because that would change nothing a
     const after = await callTool('list_deploys', { service: 'checkout-api' });
     assert.ok(after.deploys.some((d) => d.id === '9ab7'), 'and it is still there');
 
-    // Rolling back what is running works, and then the one behind it becomes current.
-    assert.equal((await callTool('rollback_deploy', { deploy_id: '4c21', reason: 'test' })).ok, true);
-    assert.equal((await callTool('rollback_deploy', { deploy_id: '9ab7', reason: 'test' })).ok, true);
+    // Rolling back what is running works, and then the one behind it becomes current - twice,
+    // because a chain of one proves nothing about a chain.
+    const first = await callTool('rollback_deploy', { deploy_id: '4c21', reason: 'test' });
+    assert.equal(first.ok, true);
+    assert.equal(first.to, '9ab7');
+
+    const second = await callTool('rollback_deploy', { deploy_id: '9ab7', reason: 'test' });
+    assert.equal(second.ok, true);
+    assert.equal(second.to, '77f0');
+
+    /**
+     * And the end of the chain refuses rather than inventing somewhere to go.
+     *
+     * This assertion used to read `ok: true` for the rollback of 9ab7, when 77f0 was not in the
+     * fixture at all - so the test agreed with the defect, and the reply said the service had
+     * returned to a version this desk had never heard of. 77f0 exists now, which makes the honest
+     * two-step chain testable, and the oldest deploy is the one with nothing behind it.
+     */
+    const end = await callTool('rollback_deploy', { deploy_id: '77f0', reason: 'test' });
+    assert.equal(end.error, 'unknown_previous');
+    assert.ok((await callTool('list_deploys', { service: 'checkout-api' })).deploys.some((d) => d.id === '77f0'));
   }));
 
 test('restarting a service the desk does not know is not a success', () =>
@@ -228,3 +270,309 @@ test('the default port is the one the documentation names', () => {
   // health check and a connector registered at an address nothing is listening on.
   assert.match(readFileSync(SERVER, 'utf8'), /OPS_DESK_PORT \?\? 8795/);
 });
+
+test('a reason of spaces is not a reason', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * `reason: "   "` came back ok:true and went into the journal as the justification for
+     * restarting a production service. A record that reads as though somebody explained themselves
+     * is worse than one with an obviously empty field, because nobody goes looking at it.
+     */
+    for (const [tool, args] of [
+      ['restart_service', { service: 'checkout-api', reason: '   ' }],
+      ['rollback_deploy', { deploy_id: '4c21', reason: '\t\n ' }],
+    ]) {
+      assert.equal((await callTool(tool, args)).error, 'missing_reason', tool);
+    }
+
+    // Nothing was done, so the journal has nothing in it.
+    assert.equal((await callTool('list_actions_taken', {})).count, 0);
+
+    // And a real reason still works, on the same two tools.
+    assert.equal((await callTool('restart_service', { service: 'checkout-api', reason: 'wedged workers' })).ok, true);
+    assert.equal((await callTool('rollback_deploy', { deploy_id: '4c21', reason: 'timeout cut' })).ok, true);
+  }));
+
+test('the journal keeps the order things happened in', () =>
+  withServer(async ({ callTool }) => {
+    // Every entry used to carry the same frozen timestamp, so a rollback, a restart and another
+    // rollback all read as one instant - and the order is most of what a timeline is for.
+    await callTool('restart_service', { service: 'checkout-api', reason: 'one' });
+    await callTool('rollback_deploy', { deploy_id: '4c21', reason: 'two' });
+    await callTool('restart_service', { service: 'search-api', reason: 'three' });
+
+    const { actions } = await callTool('list_actions_taken', {});
+    assert.deepEqual(actions.map((a) => a.reason), ['one', 'two', 'three']);
+    const times = actions.map((a) => Date.parse(a.at));
+    assert.ok(times[0] < times[1] && times[1] < times[2], `timestamps do not advance: ${actions.map((a) => a.at)}`);
+  }));
+
+test('a reason longer than anyone will read is refused before it is stored', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * 100k characters was accepted and kept. A reason nobody can read is not a reason.
+     *
+     * The refusal arrives as a protocol error rather than a tool result, because the bound is in
+     * the schema and the handler is never reached - the same shape as close_issue refusing a
+     * missing resolution. That is the stronger place for it: nothing has to remember to check.
+     */
+    await assert.rejects(
+      () => callTool('restart_service', { service: 'checkout-api', reason: 'x'.repeat(100_000) }),
+      'a 100k reason should not be accepted',
+    );
+    assert.equal((await callTool('list_actions_taken', {})).count, 0);
+
+    // A long but sane one still goes through.
+    assert.equal((await callTool('restart_service', { service: 'checkout-api', reason: 'x'.repeat(1900) })).ok, true);
+  }));
+
+test('a name off the prototype chain is not a service', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * `service in state.health` walks the prototype chain, so every name on Object.prototype
+     * passed the guard whose docblock says a typo is not a restart. `restart_service` answered
+     * ok:true for "toString" and cycled instances of nothing, on the far side of an approval
+     * somebody had just given. `__proto__` was worse: the assignment that followed re-pointed the
+     * health map's prototype.
+     */
+    for (const name of ['toString', 'constructor', 'valueOf', 'hasOwnProperty', '__proto__']) {
+      assert.equal((await callTool('restart_service', { service: name, reason: 'probe' })).error, 'not_found', name);
+      assert.equal((await callTool('get_service_health', { service: name })).error, 'not_found', name);
+    }
+
+    // Nothing was done, so nothing is in the journal.
+    assert.equal((await callTool('list_actions_taken', {})).count, 0);
+
+    // And a real service still restarts.
+    assert.equal((await callTool('restart_service', { service: 'checkout-api', reason: 'wedged' })).ok, true);
+  }));
+
+test('the logs agree with the alert and the deploy, so the three of them can be correlated', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * The point of the log fixture. An investigation that reads only the alert has a number, and
+     * one that reads only the deploys has a suspect; the case is made when the same 2000ms appears
+     * in all three, and it is made against the fixture rather than against anybody's memory of it.
+     */
+    const alert = await callTool('get_alert', { alert_id: 'ALRT-4471' });
+    assert.match(alert.sample_error, /2000ms/);
+
+    const deploys = await callTool('list_deploys', { service: 'checkout-api' });
+    assert.match(deploys.deploys.find((d) => d.id === '4c21').summary, /2000ms/);
+
+    const logs = await callTool('search_logs', { service: 'checkout-api', level: 'error' });
+    assert.ok(logs.matched > 0, 'checkout-api must have errors in its logs');
+    for (const line of logs.lines) assert.match(line.message, /did not respond within 2000ms/);
+
+    // And the deploy is visible in the logs at the minute list_deploys says it shipped.
+    const config = await callTool('search_logs', { service: 'checkout-api', contains: '4c21' });
+    assert.equal(config.matched, 1);
+    assert.equal(config.lines[0].at.slice(0, 16), '2026-08-26T13:58');
+  }));
+
+test('the logs rule out the explanation that would send this to the wrong team', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * Two explanations fit a step change in upstream timeouts: the upstream got slower, or the
+     * budget got smaller. They want opposite actions - one is somebody else's page, the other is a
+     * rollback - and only the logs separate them. The gateway answers in about 2.4s on both sides
+     * of 13:58, so what changed is the deadline.
+     */
+    const before = await callTool('search_logs', {
+      service: 'checkout-api',
+      until: '2026-08-26T13:58:00Z',
+      contains: 'answered in',
+    });
+    assert.equal(before.matched, 2, 'the fixture must show the gateway succeeding before the deploy');
+    for (const line of before.lines) assert.match(line.message, /2[34]\d\dms/);
+
+    const after = await callTool('search_logs', {
+      service: 'checkout-api',
+      since: '2026-08-26T14:00:00Z',
+      level: 'error',
+    });
+    for (const line of after.lines) assert.match(line.message, /replied at 2[34]\d\dms/);
+  }));
+
+test('and the logs carry noise a careless read can be wrong about', () =>
+  withServer(async ({ callTool }) => {
+    // Warnings that have nothing to do with the incident and do not move across it: an agent that
+    // names one of these has correlated with whatever was nearest rather than with what changed.
+    const noise = await callTool('search_logs', { service: 'checkout-api', level: 'warn' });
+    assert.ok(noise.matched >= 3);
+    assert.ok(noise.lines.some((l) => /X-Checkout-Legacy/.test(l.message)));
+
+    /**
+     * The red herring, and why the window is the trap.
+     *
+     * search-api logs one dictionary error a minute before checkout's first timeout. Read inside a
+     * ten-minute window it is a lone error beside an incident; read across the day it is hourly and
+     * predates everything, which is what the flat health series already said.
+     */
+    const near = await callTool('search_logs', {
+      service: 'search-api',
+      since: '2026-08-26T13:55:00Z',
+      until: '2026-08-26T14:05:00Z',
+      level: 'error',
+    });
+    assert.equal(near.matched, 1);
+
+    const all = await callTool('search_logs', { service: 'search-api', level: 'error' });
+    assert.equal(all.matched, 3);
+    assert.deepEqual(
+      all.lines.map((l) => l.at.slice(11, 16)),
+      ['11:59', '12:59', '13:59'],
+      'the herring has to be hourly, or widening the window proves nothing',
+    );
+  }));
+
+test('a window that cannot be read is refused, not quietly dropped', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * `since: "14:00"` is how a person says it and therefore how a model says it. Comparing the ISO
+     * strings directly sorted it below every line in the file, so the tool answered with all twelve
+     * - a filter silently dropped, and a reply that still reads as a searched window that came back
+     * busy.
+     */
+    const unreadable = await callTool('search_logs', { service: 'checkout-api', since: '14:00' });
+    assert.equal(unreadable.error, 'bad_timestamp');
+    assert.equal(unreadable.field, 'since');
+
+    // Backwards matches no line, and no line reads as a quiet service rather than as a bad question.
+    const backwards = await callTool('search_logs', {
+      service: 'checkout-api',
+      since: '2026-08-26T14:10:00Z',
+      until: '2026-08-26T14:00:00Z',
+    });
+    assert.equal(backwards.error, 'bad_window');
+
+    // And a window this desk can read still answers, on the same tool and the same service.
+    const honest = await callTool('search_logs', {
+      service: 'checkout-api',
+      since: '2026-08-26T14:00:00Z',
+      until: '2026-08-26T14:10:00Z',
+    });
+    assert.equal(honest.matched, 5);
+    assert.ok(honest.lines.every((l) => l.at >= '2026-08-26T14:00:00Z' && l.at <= '2026-08-26T14:10:00Z'));
+  }));
+
+test('an empty result says which of the two empties it is', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * A service this desk does not keep logs for, and a filter that excluded everything, are
+     * different findings and used to look identical. `matched: 0` beside `held: 12` is a filter;
+     * `not_found` is a service. An investigation that cannot tell them apart concludes the service
+     * was quiet, which is the false negative this whole fixture is arranged against.
+     */
+    const unknown = await callTool('search_logs', { service: 'checkout-ap' });
+    assert.equal(unknown.error, 'not_found');
+    assert.ok(unknown.known.includes('checkout-api'));
+
+    const filtered = await callTool('search_logs', { service: 'checkout-api', contains: 'kafka' });
+    assert.equal(filtered.matched, 0);
+    assert.equal(filtered.held, 12, 'the reply has to say the service was not quiet');
+    assert.equal(filtered.searched.contains, 'kafka');
+
+    // Same guard as the other two service lookups: every name on Object.prototype is truthy, and
+    // an empty list for `constructor` would read as a service this desk watches.
+    for (const name of ['toString', 'constructor', '__proto__']) {
+      assert.equal((await callTool('search_logs', { service: name })).error, 'not_found', name);
+    }
+  }));
+
+test('a substring search matches the way somebody would type it', () =>
+  withServer(async ({ callTool }) => {
+    // The sample error says `UpstreamTimeout`, so a case-sensitive search for `timeout` returned
+    // nothing from a service whose logs are nothing but timeouts.
+    const lower = await callTool('search_logs', { service: 'checkout-api', contains: 'upstreamtimeout' });
+    assert.equal(lower.matched, 5);
+
+    // And searching more text than anyone will type is refused by the schema, before the handler.
+    await assert.rejects(
+      () => callTool('search_logs', { service: 'checkout-api', contains: 'x'.repeat(500) }),
+      'a 500-character substring should not be accepted',
+    );
+  }));
+
+test('reading the logs changes nothing, which is what read-only has to mean', () =>
+  withServer(async ({ callTool }) => {
+    await callTool('search_logs', { service: 'checkout-api', level: 'error' });
+    await callTool('search_logs', { service: 'search-api' });
+    assert.equal((await callTool('list_actions_taken', {})).count, 0);
+
+    // Twice, identically: idempotentHint is published for this tool and nothing should make it a lie.
+    const first = await callTool('search_logs', { service: 'checkout-api' });
+    const second = await callTool('search_logs', { service: 'checkout-api' });
+    assert.deepEqual(first.lines, second.lines);
+  }));
+
+test('a restart does not clear the way to resolving', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * Found by security review. restart_service empties the health series - honestly, the readings
+     * really do not survive a restart - and the still-unhealthy guard skipped entirely when there
+     * was nothing to read. So restarting first walked straight through it.
+     *
+     * That is not an exotic order. It is what an agent does when its first remediation is a
+     * restart: two gated calls, both approved, and the second one closing an incident on the
+     * evidence of a series the first one deleted.
+     */
+    assert.equal(
+      (await callTool('resolve_alert', { alert_id: 'ALRT-4471', resolution: 'probe' })).error,
+      'still_unhealthy',
+    );
+
+    assert.equal((await callTool('restart_service', { service: 'checkout-api', reason: 'probe' })).ok, true);
+
+    const after = await callTool('resolve_alert', { alert_id: 'ALRT-4471', resolution: 'probe' });
+    assert.equal(after.error, 'no_readings', 'a desk that cannot see the service cannot say it recovered');
+    assert.match(after.message, /a restart clears them/);
+
+    // And the alert is still firing, because nothing resolved it.
+    const { alerts } = await callTool('list_alerts', { status: 'firing' });
+    assert.ok(alerts.some((a) => a.id === 'ALRT-4471'));
+  }));
+
+test('the health route publishes the state the metrics store has to agree with', () =>
+  withServer(async ({ callTool, health }) => {
+    /**
+     * The metrics store cannot verify a recovery on its own. It holds readings; whether those
+     * readings are still the current world is this desk's fact, and two copies of one fact drift.
+     * So the store reads this route, and what is on it is the smallest thing that lets it: the
+     * clock, what each service is running, and the order things were done in.
+     *
+     * `actions` keeps its place and its meaning, because smoke-agents.mjs reads it to spot a
+     * fixture somebody has already remediated on.
+     */
+    const before = await health();
+    assert.equal(before.actions, 0);
+    assert.equal(before.now, '2026-08-26T14:20:00Z');
+    assert.equal(before.deployed['checkout-api'], '4c21');
+    assert.deepEqual(before.remediations, []);
+
+    await callTool('rollback_deploy', { deploy_id: '4c21', reason: 'the timeout was cut below the gateway' });
+
+    const after = await health();
+    assert.equal(after.actions, 1);
+    assert.equal(after.now, '2026-08-26T14:21:00Z', 'the clock moved, and the store extends to it');
+    assert.equal(after.deployed['checkout-api'], '9ab7', 'and the service is on what the rollback returned it to');
+    assert.deepEqual(after.remediations, [
+      { action: 'rollback_deploy', service: 'checkout-api', to: '9ab7', at: '2026-08-26T14:21:00Z' },
+    ]);
+
+    /**
+     * The reason is deliberately not here.
+     *
+     * It is free text a model wrote, and the metrics store puts what it reads from this route into
+     * replies an agent reads next. Passing model prose through one server into another server's
+     * output is the shape of every injection in this project's threat model, and nothing downstream
+     * needs the reason to work out what is deployed.
+     */
+    assert.equal(JSON.stringify(after).includes('timeout was cut below the gateway'), false, 'no model-written prose on this route');
+    assert.equal(Object.hasOwn(after.remediations[0], 'reason'), false);
+
+    // And it is still what list_actions_taken says, because one journal feeds both.
+    const journal = await callTool('list_actions_taken');
+    assert.equal(journal.count, after.actions);
+    assert.equal(journal.actions[0].at, after.remediations[0].at);
+  }));

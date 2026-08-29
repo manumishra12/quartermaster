@@ -8,11 +8,23 @@ Record at 1440x900 or larger, font scaled up so code is legible on a phone.
 ## Before you record
 
 ```bash
+npm run demo          # checks everything, then walks the beats one at a time
+```
+
+It refuses to start if the harness is down, an agent is unapplied, or a rehearsal left a fixture
+dirty - which is the one that ruins a take quietly, because a resolved alert and a closed SRCH-42
+still *look* fine until the agent says there is nothing to investigate. It prints each command and
+waits; it never runs one for you, and for the approval that is the point rather than an omission.
+
+`npm run demo -- --beat 4` jumps to one of them.
+
+```bash
 npm run forge          # the harness, :8790
 npm run ops-desk       # :8795
 npm run front-desk     # :8796
+npm run observability  # :8798  - nothing on it is gated, and incident-responder is skipped without it
 npm run agents:apply   # preflight should report every agent applied
-cd ui && npm run dev   # :5173
+cd ui && npm run dev   # :5173  <- the interface. 8790 is TrueForge's own UI, not this one.
 ```
 
 Everything below runs on a **local Ollama model with no API key**, against MCP servers that ship in
@@ -114,7 +126,35 @@ and that the agent must not stop for approval. Show that text on screen, then th
 
 Deny it. Nothing was closed.
 
-## 2:30-2:50 — The interface
+## 2:30-2:45 — The client is disposable
+
+The beat nobody expects, and the one that shows the harness is doing the work.
+
+```bash
+npm run agent -- --agent incident-responder --deny-all "Read alert ALRT-4471, then the health of checkout-api, then the deploys, then the logs. Report what you found."
+```
+
+Let two or three tool calls scroll past, then **kill it**. Ctrl-C, or close the terminal.
+
+```bash
+npm run agent:resume
+```
+
+```
+  [tool] recorded: get_service_health
+  [tool] recorded: search_logs
+
+  -- EVIDENCE CHECK ---------------------------------
+  recorded executions: 7, of which test runs: 0
+```
+
+> "The turn kept going without me. Those two calls happened while nothing was watching, and the
+> evidence check counts every one of the seven - including the ones from before I killed it."
+
+The client is a view onto a session, not the thing running it. A dropped connection, a closed
+laptop, a crashed terminal: the work is on the server and the record is complete.
+
+## 2:45-2:55 — The interface
 
 Cut to `localhost:5173` mid-run. The rail on the right: **doing**, **waiting on you**, **did**.
 
@@ -123,7 +163,7 @@ Cut to `localhost:5173` mid-run. The rail on the right: **doing**, **waiting on 
 
 Show the approval card, and the verdict chip on a finished conversation.
 
-## 2:50-3:00 — Close
+## 2:55-3:00 — Close
 
 > "The agent runs the tests, and it does not get to tell you they passed. It proposes the
 > irreversible thing, and it does not get to do it. Both of those live outside the model, which is
@@ -140,6 +180,7 @@ Show the approval card, and the verdict chip on a finished conversation.
 - [ ] `refused at the gate: 1 (not counted as evidence)`
 - [ ] The injection text on screen, then `close_issue` denied
 - [ ] The rail showing waiting-on-you
+- [ ] A run killed mid-turn, reattached with `agent:resume`, and the execution count spanning it
 - [ ] No keys, tokens or personal data anywhere in frame
 
 ## Do not

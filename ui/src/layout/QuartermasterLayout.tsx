@@ -5,6 +5,10 @@ import { QuickActions } from './QuickActions';
 import { SheetContext } from './SheetContext';
 import { Topbar } from './Topbar';
 import { useCallback, useState } from 'react';
+import { useDialog } from './useDialog';
+import { useShortcuts } from './useShortcuts';
+import { Shortcuts } from './Shortcuts';
+import { useSidebarWidth, MIN_WIDTH, MAX_WIDTH } from './useSidebarWidth';
 import { useThemeControl } from './ThemeContext';
 
 /**
@@ -20,7 +24,21 @@ import { useThemeControl } from './ThemeContext';
 export function QuartermasterLayout({ className }: { className?: string }) {
   const { mode, resolved, onThemeChange, agentName } = useThemeControl();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const sidebar = useSidebarWidth();
   const closeSheet = useCallback(() => setSheetOpen(false), []);
+  const sheetRef = useDialog<HTMLElement>(sheetOpen, closeSheet);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+
+  useShortcuts({
+    // The composer is the SDK's; reached by role rather than by ref, because the ref belongs to it.
+    focusComposer: () => document.querySelector<HTMLTextAreaElement>('textarea')?.focus(),
+    toggleSidebar: () => setCollapsed((was) => !was),
+    // No search panel yet, so this opens the sheet where the conversations are - which is where
+    // somebody pressing it is trying to get to. Better than binding a key to nothing.
+    openSearch: () => setSheetOpen(true),
+    showHelp: () => setHelpOpen(true),
+  });
 
   /**
    * ComposerBusyProvider is wired by default inside <Thread />, which this layout does not use - it
@@ -33,12 +51,52 @@ export function QuartermasterLayout({ className }: { className?: string }) {
    */
   return (
     <ComposerBusyProvider>
-    <div className={['flex h-full flex-col bg-bg text-ink lg:flex-row', className].filter(Boolean).join(' ')}>
+    <div className={['flex h-full flex-col bg-bg text-ink md:flex-row', className].filter(Boolean).join(' ')}>
       <nav
         aria-label="Conversations and agent reach"
-        className="hidden w-64 shrink-0 border-r border-line-soft lg:block"
+        className={['relative shrink-0 border-r border-line-soft', collapsed ? 'hidden' : 'hidden lg:block'].join(' ')}
+        style={{ width: sidebar.width }}
       >
         <Sidebar mode={mode} resolved={resolved} onThemeChange={onThemeChange} />
+
+        {/*
+          * A drag handle for the one column whose contents are arbitrarily long.
+          *
+          * Conversation titles come from whatever somebody typed first, so a fixed column truncated
+          * most of them with no way to read the rest. It is a separator by role, operable by
+          * pointer and by keyboard, and it reports its bounds so a screen reader can say where the
+          * edge currently sits.
+          */}
+        {/*
+          * A focusable separator carrying aria-valuenow is the ARIA window-splitter pattern, which
+          * this rule does not model: it sees an interactive element given a "non-interactive" role
+          * and objects, and objects the other way round if the same thing is built from a div. A
+          * button is the better base - focusable and keyboard-operable without being told to be.
+          */}
+        <button
+          type="button"
+          // eslint-disable-next-line jsx-a11y/no-interactive-element-to-noninteractive-role
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize the conversation list"
+          aria-valuenow={sidebar.width}
+          aria-valuemin={MIN_WIDTH}
+          aria-valuemax={MAX_WIDTH}
+          onPointerDown={sidebar.onPointerDown}
+          onKeyDown={sidebar.onKeyDown}
+          onDoubleClick={() => sidebar.set(256)}
+          title="Drag to resize. Double-click to reset."
+          className={[
+            // touch-action tells the browser this gesture is ours. Without it a touchscreen drag
+            // is claimed as a scroll and arrives as pointercancel, ending the resize instead of
+            // performing it - pointer capture and preventDefault do not substitute for it.
+            'absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize touch-none',
+            'after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2',
+            'after:bg-transparent hover:after:bg-accent focus-visible:after:bg-accent',
+            'focus-visible:outline-none',
+            sidebar.dragging ? 'after:bg-accent' : '',
+          ].join(' ')}
+        />
       </nav>
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -62,10 +120,12 @@ export function QuartermasterLayout({ className }: { className?: string }) {
             </>
           }
         />
-        <FooterLinks />
+        <FooterLinks onShowShortcuts={() => setHelpOpen(true)} />
       </main>
 
       <StatusRail />
+
+      {helpOpen && <Shortcuts onClose={() => setHelpOpen(false)} />}
 
       {sheetOpen && (
         <div className="fixed inset-0 z-30 flex lg:hidden">
@@ -78,8 +138,18 @@ export function QuartermasterLayout({ className }: { className?: string }) {
           {/* Choosing a conversation closes the sheet. Being left staring at the drawer covering
               the conversation it just opened is the sheet failing at the one thing it exists for. */}
           <nav
+            /**
+             * A dialog, and now treated as one. It took no focus when it opened, Tab walked
+             * straight into the conversation underneath it, and no key closed it - so on a phone
+             * with a keyboard the only way out was the overlay, which is not reachable by keyboard
+             * either.
+             */
+            ref={sheetRef}
+            role="dialog"
+            aria-modal="true"
+            tabIndex={-1}
             aria-label="Conversations and agent reach"
-            className="relative w-72 max-w-[85vw] border-r border-line-soft bg-bg shadow-[var(--qm-shadow)]"
+            className="relative w-72 max-w-[85vw] border-r border-line-soft bg-bg shadow-[var(--qm-shadow)] focus:outline-none"
           >
             <SheetContext.Provider value={closeSheet}>
               <Sidebar mode={mode} resolved={resolved} onThemeChange={onThemeChange} />

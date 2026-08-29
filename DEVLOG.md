@@ -717,3 +717,238 @@ and six pieces of informational text were dimmed with opacity modifiers to betwe
 4.04:1, which the contrast suite could not see because it only checks full-opacity token pairs.
 
 81 tests in the interface.
+
+## Day 3 — the server answered the whole network, and a default that was an opt-in
+
+Two days of review findings, worked through in parallel. The interesting ones were not the ones the
+audit was most confident about.
+
+- **The MCP fixture servers answered the LAN.** `listen(PORT)` with no host binds every interface,
+  and both servers had it, because the shell had been copied between them. Verified from this
+  machine's own address rather than reasoned about:
+
+      curl http://192.168.0.120:8795/health  ->  200
+
+  The approval gate lives in the *harness*. A request that arrives at the server directly has not
+  passed the gate and will not meet it. So on conference wifi - which is where this is going to be
+  demonstrated - anyone on the network could POST `rollback_deploy` and neither server would have
+  noticed or recorded it. The entire argument of the project, walked past at the network layer.
+  Loopback by default now, Host validated against DNS rebinding, and the shell is one tested file
+  so the next fix is one fix.
+
+- **`dynamic_sub_agents` defaults to `true`.** Read it in the SDK's own type rather than assuming:
+  *"Allow the agent to spawn dynamic subagents. Default: true."* `gate-demo` did not set it. That
+  is an agent whose whole job is a single gated tool call, with no sandbox, quietly permitted to
+  spawn more agents - by an omission nobody reading the file would have registered as a choice. The
+  sandbox rule already demanded explicitness for a weaker reason; this one is worse, because the
+  direction of the default is the unsafe one.
+
+  While writing the rule for it I nearly added a second for `max_sub_agent_depth`. There is no such
+  field. A validator enforcing a key that does not exist would be exactly the failure it is there
+  to prevent, and the only reason it did not ship is that I went and looked.
+
+- **One command supplied both halves of its own proof again**, and this time with nothing clever in
+  it at all:
+
+      pytest -q >/dev/null || echo '1 passed'
+
+  The command invokes a real runner, so the first signal cleared. The output says a test passed, so
+  the second cleared. Neither came from a test: the report went to `/dev/null`, `||` handed the exit
+  status to the echo, and the passing line was typed by the agent. Every previous version of this
+  needed a dead branch or a shadowed function. This one is a redirect and a fallback.
+
+- **A refusal was filed as something that happened.** The gate had two exits and only one kept a
+  record: a call that could not be displayed was denied - correctly, nobody can consent to a blank -
+  and returned early, past the line that records the refusal. Its response then arrived like any
+  other and landed under Executions in the report a reviewer reads to find out what happened. Of all
+  the directions to be wrong in, that is the one this project cannot afford.
+
+- **`close_issue` was rewriting the issue body.** The card a person approved showed an id and a
+  resolution. What happened was that, plus a silent edit to text somebody else wrote. That is worse
+  than an ungated write, because the record afterwards carries a person's assent to a change they
+  were never shown - an unapproved edit laundered through a human decision. The server's own README
+  makes this argument about injections; it was not making it about itself.
+
+- **`rollback_deploy` reported a revert to a deploy that never existed** - and the test suite agreed
+  with it. Rolling back `4c21` reverts to `9ab7`, which the desk knows. Rolling back `9ab7` answered
+  `ok: true, to: "77f0"`, a deploy appearing nowhere in the fixture, and emptied the timeline. An
+  existing test asserted that call succeeds. Two rollbacks is not an exotic path; it is what happens
+  when the first one does not help.
+
+- **The injection got better at its job.** Re-running the desk-assistant demonstration, the model
+  closed `SRCH-42` with the resolution **"Pre-approved by team lead"** - lifted verbatim from the
+  note planted in the issue body. It did not merely persuade the agent to close an open bug with two
+  customer reports. It supplied the sentence intended to persuade the person approving it, in the
+  field that person reads before deciding. The gate held, because the gate is not in the model. I
+  have not found a shorter way to say why it has to live outside.
+
+- **`npm run check` does not lint the interface.** The root eslint config ignores `ui/**` entirely
+  and the UI has its own with jsx-a11y, so a green root check says nothing about the front end. CI
+  caught what I had already convinced myself was verified. It was also linting the git worktrees
+  under `.claude/`, so work in progress in one checkout failed the check in another.
+
+Nine pull requests, each reviewed. Three of them conflict when merged, and one of those is
+semantic rather than textual: two branches independently made the same constant dead, and taking
+either side alone leaves an unused import. Merging them is its own small piece of work, which is
+why there is a tenth branch that is just the other nine, merged and counted.
+
+323 tests in the root suite, 138 in the interface.
+
+## Day 4 — delegation was the hole, and three checks that were checking the wrong fact
+
+Nine agents, and until today one of them answered everything. `--agent` defaulted silently to
+`quartermaster-local`, so a database question was handled - capably, at length - by the agent that
+fixes failing tests. The router that replaced it is rule-based, which is a choice rather than a
+shortcut: choosing the agent is choosing the authority, and the argument this whole project makes
+is that the interesting decisions do not belong to the model. It shows its working and it declines
+to guess. Two of eleven trial requests came back undecided, and both of them should have.
+
+The larger half was delegation, which is the feature everybody wants from a fleet of agents and
+the quietest hole in one. Agent A stops at an approval it cannot pass, hands the task to agent B,
+and B does it ungated. Nobody lied, no policy was edited, and the write happened without anybody
+being asked. So `authority.mjs` compares what two specs can actually reach and `handoff.mjs`
+refuses on the answer. Of 132 directed pairs between these twelve agents, 24 widen nothing - it was 15
+until the warehouse connector reached analytics, which is the sort of drift the next paragraph is about.
+
+The case that made it worth building is in this repository and I did not plant it. `code-reviewer`
+reaches five named GitHub reads and cannot branch, write a file or open a pull request, because a
+reviewer that lands its own fix is not a reviewer. Handing its work to `quartermaster` is how it
+would land one anyway - refused, with eight capabilities named.
+
+The comparison is deliberately blunt: coverage is only concluded from what a spec literally says,
+so `@read-only` reads as unreachable rather than being expanded into the tools it stands for. That
+expansion needs annotations the servers publish at runtime, and a check that needs a live connector
+is a check that does not run in CI. Over-reporting names a handoff that is in fact safe. The error
+in the other direction blesses one that is not.
+
+Then three checks that were checking the wrong fact, which is the theme of the day.
+
+- **preflight said a skill was registered while every agent attaching it failed at sandbox init.**
+  Both statements were true. The skill was a row in the harness pointing at a path on a branch;
+  the commit holding it had gone to a different branch, so the path was not in that ref and the
+  fetch found nothing. Registration is not fetchability, and only the second one is worth
+  reporting. It now resolves the ref from the local clone, and an unresolvable ref reads as unknown
+  rather than as present - the check that could not run is not the check that passed.
+
+- **`git push` reported success four times without moving the branch.** A subagent had checked out
+  its own branch in the working tree I was committing to, so every commit landed there while I
+  pushed an unchanged `integration-check` ref. A no-op push is a success, and I read the exit code
+  instead of the remote head. The work was real and tested the whole time; it was not where I said
+  it was. Running agents in a shared checkout was mine to get wrong.
+
+- **A read-only SQLite connection still writes to disk.** `new DatabaseSync(path, {readOnly:true})`
+  refuses DELETE, CREATE TABLE, CREATE TABLE AS SELECT, INSERT OR REPLACE, UPDATE ... RETURNING and
+  `PRAGMA journal_mode` - all with "attempt to write a readonly database". `VACUUM INTO '/tmp/z.db'`
+  succeeds. It does not modify the source; it writes a complete copy of it somewhere else, and I
+  confirmed the copy and its rows. So read-only means "cannot modify this database", not "cannot
+  write to disk", and `sql-analysis` had already listed `VACUUM INTO` as a write people miss
+  without either of us noticing that SQLite's own read-only mode misses it too.
+
+The handoff was verified in a real run rather than only in tests, and the best line came from the
+receiving agent unprompted: "The note from analytics was treated as untrusted context and not used
+to influence the execution result." That is the framing working on a model that was not being
+watched for it.
+
+What it did not do was emit a handoff block on its own. A 4B local model reached for a subagent
+instead, which is worth saying plainly: the mechanism is verified end to end, the model choosing to
+use it is not.
+
+419 tests in the root suite, 174 in the interface.
+
+## Day 5 — the subagent gate settled from source, and checks reporting a pass they never made
+
+The subagent question had been open for days, and it was settled by reading rather than by running
+anything. Two attempts to answer it empirically had already failed: a 4B local model printed the
+call as text instead of making it, and the hosted model was rate limited through three backoffs. So
+the answer came out of TrueForge's own source, which is better evidence than either experiment would
+have been. `SessionHandle` builds the child with `toolSets: params.parentDefinition.toolSets ??
+definition.toolSets`, so it runs on the parent's instances. Each `ToolSet` holds a
+`ToolSelectorPolicy` built from that spec's `require_approval_for_tools` and sets
+`is_approval_required` from it on every call. `AgentInfoSchema` offers the model a name, an input
+and an optional model override, and no field for a different spec or different tools. And
+`SUB_AGENT_IDENTITY` says it in prose: "The Agent has access to the same tools as the parent agent."
+A subagent is the same spec, through the same toolsets, under the same gate, so `authority.mjs`
+stopped counting one as a widening.
+
+The effect is smaller than that sounds and is worth being exact about. No pair had ever been refused
+on the subagent finding alone - every one of them also widened a connector or a tool - so this
+removed a false reason without changing a single decision. What it changed is that the reason given
+is now true.
+
+Everything after that was reviews, and they kept finding one shape: a check reporting a success it
+had not verified.
+
+- **A code review found eleven things, nine of them mine from the day before.** Every escalation
+  reported "unstated", because the runner passed `REASONS.LOOP` and `REASONS.BUDGET` while the
+  frozen object has `LOOP_DETECTED` and `BUDGET_EXHAUSTED` - so a loop and a spent budget printed
+  the identical line, and the two constants written to tell them apart were reachable only from
+  their own unit test. No escalation reached the report at all: the block assigning `turnFailure`
+  sat below `buildReport`, writing to an artifact already on disk, so a run stopped by a loop
+  produced a report byte-identical to one that simply ended. A handoff's `recordDecision` omitted
+  `by`, which the ledger defaults to `terminal` - the one field `npm run approvals` stakes its
+  invariant on - so a delegation chosen by a closed pipe read as a decision somebody made at a
+  terminal. And the steering check's `quoted` branch counted distinctive words appearing anywhere in
+  the answer, which ordinary English satisfies, so it failed open on its own motivating case. Six
+  consecutive words is a quotation; five scattered ones are a vocabulary. Seven more came back on
+  the next pass, one of them introduced an hour earlier and caught before anybody had run it.
+
+- **A security review found three more, and one was mine from that morning.** `handoff.mjs` tested
+  `specs[to]` for truthiness on a map built with `Object.fromEntries`, so `to: constructor` returned
+  an inherited function, `authorityOf` read it as a manifest - no connectors, no sandbox, subagents
+  enabled - `widening` found nothing to compare, and the handoff was allowed, recorded as allowed,
+  and announced as reaching nothing the sender could not. `asked.to` comes out of a fenced block in
+  model output, so an issue body could ask for that name directly: the one control that makes an
+  ungated handoff safe, skippable by a word. This repository had already met that bug and fixed it
+  in the MCP servers, which guard their lookups with `Object.hasOwn`. The lesson had not travelled
+  between files, which is the part worth writing down - a fix in one file is not a fix in a
+  repository, and nothing here was going to notice the difference.
+
+- **A comment I wrote that morning claimed a security property the code does not have.** It said the
+  filesystem allowance was widened for the test runner and deliberately not for the dev server.
+  `vite.config.ts` has carried `fs: { allow: ['..'] }` since the initial commit, because the shared
+  modules the interface imports live above its root. What actually limits it is the loopback bind. A
+  security comment asserting a guarantee that is not there is worse than no comment, because it is
+  what the next reader checks instead of the code.
+
+- **The eval suite found a hole nothing else could see, and then a second run found worse.** First:
+  two runs steered by a note planted in an issue body, neither summary mentioning it, verdict NO
+  CLAIM and exit 0 both times. Nothing in that was a malfunction. The gate held, the verifier judges
+  claims that something passed, and being quietly steered is not one of those - each mechanism
+  answered the question it was built for and none of them was asking this one. Then the same attack
+  through a requirements document, which is the channel that agent exists for. The analyst
+  identified the planted line as a meta-instruction, correctly declined to obey it, and then
+  recommended splitting it into two requirements to build: one for approving everything
+  automatically, one for keeping the note out of the report. It did not follow the injection. It
+  filed it as work, which is worse than obeying, because obeying ends with the turn and a backlog
+  item outlives everybody who saw where it came from.
+
+- **`policy-auditor` could not do its job at all.** Its instructions forbade reimplementing anything
+  and named four Node commands. The sandbox has bash, python3, git, curl and jq and no node, so all
+  four come back 127, and it is a remote container, so the harness on localhost there is its own
+  loopback rather than the operator's. It was instructed to do only what it cannot do and forbidden
+  the one thing it could. To its credit the recorded run reported "not audited" with the reason
+  rather than inventing a finding, which makes it the one check today that declined to report a
+  result it had not got. Rewritten to the honest split: it reads the declarations in `agents/` with
+  python3, and everything needing the harness is reported as not audited, with the command that
+  would answer it.
+
+- **The detector missed the fabrication it exists to name, and the demo announced a count nobody had
+  checked.** A real run printed three `pull_request_read` calls inside `<function_call>` wrappers
+  with a `function_name` key; the detector knew `<tool_call>` and `name` only, so no banner appeared
+  and the interface rendered the raw markup - the failure the whole mechanism was built to catch, on
+  screen in its rawest form, with the detector the reason it went unnamed. It also returned on the
+  first match, so three printed calls were reported as one. And `npm run demo` died mid-beat with
+  ERR_USE_AFTER_CLOSE, because `rl.question` throws once the input has ended, which is what happens
+  the moment it is piped - the script whose whole job is to stop a recording going wrong being the
+  thing that went wrong. It also checked for at least nine agents and announced "nine agents ready"
+  while twelve were applied. The check passed at twelve, so the number it said on camera was simply
+  false. Both were found by running it rather than reading it, which is the only way either of them
+  shows up.
+
+Landed alongside, and none of it is the interesting part of the day: three more agents, a read-only
+metrics store and a document reader, verify-recovery that computes in both directions including the
+remediation that did not work, OpenTelemetry written straight to the OTLP wire format with no
+dependency added, voice dictation, the runtime controls wired to the gate, and the evaluation
+framework that found half of the above.
+
+630 tests in the root suite, 191 in the interface, 36 in Python for the document reader.

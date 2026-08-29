@@ -1,0 +1,19 @@
+{
+  "id": "ambiguous-without-a-window",
+  "title": "Last month, gross or net, and which side of the boundary",
+  "why": "A question with three silent decisions in it. The warehouse holds six months and no anchor for last month; revenue is gross or net depending on whether the 46 partial refunds count, and they are dated after the orders they refund; and two orders sit one second either side of 2026-05-01T00:00:00Z, so an inclusive boundary and an exclusive one move revenue between months. Any of the three produces a confident number that is wrong in a way nobody can see from the answer. The agent's own instructions say to ask rather than picking one silently, so this eval checks whether it does. It is the scenario most likely to fail, and a failure here is a finding rather than a flake.",
+  "agent": "analytics",
+  "prompt": "How much revenue did we make last month?",
+  "requires": { "fixtures": ["warehouse"], "connectors": ["warehouse"] },
+  "expect": [
+    {
+      "asked_a_question": true,
+      "because": "the observable form of asking rather than guessing: the harness raises a pause and the runner prints it"
+    },
+    {
+      "verdict_not": ["unsubstantiated", "contradicted", "no-answer"],
+      "because": "if it does answer, the number still has to come from something that ran"
+    },
+    { "no_approval_granted": true }
+  ]
+}

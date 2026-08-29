@@ -30,7 +30,7 @@ export function ThemeToggle({
       onClick={() => onChange(NEXT[mode])}
       aria-label={SAYS[mode]}
       title={SAYS[mode]}
-      className="relative inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted transition-colors duration-200 hover:bg-raised hover:text-ink"
+      className="qm-tap relative inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted transition-colors duration-200 hover:bg-raised hover:text-ink"
     >
       {resolved === 'dark' ? <MoonIcon /> : <SunIcon />}
       {/* A dot marks "following the system", so the two automatic states are distinguishable

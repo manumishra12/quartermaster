@@ -1,6 +1,9 @@
 import { Children, isValidElement, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useNow } from './useNow';
+import { useThreadVerdict, type Verdict } from './useThreadVerdict';
 import { useAuiState } from '@truefoundry/trueforge-ui/assistant-ui';
-import { ChatIcon, PencilIcon } from './icons';
+import { ThreadListPrimitive } from '@assistant-ui/react';
+import { ChatIcon, PencilIcon, PlusIcon } from './icons';
 import { useCloseSheet } from './SheetContext';
 import { useThreadTitle } from './useThreadTitle';
 
@@ -30,6 +33,7 @@ export function ThreadRow({
   actions?: ReactNode;
 }) {
   const closeSheet = useCloseSheet();
+  const now = useNow();
 
   /**
    * The row renders inside the SDK's thread-list item, so the session it belongs to is readable
@@ -56,6 +60,7 @@ export function ThreadRow({
   });
   const ids = useMemo(() => idKey.split('\u0000').filter(Boolean), [idKey]);
   const { title: shown, canRename, rename } = useThreadTitle(ids, title);
+  const verdict = useThreadVerdict(ids);
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(shown);
@@ -150,9 +155,17 @@ export function ThreadRow({
           closeSheet();
         }}
         aria-current={active ? 'true' : undefined}
+        aria-label={shown}
         className="min-w-0 flex-1 cursor-pointer text-left"
       >
+        {/*
+          * The full title is reachable three ways, because a truncated one is unreadable and the
+          * title is the only thing distinguishing two conversations: the native tooltip on hover,
+          * the accessible name for a screen reader, and the rename field, which shows the whole
+          * string in an input you can scroll through.
+          */}
         <span
+          title={shown}
           className={[
             'block truncate text-xs leading-snug',
             active ? 'font-medium text-ink' : 'text-ink',
@@ -160,16 +173,27 @@ export function ThreadRow({
         >
           {shown}
         </span>
-        {agentName && <span className="mt-0.5 block truncate text-2xs text-muted">{agentName}</span>}
+        <span className="mt-0.5 flex items-center gap-1.5">
+          {agentName && <span className="truncate text-2xs text-muted">{agentName}</span>}
+          {verdict && <VerdictChip verdict={verdict} />}
+        </span>
       </button>
 
       {lastMessageAt && (
+        /**
+         * The exact time is on the element as well as the relative one. The compact form is for
+         * scanning a list; the moment somebody actually wants to know when something happened,
+         * "3d" is the wrong answer and there was nowhere else to look.
+         *
+         * One `time`, not two. This was a `time` wrapping a `time` with the same dateTime, which is
+         * invalid and leaves a screen reader announcing the same instant twice.
+         */
         <time
           dateTime={lastMessageAt.toISOString()}
           title={lastMessageAt.toLocaleString()}
           className="qm-nums mt-0.5 shrink-0 text-2xs text-muted"
         >
-          {ago(lastMessageAt)}
+          {ago(lastMessageAt, now)}
         </time>
       )}
 
@@ -178,14 +202,34 @@ export function ThreadRow({
         * row, always visible, would compete with the titles it is there to serve. focus-within
         * keeps it reachable by keyboard, where hover never happens.
         */}
-      <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+      {/*
+        * Visible on hover and on focus, and always visible where there is no hover at all.
+        *
+        * `opacity-0` with only a hover rule meant that on a touch screen the rename control was
+        * permanently invisible while still occupying space and accepting taps - a feature nobody
+        * could find on the devices least able to guess it was there.
+        */}
+      {/**
+        * The active row keeps its controls on screen.
+        *
+        * Hiding them until hover was right for the other rows - a pencil on every line competes
+        * with the titles it exists to serve - and wrong for the one you are in, which is the only
+        * conversation you are likely to rename and the one whose controls you go looking for.
+        * Faded rather than absent on the rest, so the affordance is still discoverable.
+        */}
+      <span
+        className={[
+          'flex shrink-0 items-center gap-1 transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100',
+          active ? 'opacity-100' : 'opacity-0',
+        ].join(' ')}
+      >
         {canRename && (
           <button
             type="button"
             onClick={startEditing}
             aria-label={`Rename ${shown}`}
             title="Rename"
-            className="cursor-pointer rounded p-1 text-muted hover:bg-surface hover:text-ink"
+            className="qm-tap grid size-8 cursor-pointer place-items-center rounded text-muted hover:bg-surface hover:text-ink"
           >
             <PencilIcon />
           </button>
@@ -196,9 +240,63 @@ export function ThreadRow({
   );
 }
 
-/** Compact relative time: the list is scanned, not read. */
-function ago(date: Date): string {
-  const seconds = Math.max(0, (Date.now() - date.getTime()) / 1000);
+/**
+ * How a conversation ended, small enough to scan a column of them.
+ *
+ * Colour is never the only signal here, as everywhere else in this interface: each carries a word,
+ * and the two that matter most - a claim the record contradicts, and a claim it supports - are the
+ * two that read differently in a single glance.
+ */
+const CHIPS: Record<Verdict, { label: string; tone: string; title: string }> = {
+  substantiated: {
+    label: 'proved',
+    tone: 'border-verified/40 text-verified',
+    title: 'The answer claimed something and the recorded runs support it',
+  },
+  contradicted: {
+    label: 'contradicted',
+    tone: 'border-failed/50 text-failed',
+    title: 'The answer claimed something the recorded runs contradict',
+  },
+  unsubstantiated: {
+    label: 'unproved',
+    tone: 'border-waiting/50 text-waiting',
+    title: 'The answer claimed something with no recorded run behind it',
+  },
+  no_claim: {
+    label: 'no claim',
+    tone: 'border-line text-muted',
+    title: 'The answer made no claim that needed proving',
+  },
+  no_answer: {
+    label: 'no answer',
+    tone: 'border-line text-muted',
+    title: 'No answer text was captured, so there was nothing to check',
+  },
+};
+
+function VerdictChip({ verdict }: { verdict: Verdict }) {
+  const chip = CHIPS[verdict];
+  return (
+    <span
+      title={chip.title}
+      className={['shrink-0 rounded-full border px-1.5 text-2xs leading-4', chip.tone].join(' ')}
+    >
+      {chip.label}
+    </span>
+  );
+}
+
+/**
+ * Compact relative time: the list is scanned, not read.
+ *
+ * Takes `now` rather than reading the clock, so a caller that wants it to advance can pass a value
+ * that changes. Reading Date.now() inside meant the label was computed once and then sat there -
+ * a conversation stayed "now" for as long as nothing else happened to re-render the list, which on
+ * an idle screen is indefinitely.
+ */
+function ago(date: Date, now: number): string {
+  const seconds = Math.max(0, (now - date.getTime()) / 1000);
   if (seconds < 60) return 'now';
   const minutes = seconds / 60;
   if (minutes < 60) return `${Math.floor(minutes)}m`;
@@ -220,7 +318,27 @@ export function ThreadList({ header, children }: { header: ReactNode; children: 
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-baseline justify-between gap-2 px-5 pb-2 pt-4">
+      {/**
+        * Starting a new conversation was possible and not visible: the SDK exposes it, and nothing
+        * in this layout offered it - so the only route was to finish or abandon the one you were
+        * in. It is the primary action of the column, so it looks like one, and it sits above the
+        * list rather than under it because the list can be long.
+        */}
+      <div className="px-2 pb-1 pt-3">
+        <ThreadListPrimitive.New asChild>
+          <button
+            type="button"
+            className="qm-tap flex min-h-9 w-full cursor-pointer items-center gap-2 rounded-lg border border-line px-2.5 text-sm text-ink transition-colors duration-200 hover:border-accent hover:bg-accent-wash"
+          >
+            <span aria-hidden className="text-accent">
+              <PlusIcon />
+            </span>
+            New conversation
+          </button>
+        </ThreadListPrimitive.New>
+      </div>
+
+      <div className="flex items-baseline justify-between gap-2 px-5 pb-2 pt-3">
         <h2 className="text-2xs font-[550] uppercase tracking-[0.07em] text-muted">Conversations</h2>
         {count > 0 && <span className="qm-nums text-2xs text-muted">{count}</span>}
       </div>

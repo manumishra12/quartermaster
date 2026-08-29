@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { ThreadListContainer, useServerCapabilities } from '@truefoundry/trueforge-ui';
 import { useTrueFoundryAgentSpec } from '@truefoundry/assistant-ui-runtime';
 import { ThemeToggle } from './ThemeToggle';
@@ -43,7 +44,7 @@ export function SidebarHeader({
           type="button"
           onClick={onOpenSidebar}
           aria-label="Open conversations and what this agent can reach"
-          className="inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-line-soft bg-surface transition-colors duration-200 hover:border-accent"
+          className="qm-tap inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-line bg-surface transition-colors duration-200 hover:border-accent"
         >
           <img src="/mark.svg" alt="" width={18} height={18} />
         </button>
@@ -160,9 +161,31 @@ function Row({ label, note, warn = false }: { label: string; note: string; warn?
  * answered their question. Real destinations only - a link to a page that does not exist is worse
  * than no link, because it costs a click to discover.
  */
-export function FooterLinks() {
-  // Null while loading or if the call failed - the SDK's own documented semantics.
+export function FooterLinks({ onShowShortcuts }: { onShowShortcuts?: () => void } = {}) {
+  // Null while loading or if the call failed - the SDK's own documented semantics, and the reason
+  // this needs a third state rather than two.
   const capabilities = useServerCapabilities();
+
+  /**
+   * Three states, because null means two different things.
+   *
+   * Reading null as "not answering" meant every fresh page load accused the harness of being down
+   * for as long as the first request took - on the one line that is the only connectivity
+   * statement on screen below the large breakpoint. Saying a running server is down is a worse
+   * error than saying nothing yet, and it is the error somebody sees first.
+   *
+   * The grace period is a heuristic and is worth naming as one: the SDK reports null for both
+   * cases and offers nothing to tell them apart, so this waits before drawing a conclusion rather
+   * than pretending to know. Two and a half seconds is longer than a local harness takes to answer
+   * and shorter than anybody's patience.
+   */
+  const [waited, setWaited] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setWaited(true), 2500);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const health = capabilities ? 'connected' : waited ? 'down' : 'checking';
 
   const links = [
     { label: 'Repository', href: 'https://github.com/manumishra12/quartermaster' },
@@ -172,6 +195,22 @@ export function FooterLinks() {
 
   return (
     <footer className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line-soft px-5 py-2.5 text-2xs text-muted">
+      {/**
+        * A way to the shortcuts that is not a shortcut.
+        *
+        * `?` opens the list, which is only useful to somebody who already knows to press it. The
+        * reference design puts Shortcuts in the sidebar for that reason, and a keyboard nobody can
+        * find is a keyboard nobody uses.
+        */}
+      {onShowShortcuts && (
+        <button
+          type="button"
+          onClick={onShowShortcuts}
+          className="qm-tap cursor-pointer rounded transition-colors duration-200 hover:text-ink"
+        >
+          Shortcuts
+        </button>
+      )}
       {links.map(({ label, href }) => (
         <a
           key={label}
@@ -188,9 +227,12 @@ export function FooterLinks() {
           below the large breakpoint it is the only connectivity statement on screen. */}
       <span className="ml-auto inline-flex items-center gap-1.5">
         <span
-          className={['inline-block size-1.5 rounded-full', capabilities ? 'bg-verified' : 'bg-muted'].join(' ')}
+          className={[
+            'inline-block size-1.5 rounded-full',
+            health === 'connected' ? 'bg-verified' : health === 'down' ? 'bg-failed' : 'bg-muted',
+          ].join(' ')}
         />
-        {capabilities ? 'harness connected' : 'harness not answering'}
+        {health === 'connected' ? 'harness connected' : health === 'down' ? 'harness not answering' : 'checking harness'}
       </span>
     </footer>
   );

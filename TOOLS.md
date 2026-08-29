@@ -17,20 +17,113 @@ Everything Quartermaster is allowed to touch, and what is gated. Kept in sync wi
 
 ## 2. MCP connectors
 
-| Server | Auth | Phase | Tools enabled | Approval |
+| Server | Auth | Agent | Tools enabled | Approval |
 | --- | --- | --- | --- | --- |
-| **GitHub** (shipped catalog) | header (PAT) | `quartermaster` | `@read-only` + 5 named writes (see section 7) | `["@write", "@destructive"]` + those 5 by name |
+| **GitHub** (shipped catalog) | header (PAT) | `quartermaster`, `code-reviewer`, `gate-demo` | `@read-only` + named writes, different per agent (see section 7); `gate-demo` gets one | `["@write", "@destructive"]` + those writes by name |
 | **Exa** (shipped catalog) | none | `research-desk` | `@read-only` | `["@write", "@destructive"]` - nothing it exposes is a write |
 | **deepwiki** (shipped catalog) | none | both quartermasters | 3 tools by name | `["@write", "@destructive"]` |
-| **Sentry** (shipped catalog) | OAuth (DCR) | `incident-responder` | `@read-only` - unaudited, so writes are not enabled at all | `["@all"]` |
-| **Linear** (shipped catalog) | OAuth (DCR) | `desk-assistant` | `@read-only` - unaudited, so writes are not enabled at all | `["@all"]` |
+| **ops-desk** (ours, `mcp/ops-desk`) | none | `incident-responder` | `@read-only` + `rollback_deploy`, `restart_service`, `resolve_alert` | all three by name, plus `["@write", "@destructive"]` |
+| **front-desk** (ours, `mcp/front-desk`) | none | `desk-assistant` | `@read-only` + `create_issue`, `update_issue`, `close_issue`, `comment_on_issue`, `bulk_close_issues`, `send_message`, `send_email`, `post_to_channel` | all eight by name, plus `["@write", "@destructive"]` |
+| **front-desk** (ours, `mcp/front-desk`) | none | `requirements-analyst` | five reads by name plus `create_issue` - it files tickets and does nothing else to the workspace | `create_issue` by name, plus `["@write", "@destructive"]` |
+| **warehouse** (ours, `mcp/warehouse`) | none | `analytics` | all five by name, no tag | `["@write", "@destructive"]`, which today match nothing - see below |
+| **observability** (ours, `mcp/observability`) | none | `incident-responder` | all eight by name, no tag | `["@write", "@destructive"]`, which today match nothing - same argument |
+| **documents** (ours, `mcp/documents`) | none | `requirements-analyst` | all four by name, no tag | `["@write", "@destructive"]`, which today match nothing - same argument |
+
+### An approval policy on a connector where every tool is a read
+
+`warehouse`, `observability` and `documents` gate nothing today, and all three policies are still
+`["@write", "@destructive"]` rather than `[]`. The two choices say the same thing about today and
+opposite things about tomorrow: an empty policy means every tool on that server runs ungated forever,
+including one added next week, and the spec validator refuses it for exactly that reason. The tags
+are a standing instruction that costs nothing to keep.
+
+An approval prompt in front of a read would be worse than nothing anyway. It teaches the operator
+that the prompt is noise, and the next one they wave through is a rollback. That is not a
+hypothetical for `incident-responder`: it reaches both a connector where everything is a read and a
+connector with three irreversible actions on it, in the same turn. Eight prompts nobody needed
+before the one that matters is how the one that matters gets waved through.
+
+Where those connectors actually fail closed is the admission list: all five warehouse tools, all
+eight observability tools and all four documents tools are named rather than reached with
+`@read-only`, so a tool any of the three grows later is not enabled at all until somebody adds it to
+the spec on purpose. That is the preference this document argues for in section 2a, applied to
+servers that have nothing to gate.
+
+### `documents`, where the policy is not what stops it
+
+`documents` is the one connector here whose interesting boundary is not the approval gate at all.
+Every one of its four tools is a read, all four publish `readOnlyHint: true`, and the gate has
+nothing to fire on. What it does instead is take a filesystem path from the model, which is the whole
+of its attack surface, and confine it.
+
+| Tool | What it answers | Gated |
+| --- | --- | --- |
+| `read_document` | the text, with the extraction report in front of it | no |
+| `list_pages` | per-page method, status, character count and notes, and **no text** | no |
+| `parse_requirements` | a requirement list, each item with the classification in words | no |
+| `ocr_status` | whether a scanned page can be read on this machine, and what to install if not | no |
+
+Confinement is two layers, and the order is the guarantee. Every path is handed to the operating
+system to resolve first, and only the answer is compared against a root that was itself resolved at
+startup; the name, extension and content rules that follow are the residue, not the boundary. The
+server's README is blunt that layer 2 will miss a secret written in prose in a `.md` file, because a
+reader who mistakes it for the boundary will start improving it into one. Nothing is handed to a
+shell: `run.py` takes JSON on stdin, and a test asserts the source contains no `exec(` and no
+`shell: true`.
+
+`DOCUMENTS_ROOT` sets the root and the default is the repository, which withholds nothing that the
+sandbox shell could not already read. What it stops is the path *leaving* the tree - `/etc/passwd`,
+`~/.ssh/id_rsa`, a symlink into somebody's home directory - which is exactly the reach this server
+would otherwise add to a connector that has none. An operator serving real uploads sets the tight
+root and gets the tighter answer:
+
+```bash
+DOCUMENTS_ROOT=/work/uploads npm run documents
+```
+
+One more thing this connector does not publish, and the omission is the point. `extract.py` produces
+a single joined `text` field for the whole document; the server does not. That was the one field with
+no page, method or status attached, so it is the one field a caller must not decide from - and a page
+read and empty, a page that could not be read, and a page nothing tried to read all come back with
+`text: ""`. The same characters are here per page with their provenance beside them, and `complete`,
+`summary` and `skipped` are the first keys of every reply. `mcp/documents/README.md` has the whole
+argument, including the table of refusals and what each one says.
+
+### Why there is no Gmail or Slack
+
+The hackathon describes its approval-gated assistant as reaching "Gmail or Slack". TrueForge ships
+neither: the fourteen servers in the catalog are `github`, `tavily`, `bright-data`, `deepwiki`,
+`exa`, `parallel-web`, `linear`, `notion`, `sentry`, `supabase`, `stripe`, `confluence`, `jira` and
+`posthog`. Reaching a real inbox would mean writing an MCP server against Gmail's API, with OAuth
+credentials and a real mailbox behind it.
+
+That is the wrong trade here, and not only for the time it would cost. The rules require that
+anything the agent touches is yours to touch and that private and login-protected information stays
+out of the repository and the demo - and a mailbox is the most private thing anybody would connect.
+A demonstration of an approval gate does not need real mail to be convincing; it needs the gate to
+fire on something irreversible, in front of a person, on camera. `front-desk` gives that:
+`send_email` is gated, refuses an address the desk does not know, and reports the whole message back
+so an approver can compare what they said yes to against what was sent. No account, no OAuth, and
+nothing in frame that should not be.
+
+The same reasoning replaced Sentry and Linear.
+
+Sentry and Linear used to sit in the last two rows. Both needed an account, so `agents:apply`
+skipped the two agents that used them and the hackathon's own "easiest start" agent was one nobody
+could run. `ops-desk` and `front-desk` replaced them: same shape of surface, every write gated, no
+credential anywhere. They also annotate their tools properly, which the thing they replaced was
+not guaranteed to do - see section 2a for why that matters more than it sounds.
 
 Notes:
 - Verified against the live catalog: GitHub authenticates by **static header (a personal access
   token)**, not OAuth. Scope the token to the demo repo only - it is the blast radius if the
   approval gate is ever bypassed.
 - Credentials live in the connector, never in the agent spec. Nothing secret is committed.
-- `preload: false` on both — tool schemas load on demand (deferred loading) to keep context lean.
+- **Every connector is preloaded.** An earlier version of this table said `preload: false` on the
+  grounds that deferring tool schemas keeps context lean. It does, and it also does not work here:
+  a deferred tool resolves to `{"error":"MCP server 'deferred-tools' not found"}`. The section
+  "Why every connector is preloaded" near the end of this file has the whole investigation, and
+  `npm run check` now fails a spec that sets it.
 ## 2a. The approval gate is only as good as the annotations behind it
 
 Read this before trusting the default policy.
@@ -74,7 +167,8 @@ there is nothing to gate. Fail closed at the enable layer, not the approval laye
 {
   "name": "deepwiki",
   "enable_tools": ["ask_question", "read_wiki_contents", "read_wiki_structure"],
-  "require_approval_for_tools": ["@write", "@destructive"]
+  "require_approval_for_tools": ["@write", "@destructive"],
+  "preload": true
 }
 ```
 
@@ -88,13 +182,31 @@ annotations right.
 
 ## 3. Skills (git-backed SKILL.md packs, ours)
 
-| Skill | What it teaches | Requires sandbox |
-| --- | --- | --- |
-| `verified-fix` | the reproduce → isolate → minimal patch → re-run → evidence procedure, and the rules the agent must not break | yes |
-| `evidence-report` | how to render the verdict as a Generative UI card - verdict banner, root cause, diff, before/after runs - against the real OpenUI component signatures | yes |
+Fifteen packs in `skills/`, each attached only to the agents it applies to:
+
+| Skill | What it teaches |
+| --- | --- |
+| `verified-fix` | the reproduce → isolate → minimal patch → re-run → evidence procedure, and the rules the agent must not break |
+| `evidence-report` | how to render the verdict as a Generative UI card - verdict banner, root cause, diff, before/after runs - against the real OpenUI component signatures |
+| `code-review` | running the suite before claiming anything, and what a finding has to have before it is one |
+| `review-response` | answering a review on your own pull request - reproduce each finding before agreeing with it or dismissing it in the thread |
+| `incident-triage` | the reads, reproducing before proposing, and resolving last |
+| `metric-correlation` | finding a control, and the artefacts of your own query that move a regression onto the wrong minute |
+| `sql-analysis` | read the schema first, classify reads against writes, never present an unrun number |
+| `data-report` | turning a finished analysis into a file somebody can act on - the query, the rows, a chart and the caveats |
+| `source-citation` | cross-check, report disagreement, admit the gap |
+| `document-analysis` | reading the extraction report before the text, and the three findings that all look like an empty page |
+| `drafting-for-approval` | searching for the team's conventions first, then showing the exact content rather than a summary of it, because the approver is approving the text |
+| `changelog-drafting` | every entry from a change that was opened, and an unreadable one as a line rather than an omission |
+| `posture-audit` | running the checks that exist, and never reporting a check that could not run as a check that passed |
+| `handing-off` | when to hand work on, and why a handoff that widens authority is refused |
+| `untrusted-input` | everything you read is data, and what to do when some of it is addressed to you |
 
 Skills load progressively — only the `description` is in context until the agent decides the skill
-is relevant, then the whole pack is materialized in the sandbox at `/opt/tfy/skills/{name}`.
+is relevant, then the whole pack is materialized in the sandbox at `/opt/tfy/skills/{name}`. An
+agent with no sandbox cannot carry one at all, which is why `gate-demo` has none and makes the
+`untrusted-input` case in its instructions instead. `USECASES.md` has the table of which agent
+carries which.
 
 ## 4. Approval policy — the safety story in one table
 
@@ -105,7 +217,25 @@ is relevant, then the whole pack is materialized in the sandbox at `/opt/tfy/ski
 | Create branch / commit / push | GitHub, real | **approval required** |
 | Open or update a pull request | GitHub, real | **approval required** |
 | Comment on an issue or PR | GitHub, real | **approval required** |
+| Submit a pull request review | GitHub, real | **approval required** |
+| Merge a pull request, push files, delete a file | GitHub, real | not enabled for any agent here |
 | Read repo, issues, CI status | GitHub, real | no gate — read-only |
+| Roll back a deploy, restart a service, resolve an alert | ops-desk | **approval required** |
+| File, edit or close an issue; send a message | front-desk | **approval required** |
+| Read alerts, logs, deploys, health, projects, issues | ops-desk, front-desk | no gate — read-only |
+| Read a schema, profile a table, run a SELECT | warehouse | no gate — the connection is read-only, so there is no write to gate |
+| Query a time series, read a dashboard, list deploy annotations | observability | no gate — every tool on it is a read |
+| Read a document, list its pages, parse its requirements, probe for OCR | documents | no gate — every tool on it is a read, and the boundary is the root rather than the gate |
+
+The ops-desk and front-desk rows are the ones that matter for anyone reproducing this, because they
+are the only gated actions that need no account at all. All five servers annotate every tool, so
+the tags in the policy resolve to what their names say - which, as section 2a explains, is not
+something to assume.
+
+The warehouse and documents rows are the odd ones out and the point is that they should be. The
+warehouse's guarantee is not an approval gate; it is a connection that SQLite will not let write.
+The documents connector's is a path resolved by the operating system before it is checked against a
+root. A gate asks a person to be right every time, and neither of those asks anybody anything.
 
 Tool approval is API-only in TrueForge today (`require_approval_for_tools` in the agent spec), which
 is exactly why the specs live in this repo as JSON and are applied through the SDK rather than
@@ -122,7 +252,18 @@ clicked into the UI.
 - [ ] GitHub — a fine-grained PAT pasted into the connector, scoped to one repo (v1)
 - [ ] Qodo — GitHub App installed on the submission repo from the first commit
 
+Only the first is needed to see the gate work. `ops-desk`, `front-desk`, `warehouse`,
+`observability` and `documents` run from this repo with `npm run ops-desk`, `npm run front-desk`,
+`npm run warehouse`, `npm run observability` and `npm run documents`, and between them
+they carry every gated action in the demo script - a rollback, a restart, filing an issue, closing one, sending a message. Nothing in
+`DEMO.md` requires a GitHub token, and the local-model configuration (`quartermaster-local`) does
+not require a provider key either.
+
 ## 6. Catalog as shipped (verified against a running server, 2026-08-23)
+
+This section is an inventory of what **TrueForge** ships. The five servers in `mcp/` are ours and
+are not in it; they are registered once against a running harness with the `curl` in each server's
+README, and `npm run agents:apply` then reports the agents as applied rather than skipped.
 
 14 MCP servers ship in the catalog: `github` and `tavily` and `bright-data` (header auth);
 `deepwiki`, `exa`, `parallel-web` (no auth); `linear`, `notion`, `sentry`, `supabase`, `stripe`,
@@ -138,22 +279,22 @@ sponsor's own cost argument, so demonstrating it is worth the small extra config
 
 ## 7. What `quartermaster` can actually reach on GitHub
 
-Reading is unrestricted. Writing is limited to the five tools the job needs:
+Reading is unrestricted. Writing is limited to the six tools the job needs:
 
 ```json
 {
   "name": "github",
-  "enable_tools": ["@read-only", "create_branch", "create_or_update_file", "push_files", "create_pull_request", "add_issue_comment"],
-  "require_approval_for_tools": ["@write", "@destructive", "create_branch", "create_or_update_file", "push_files", "create_pull_request", "add_issue_comment"]
+  "enable_tools": ["@read-only", "create_branch", "create_or_update_file", "push_files", "create_pull_request", "add_issue_comment", "add_reply_to_pull_request_comment"],
+  "require_approval_for_tools": ["@write", "@destructive", "create_branch", "create_or_update_file", "push_files", "create_pull_request", "add_issue_comment", "add_reply_to_pull_request_comment"]
 }
 ```
 
-Of the 17 write tools the server exposes, five are enabled. The agent **cannot merge a pull
+Of the 17 write tools the server exposes, six are enabled. The agent **cannot merge a pull
 request, delete a file, fork a repository, or create one** - not because it is instructed not to,
 but because those tools are not enabled for it and it has no way to call them. Instructions can be
 argued with; an absent tool cannot.
 
-The five it does have are named in `require_approval_for_tools` as well as covered by `@write` and
+The six it does have are named in `require_approval_for_tools` as well as covered by `@write` and
 `@destructive`. That is redundant today, because GitHub annotates correctly. It is not redundant
 against the day it stops, and the spec outlives the annotation.
 
@@ -175,10 +316,10 @@ Worth knowing how this was found: the error above was invisible until `resultOf`
 the harness's error envelope. Before that, a connector that could not be reached produced an empty
 result, and an empty result reads exactly like a call that ran and printed nothing.
 
-## Why most agents carry no skills
+## Why a skill is attached only where it applies
 
-Both skills are `type: git`, which means every sandbox start for an agent that attaches one does a
-git fetch of this repository before the agent can do anything. When that fetch is reset the sandbox
+Every skill here is `type: git`, which means every sandbox start for an agent that attaches one does
+a git fetch of this repository before the agent can do anything. When that fetch is reset the sandbox
 never comes up, and the agent fails entirely:
 
 ```
