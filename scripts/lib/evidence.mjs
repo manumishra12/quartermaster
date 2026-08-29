@@ -1404,7 +1404,27 @@ export function testRuns(toolResponses) {
        * on its output like any other.
        */
       const failed = typeof r.exitCode === 'number' && r.exitCode !== 0;
-      return failed || (RAN_TESTS.test(r.output) && !discardsRunnerOutput(r.command));
+      /**
+       * `!r.structured` on the green path, for the reason already written below for the commandless
+       * case: a structured payload was serialised into that string, so a field reading "1 passed"
+       * is a value in somebody's JSON and not a suite reporting its result. Naming the command
+       * `npm test` does not change what the text is.
+       *
+       * Without it, a tool answering `{"summary":"1 passed"}` beside a recognised runner and no
+       * failing exit produced SUBSTANTIATED with no test report anywhere in the recording - a
+       * laundering path through the one mechanism this project rests on. Qodo found it, and noted
+       * that a near-identical structured-payload hole had been accepted in an earlier pull request:
+       * the guard was written for one branch and never carried across.
+       *
+       * It costs nothing real. `resultOf` marks a result structured only when the payload parsed as
+       * JSON, and no test runner prints a bare JSON object as its entire output - unittest, pytest
+       * and go test all come back as plain text and all still count, which is asserted below.
+       *
+       * The red path keeps no such condition on purpose: a recognised runner with a non-zero exit
+       * is a run whose failure is the evidence, and that status came from the envelope rather than
+       * from text anybody could compose. Fabrication lives on the green path.
+       */
+      return failed || (!r.structured && RAN_TESTS.test(r.output) && !discardsRunnerOutput(r.command));
     }
     /**
      * With no command, only text something actually printed can stand in for one. A structured

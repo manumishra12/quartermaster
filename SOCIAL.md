@@ -115,7 +115,7 @@ Replace `<repo>` with `https://github.com/manumishra12/quartermaster`.
 
 ## 7. The close
 
-> Seven days. Twelve agents on @truefoundry's TrueForge, 634 tests, 20 pull requests every one of them
+> Seven days. Twelve agents on @truefoundry's TrueForge, 636 tests, 20 pull requests every one of them
 > reviewed by @qodo_ai.
 >
 > The two things it does: the agent does not get to decide whether it worked, and the approval gate

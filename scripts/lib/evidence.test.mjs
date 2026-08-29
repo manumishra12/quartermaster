@@ -1331,3 +1331,43 @@ test('wrapper data is still not read as a call', () => {
   assert.deepEqual(unexecutedToolCalls('{"example":{"name":"exec","arguments":{}}}'), []);
   assert.deepEqual(unexecutedToolCalls('{"function_name":"exec"}'), []);
 });
+
+test('a structured payload does not certify a test claim, whatever the command was called', () => {
+  /**
+   * Found by Qodo. A tool answering `{"summary":"1 passed"}` beside a recognised runner and no
+   * failing exit substantiated a test claim with no test report anywhere in the recording - a
+   * laundering path through the one mechanism this project rests on. The guard already existed for
+   * the commandless branch and had never been carried to the other one.
+   */
+  const laundered = { ...resultOf({ toolCallId: 'x', content: '{"summary":"1 passed"}' }, 'npm test'), denied: false };
+  assert.equal(laundered.structured, true);
+  assert.equal(testRuns([laundered]).length, 0);
+  assert.equal(judge({ finalText: 'The tests pass.', toolResponses: [laundered] }).verdict, UNSUBSTANTIATED);
+});
+
+test('and every real runner still counts, which is what the guard must not cost', () => {
+  /**
+   * The reason this is safe: `resultOf` marks a result structured only when the payload parsed as
+   * JSON, and no runner prints a bare JSON object as its whole output. Asserted rather than assumed,
+   * because an earlier attempt at this fix gated on a flag that is true for ordinary tool responses
+   * and would have deleted every genuine run.
+   */
+  const run = (output, command, extra = {}) => ({
+    ...resultOf({ toolCallId: 'x', content: output, ...extra }, command),
+    denied: false,
+  });
+
+  for (const [output, command] of [
+    ['..\n----------\nRan 3 tests in 0.012s\n\nOK\n', 'python3 -m unittest -v'],
+    ['===== 3 passed in 0.11s =====', 'pytest -q'],
+    ['ok  \tacme/util\t0.012s', 'go test ./...'],
+    ['Tests run: 12, Failures: 0', 'mvn test'],
+  ]) {
+    const r = run(output, command);
+    assert.equal(r.structured ?? false, false, command);
+    assert.equal(testRuns([r]).length, 1, command);
+  }
+
+  // A red run is still a run: the status came from the envelope, not from text anybody composed.
+  assert.equal(judge({ finalText: 'The tests pass.', toolResponses: [run('1 failed', 'pytest -q', { exitCode: 1 })] }).verdict, CONTRADICTED);
+});
