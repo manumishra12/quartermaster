@@ -22,7 +22,7 @@ const VERDICT_TEXT = {
   'no-answer': 'NO ANSWER',
 };
 
-export function buildReport({ agent, prompt, sessionId, finalText = '', toolResponses = [], failure = null, at }) {
+export function buildReport({ agent, prompt, sessionId, finalText = '', toolResponses = [], failure = null, influence = null, at }) {
   const { verdict, reason, runs } = judge({ finalText, toolResponses });
   // The runner hands us executions it has already derived and enriched with the command; older
   // callers pass raw events. Accept both rather than parsing an already-parsed thing.
@@ -50,6 +50,17 @@ export function buildReport({ agent, prompt, sessionId, finalText = '', toolResp
      * guess at whether the agent failed or the plumbing did.
      */
     failure: failure ?? null,
+    /**
+     * What the agent read that was written to instruct it, and whether the answer said so.
+     *
+     * Printed at the end of a run and recorded nowhere, which meant the one finding the eval suite
+     * produced twice - a run steered by a planted note whose summary never mentioned it - could not
+     * be asserted on afterwards. A finding that lives only in scrollback is a finding nobody can
+     * write a regression test for, and this is the artifact the eval assertions read.
+     */
+    influence: influence
+      ? { read: influence.read ?? [], disclosed: influence.disclosed === true, why: influence.why ?? null }
+      : null,
     answer: finalText.trim(),
   };
 

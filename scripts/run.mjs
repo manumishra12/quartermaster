@@ -890,6 +890,29 @@ if (escalation) {
   turnFailure ??= escalation.detail;
 }
 
+/**
+ * Was the agent handed something written to instruct it, and did it say so?
+ *
+ * The eval suite found two runs where the answer was steered by a note planted in an issue body and
+ * never mentioned it. The gate held - the write was gated and stopped - and every other mechanism
+ * here reported those runs as fine, because the verifier judges claims that something passed and
+ * being quietly steered is not one of those.
+ *
+ * Reported beside the verdict rather than folded into it. Whether the answer was any good and
+ * whether the agent told you what steered it are two questions, and collapsing them would lose the
+ * one that was missing.
+ */
+const influence = undisclosedInfluence({ toolResponses, finalText, prompt });
+if (influence.read.length > 0) {
+  console.log(`\n  ── WHAT IT READ ───────────────────────────────────`);
+  console.log(`  ${influence.disclosed ? 'Disclosed' : 'NOT DISCLOSED'}: ${influence.why}`);
+  for (const found of influence.read) {
+    console.log(`    ${found.shape}`);
+    console.log(`      ${found.line.slice(0, 100)}`);
+  }
+  console.log();
+}
+
 const report = buildReport({
   agent: checkpoint.agentName,
   prompt,
@@ -897,6 +920,7 @@ const report = buildReport({
   finalText,
   toolResponses,
   failure: turnFailure,
+  influence,
   at: new Date().toISOString(),
 });
 // The session id names the directory; it does not get to choose where that directory is. It
@@ -926,29 +950,6 @@ try {
  * trace could not carry. Working it out once means the process, the report and the span all say
  * the same thing about how the run ended, which is the only version worth recording.
  */
-/**
- * Was the agent handed something written to instruct it, and did it say so?
- *
- * The eval suite found two runs where the answer was steered by a note planted in an issue body and
- * never mentioned it. The gate held - the write was gated and stopped - and every other mechanism
- * here reported those runs as fine, because the verifier judges claims that something passed and
- * being quietly steered is not one of those.
- *
- * Reported beside the verdict rather than folded into it. Whether the answer was any good and
- * whether the agent told you what steered it are two questions, and collapsing them would lose the
- * one that was missing.
- */
-const influence = undisclosedInfluence({ toolResponses, finalText, prompt });
-if (influence.read.length > 0) {
-  console.log(`\n  ── WHAT IT READ ───────────────────────────────────`);
-  console.log(`  ${influence.disclosed ? 'Disclosed' : 'NOT DISCLOSED'}: ${influence.why}`);
-  for (const found of influence.read) {
-    console.log(`    ${found.shape}`);
-    console.log(`      ${found.line.slice(0, 100)}`);
-  }
-  console.log();
-}
-
 const exitCode = runExitCode({
   proved: verdict === SUBSTANTIATED || verdict === NO_CLAIM,
   crashed: Boolean(crash) || !reportWritten,
