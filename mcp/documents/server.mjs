@@ -49,6 +49,15 @@
  *    into one, and the value of layer 1 is precisely that it does not depend on how good layer 2
  *    is. Layer 2 will miss a secret written in prose in a `.md` file. That is not what stops it.
  *
+ * And one gap, named here rather than left in the code for somebody to find. Every check above
+ * happens in this process; the reader is a Python subprocess that opens the path again by name, so
+ * a substitution made in between is a substitution the containment check answered about the wrong
+ * file. `admit` now works from a single open descriptor and `readAdmitted` states the path again
+ * either side of the read, which narrows the window and refuses the answer when it is caught. It
+ * does not close it. The comment above `readAdmitted` says exactly how far each of those goes, and
+ * `README.md` says it in prose - this is residue of the same kind as layer 2, and reading it as a
+ * boundary would be the same mistake.
+ *
  * WHY THE DEFAULT ROOT IS THE REPOSITORY, SAID PLAINLY
  *
  * A `documents/` directory would be a tighter default and this repository does not have one, so it
@@ -70,7 +79,7 @@
  * upstream finding, and a server added after it was made would be a poor place to repeat it.
  */
 
-import { closeSync, openSync, readSync, realpathSync, statSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -325,14 +334,35 @@ const READER_ENV = Object.fromEntries(
 /** How much of the file is read to decide what it is. The extractor uses the same 4096. */
 const HEAD_BYTES = 4096;
 
-function headOf(path) {
-  const handle = openSync(path, "r");
-  try {
-    const buffer = Buffer.alloc(HEAD_BYTES);
-    return buffer.subarray(0, readSync(handle, buffer, 0, HEAD_BYTES, 0));
-  } finally {
-    closeSync(handle);
-  }
+/**
+ * How the one descriptor is opened, and why each flag is on it.
+ *
+ * `O_NOFOLLOW` refuses a symbolic link as the last component. `admit` opens a path `realpath` has
+ * already resolved, so its final component is not a link - which means this flag can only ever fire
+ * when the leaf became one after it was resolved, and that is precisely the substitution the
+ * containment check would then be answering about the wrong file.
+ *
+ * `O_NONBLOCK` is not an optimisation. `open` on a FIFO blocks until somebody writes to it, with no
+ * timeout and nothing to cancel it, so a named pipe left where a document is expected would hang
+ * this server rather than fail. The type is checked before this, but between that check and this
+ * call the leaf can change, and a server that hangs is worse than one that refuses.
+ *
+ * Both are `?? 0` because neither exists on Windows, where the two hazards they cover do not arise
+ * in the same form. A missing constant must not silently become `undefined` in a bitwise or.
+ */
+const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0);
+
+/**
+ * The first bytes, read from a descriptor rather than from a path.
+ *
+ * This used to open the path itself, which meant the size and type came from one `stat` and the
+ * signature came from a second, independent `open` - two questions about two files that only
+ * happened to share a name. Everything `admit` decides on the file's own contents now comes from
+ * the same open file description.
+ */
+function headOf(handle) {
+  const buffer = Buffer.alloc(HEAD_BYTES);
+  return buffer.subarray(0, readSync(handle, buffer, 0, HEAD_BYTES, 0));
 }
 
 /* -------------------------------------------------------------------------------------------- */
@@ -363,12 +393,31 @@ const refuse = (error, message, extra = {}) => ({
 });
 
 /**
+ * The one `not_found` message, said in the two places a file can turn out not to be there: when the
+ * path is first examined, and when it is opened a moment later. Two spellings of the same answer
+ * would let a caller learn which of the two happened, which is a fact about somebody's disk.
+ */
+const absent = (within) =>
+  refuse(
+    "not_found",
+    `There is no file at ${within} under this server's root. Nothing was read - which is a different ` +
+      "answer from a file that was read and could not be parsed, and from a document with no text in it.",
+    { path: within },
+  );
+
+/**
  * Turn a path from the model into a file this server will read, or into a refusal saying why not.
  *
- * Returns `{ path, relative, bytes }` or `{ refusal }`. The order of the checks is the design:
- * containment first, because it is the boundary and nothing after it is allowed to be load-bearing;
- * then existence, then shape, then the residue rules. Reversing any pair of those would answer a
- * question about a file outside the root, and answering at all is a fact about somebody's disk.
+ * Returns `{ refusal }`, or `{ path, relative, bytes, handle, identity }` - and **the caller owns
+ * that handle**. It is an open descriptor on the admitted file, held rather than closed so the
+ * inode number cannot be reused while the reader has the path; `readAdmitted` is the only thing that
+ * should take it, and it closes it in a `finally`. Every refusal closes it here.
+ *
+ * The order of the checks is the design: containment first, because it is the boundary and nothing
+ * after it is allowed to be load-bearing; then existence, then shape, then the residue rules.
+ * Reversing any pair of those would answer a question about a file outside the root, and answering
+ * at all is a fact about somebody's disk. The name rules stay ahead of the open for the same
+ * reason in miniature - `.env` and `id_rsa` are refused without this server opening them.
  */
 function admit(requested) {
   if (typeof requested !== "string" || !requested.trim()) {
@@ -448,14 +497,7 @@ function admit(requested) {
     stats = statSync(real);
   } catch (error) {
     if (error?.code === "ENOENT") {
-      return {
-        refusal: refuse(
-          "not_found",
-          `There is no file at ${within} under this server's root. Nothing was read - which is a different ` +
-            "answer from a file that was read and could not be parsed, and from a document with no text in it.",
-          { path: within },
-        ),
-      };
+      return { refusal: absent(within) };
     }
     return {
       refusal: refuse(
@@ -543,22 +585,41 @@ function admit(requested) {
     };
   }
 
-  if (stats.size > MAX_BYTES) {
-    return {
-      refusal: refuse(
-        "file_too_large",
-        `${within} is ${stats.size} bytes and this server reads up to ${MAX_BYTES}. It was not read at all rather ` +
-          "than read in part, because a partial read of a PDF is not a partial document - it is a file the parser " +
-          "cannot make sense of, reported as a document with nothing in it.",
-        { path: within, bytes: stats.size, limit: MAX_BYTES },
-      ),
-    };
-  }
-
-  let head;
+  /**
+   * One descriptor, opened here, and every remaining question asked of it rather than of the path.
+   *
+   * Everything above this line is about a *name*: what it resolves to, whether that is inside the
+   * root, whether the name is a document's name. Everything below is about a *file*, and asking
+   * those questions of the path meant asking them of whatever the path happened to name at the
+   * moment each one ran. The size came from one `stat`, the first bytes from a separate `open`, and
+   * nothing held the two together - so a small text file could be measured and a private key read.
+   *
+   * The file is deliberately not opened before this point. `.env`, `id_rsa` and a `.docx` are
+   * refused on their names, and opening a file only to close it again is a thing this server should
+   * not do when it has already decided not to read it.
+   */
+  let handle;
   try {
-    head = headOf(real);
+    handle = openSync(real, OPEN_FLAGS);
   } catch (error) {
+    if (error?.code === "ENOENT") {
+      return { refusal: absent(within) };
+    }
+    if (error?.code === "ELOOP" || error?.code === "EMLINK") {
+      /**
+       * `O_NOFOLLOW` fired, which for an already-resolved path can mean only one thing: the last
+       * component became a symbolic link between being resolved and being opened. The containment
+       * check above was therefore about a different file from the one that would have been read.
+       */
+      return {
+        refusal: refuse(
+          "file_changed",
+          `${within} became a symbolic link after it was resolved, so the file that would be opened is not the file ` +
+            "that was checked against this server's root. Nothing was read, and nothing about either file is reported.",
+          { path: within, rule: "resolved-then-relinked" },
+        ),
+      };
+    }
     return {
       refusal: refuse(
         "unreadable_path",
@@ -568,32 +629,121 @@ function admit(requested) {
     };
   }
 
-  for (const signature of REFUSED_SIGNATURES) {
-    const bytes = Buffer.from(signature.bytes);
-    if (head.subarray(0, bytes.length).equals(bytes)) {
+  /**
+   * Held open past every refusal below, and released by whoever runs the reader.
+   *
+   * `keep` rather than a `try`/`finally` that always closes, because the descriptor is the return
+   * value on the way out: it is what stops the inode number being reused while the reader has the
+   * path, which is what makes the check afterwards mean anything. Every refusal from here on closes
+   * it; only the success at the bottom hands it over.
+   */
+  let keep = false;
+  try {
+    const opened = fstatSync(handle);
+
+    /**
+     * Asked again, of the descriptor. The `stat` above was about the path and this is about the
+     * file that is actually open, and between the two the leaf can be replaced - by a directory, or
+     * by a FIFO whose read would never return.
+     */
+    if (!opened.isFile()) {
       return {
         refusal: refuse(
-          "refused_by_content",
-          `${within} has an allowed suffix and its first bytes say it is ${signature.what}. The suffix is a claim ` +
-            "and the bytes are the fact, so the bytes decide. Nothing was read.",
-          { path: within, rule: "signature" },
+          "file_changed",
+          `${within} was a regular file when it was checked and is not one now, so it was not read. Nothing about ` +
+            "what replaced it is reported.",
+          { path: within, rule: "checked-then-replaced" },
         ),
       };
     }
-  }
 
-  if (KEY_MATERIAL.test(head.toString("latin1"))) {
+    if (opened.size > MAX_BYTES) {
+      return {
+        refusal: refuse(
+          "file_too_large",
+          `${within} is ${opened.size} bytes and this server reads up to ${MAX_BYTES}. It was not read at all rather ` +
+            "than read in part, because a partial read of a PDF is not a partial document - it is a file the parser " +
+            "cannot make sense of, reported as a document with nothing in it.",
+          { path: within, bytes: opened.size, limit: MAX_BYTES },
+        ),
+      };
+    }
+
+    let head;
+    try {
+      head = headOf(handle);
+    } catch (error) {
+      return {
+        refusal: refuse(
+          "unreadable_path",
+          `${within} could not be read (${error?.code ?? "unknown"}). Nothing was read.`,
+          { path: within, detail: String(error?.message ?? error) },
+        ),
+      };
+    }
+
+    for (const signature of REFUSED_SIGNATURES) {
+      const bytes = Buffer.from(signature.bytes);
+      if (head.subarray(0, bytes.length).equals(bytes)) {
+        return {
+          refusal: refuse(
+            "refused_by_content",
+            `${within} has an allowed suffix and its first bytes say it is ${signature.what}. The suffix is a claim ` +
+              "and the bytes are the fact, so the bytes decide. Nothing was read.",
+            { path: within, rule: "signature" },
+          ),
+        };
+      }
+    }
+
+    if (KEY_MATERIAL.test(head.toString("latin1"))) {
+      return {
+        refusal: refuse(
+          "refused_by_content",
+          `${within} begins with a private key block. Whatever it is called, it is key material rather than a document, ` +
+            "and this server will not read one into a model's context.",
+          { path: within, rule: "key-material" },
+        ),
+      };
+    }
+
+    keep = true;
     return {
-      refusal: refuse(
-        "refused_by_content",
-        `${within} begins with a private key block. Whatever it is called, it is key material rather than a document, ` +
-          "and this server will not read one into a model's context.",
-        { path: within, rule: "key-material" },
-      ),
+      path: real,
+      relative: within,
+      bytes: opened.size,
+      /** The open descriptor, and the file it is open on. `readAdmitted` owns both from here. */
+      handle,
+      identity: { dev: opened.dev, ino: opened.ino },
     };
+  } finally {
+    if (!keep) closeSync(handle);
   }
+}
 
-  return { path: real, relative: within, bytes: stats.size };
+/**
+ * Whether the path still names the file that was admitted.
+ *
+ * `dev` and `ino` rather than the path string, because the string is the part an attacker gets to
+ * keep: unlinking the admitted document and putting a symbolic link to `/etc/shadow` where it was
+ * leaves the path identical and the file entirely different. The descriptor `admit` is still
+ * holding is what makes this comparison sound - the operating system will not hand that inode
+ * number to a new file while it is open, so a match here is the same file rather than a recycled
+ * number.
+ *
+ * A file rewritten in place keeps its inode and passes this check. That is deliberate and it is not
+ * a hole in the boundary: rewriting a file inside the root needs write access to a document this
+ * server is already allowed to read, so it changes what a document says rather than which file is
+ * read. The confinement question is the one being asked here.
+ */
+function stillAdmitted({ path, identity }) {
+  try {
+    const now = statSync(path);
+    return now.dev === identity.dev && now.ino === identity.ino;
+  } catch {
+    // Gone, or no longer stat-able. Either way it is not the file that was checked.
+    return false;
+  }
 }
 
 /* -------------------------------------------------------------------------------------------- */
@@ -677,6 +827,61 @@ function runReader(request) {
         { stderr: (run.stderr ?? "").trim().slice(-2000) || null },
       ),
     };
+  }
+}
+
+/** The one refusal both checks below produce, worded so it cannot be read as a missing file. */
+const replaced = (within) =>
+  refuse(
+    "file_changed",
+    `${within} stopped naming the file that was checked, at some point between the check and the read. Whatever was ` +
+      "read has been discarded and nothing about it is reported - not its contents, not its size, and not what it " +
+      "turned out to be. This is not the same answer as the file being missing: it was there, and it was not the " +
+      "same file.",
+    { path: within, rule: "checked-then-replaced" },
+  );
+
+/**
+ * Run the reader on an admitted path, and throw the answer away if the path stopped naming the file
+ * that was admitted. Releases the descriptor `admit` opened, whatever happens.
+ *
+ * WHAT THIS ACHIEVES, AND WHAT IT DOES NOT. The distinction matters more here than the mechanism.
+ *
+ * `admit` now decides on one open descriptor, so its own checks cannot disagree with each other:
+ * the type, the size and the first bytes are all facts about the same open file. The reader is a
+ * different process, and it opens the path again *by name*. That is the gap. Between the moment
+ * this function last looked and the moment Python calls `open`, anything able to write into the
+ * root can unlink the admitted document and leave a symbolic link to a file outside it, and the
+ * subprocess reads the link's target.
+ *
+ * **That gap is not closed, and nothing in this file closes it.** Handing the reader a descriptor
+ * instead of a path was the obvious answer and it does not survive contact with `extract.py`, which
+ * opens the path several times over - the head, the body, the digest - and shells out to
+ * `pdftoppm` and `tesseract` with it on the OCR path. `/dev/fd/N` is not a substitute either: it is
+ * a fresh open on Linux and shares the file offset on macOS, so the same code would read different
+ * bytes on the two platforms.
+ *
+ * What this does instead is detect it. The path is stated again either side of the read, and the
+ * descriptor is held throughout so the inode number cannot be handed to something else while the
+ * reader has it. A substitution that is left in place is caught by the check afterwards; one made
+ * before the reader starts is caught by the check before. What still gets through is a substitution
+ * made after the first check and undone before the second - and even then, the bytes were read into
+ * a subprocess that exited, and none of them reach the model unless the attacker also wins that
+ * second race blind, with no way to observe when the reader finished.
+ *
+ * So this narrows the window and refuses the answer. It is not the boundary, and reading it as one
+ * is the mistake `README.md` warns about for the name and content rules. Layer 1 - `realpath`, then
+ * containment - is still what stops a path leaving the root; the residue is written down there
+ * rather than left for somebody to find.
+ */
+function readAdmitted(admitted, request) {
+  try {
+    if (!stillAdmitted(admitted)) return { refusal: replaced(admitted.relative) };
+    const run = runReader(request);
+    if (!stillAdmitted(admitted)) return { refusal: replaced(admitted.relative) };
+    return run;
+  } finally {
+    closeSync(admitted.handle);
   }
 }
 
@@ -855,7 +1060,7 @@ function extractOrRefuse(path, useOcr, language) {
   const admitted = admit(path);
   if (admitted.refusal) return { refusal: admitted.refusal };
 
-  const run = runReader({
+  const run = readAdmitted(admitted, {
     op: "extract",
     path: admitted.path,
     use_ocr: useOcr,
@@ -1020,8 +1225,9 @@ function buildServer() {
 
       let request;
       let within = null;
+      let admitted = null;
       if (path != null) {
-        const admitted = admit(path);
+        admitted = admit(path);
         if (admitted.refusal) return text(admitted.refusal);
         within = admitted.relative;
         request = { op: "requirements", path: admitted.path, use_ocr: ocr, language: language ?? null };
@@ -1029,7 +1235,9 @@ function buildServer() {
         request = { op: "requirements", text: supplied };
       }
 
-      const run = runReader(request);
+      // Text supplied in the call never touched the filesystem, so there is no file to hold open and
+      // nothing for the check either side of the read to be about.
+      const run = admitted ? readAdmitted(admitted, request) : runReader(request);
       if (run.refusal) return text({ ...run.refusal, path: within });
 
       const { parsed } = run.report;

@@ -91,6 +91,42 @@ that it does not depend on how good layer 2 is.
 
 **Layer 2 will miss a secret written in prose in a `.md` file. That is not what stops it.**
 
+### The gap between the check and the read, and how far it is closed
+
+Every check above happens in Node. The reader is a Python subprocess, and it opens the path again
+**by name**. Between the moment the checks looked and the moment Python calls `open`, anything able
+to write into the root can unlink the admitted document and leave a symbolic link to a file outside
+it. The containment check has then been answered about a file nobody read. This is a
+time-of-check-to-time-of-use race, and it is stated here rather than left to be found.
+
+Two things were done about it, and it is worth being exact about which is which.
+
+**Closed.** `admit` now opens the file once and asks every remaining question of that one
+descriptor: the type, the size and the first 4096 bytes are facts about the same open file. They
+used to come from a `stat` and a separate `open`, which is two questions about two files that
+happened to share a name - a file could be measured small and read as a private key. The descriptor
+is opened `O_NOFOLLOW`, so a leaf that became a symlink after `realpath` resolved it is refused
+rather than followed, and `O_NONBLOCK`, so a FIFO left where a document is expected cannot hang the
+server on an `open` that has no timeout.
+
+**Narrowed and detected, not closed.** The path is stated again either side of the subprocess run,
+and the descriptor is held throughout - which is what stops the operating system handing that inode
+number to something else while the reader has the path. A substitution left in place is caught; the
+report is discarded and `file_changed` is returned, so nothing about the substituted file reaches
+the model. What still gets through is a substitution made after the first check and undone before
+the second, which means winning a second race blind, with no way to observe when the reader
+finished.
+
+Handing the reader a descriptor instead of a path was the obvious fix and it does not survive
+contact with `extract.py`, which opens the path several times over - the head, the body, the digest -
+and shells out to `pdftoppm` and `tesseract` with it on the OCR path. `/dev/fd/N` is not a
+substitute: it is a fresh open on Linux and shares the file offset on macOS, so the same code would
+read different bytes on the two platforms.
+
+So: **the race is narrowed and its outcome is refused, and it is not gone.** Layer 1 is still what
+stops a path leaving the root. This is residue of the same kind as the name and content rules, and
+reading it as the boundary is the same mistake.
+
 ## The root, and why the default is the repository
 
 `DOCUMENTS_ROOT` sets it. The default is the repository.
@@ -136,6 +172,7 @@ does not start: the failure arrives in the middle of an investigation rather tha
 | an executable or archive with a readable suffix | `refused_by_content`, naming what it is | "contains NUL bytes" is true and says nothing |
 | a file beginning with a PEM private key block | `refused_by_content` | key material is not a document in any reading |
 | a file larger than `DOCUMENTS_MAX_BYTES` (32 MiB) | `file_too_large` | not read at all rather than in part - half a PDF is not half a document |
+| a path that stopped naming the file that was checked | `file_changed` | **not the same as** `not_found`: it was there, and it was not the same file |
 | a document the reader could not finish in time | `reader_timed_out` | **not the same as** a document with no text in it |
 | the reader crashing | `reader_failed`, quoting stderr | an incomplete extraction is a success with a hole in it; a crashed reader is no answer at all |
 

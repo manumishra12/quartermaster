@@ -1,6 +1,6 @@
 # Testing
 
-636 tests in the root suite, 193 in the UI across 24 files, 36 in Python for the document reader,
+639 tests in the root suite, 193 in the UI across 24 files, 36 in Python for the document reader,
 one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
@@ -65,13 +65,13 @@ flowchart TD
     CA["connector-advice.test.mjs<br/>10 - what to tell a person"]
     CO["contrast.test.mjs<br/>28 - palette contrast"]
     MA["model-advice.test.mjs<br/>6 - what a provider failure means"]
-    PO["policies.test.mjs<br/>4 - one reading of each agent policy"]
+    PO["policies.test.mjs<br/>6 - one reading of each agent policy"]
     SV["lib/serve.test.mjs<br/>5 - the shared HTTP shell"]
     OD["ops-desk/server.test.mjs<br/>22 - incident fixture server"]
     FD["front-desk/server.test.mjs<br/>24 - workspace fixture server"]
     WH["warehouse/server.test.mjs<br/>19 - read-only SQL connector"]
     OB["observability/server.test.mjs<br/>40 - the metrics store"]
-    DO["documents/server.test.mjs<br/>20 - the document reader, and its root"]
+    DO["documents/server.test.mjs<br/>21 - the document reader, and its root"]
   end
 
   subgraph ui["ui - vitest, two projects"]
@@ -182,10 +182,17 @@ It distinguishes the ways a case can fail, because they send you to different pl
 | `all empty` | the turn was cut short; the machine is loaded, raise the budget |
 | `in a shape this runner could not read` | a connector envelope `resultOf` does not handle. No amount of budget fixes it |
 | `the sandbox was not ready` | the harness, not the agent. Retried once, and the retry is announced |
+| `still delivering events Ns after the turn was cancelled` | the reader did not stop, so what it had recorded was still changing. No verdict is offered rather than one decided by where the stream happened to be |
 | `none matched /regex/` | it ran something and the answer was wrong. This is the interesting one |
 
 That table exists because the suite used to report all four as the last one, which points at the
 assertion - the only part that is definitely not wrong.
+
+A pass can also carry a note. A case that reached its tools *and* ran over the budget prints `ok`
+followed by the fact that the turn was cancelled, because a matching execution really was recorded -
+failing the case for being slow would be the false negative the raisable budget exists to avoid -
+and a bare `ok` for a turn that had to be cut off is a reassuring summary of something that went
+wrong.
 
 ### What is not covered
 

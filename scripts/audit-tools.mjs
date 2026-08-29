@@ -17,7 +17,7 @@
  * Exits non-zero if any reachable tool would run ungated under the default policy.
  */
 import { classify, ungatedRisks, UNANNOTATED } from './lib/annotations.mjs';
-import { policiesFor } from './lib/policies.mjs';
+import { policiesFor, splitPolicies } from './lib/policies.mjs';
 import { loadEnv } from './lib/env.mjs';
 import { httpProblem } from './lib/http.mjs';
 
@@ -58,6 +58,12 @@ if (!list.length) {
 let ungated = 0;
 let seenUnannotated = 0;
 let unauditable = 0;
+/**
+ * Agent specs that would not parse, collected across every connector rather than printed per
+ * connector, because an unreadable file is surfaced for all of them - which servers it declares is
+ * precisely what could not be established.
+ */
+const unreadableSpecs = new Set();
 
 for (const server of list) {
   const name = server.name ?? server.manifest?.name;
@@ -78,7 +84,18 @@ for (const server of list) {
    * Reporting the union hid a narrow gate behind a wide one. What matters is whether *some* agent
    * can reach this tool ungated, and which - that is the sentence somebody has to act on.
    */
-  const policies = policiesFor(name);
+  /**
+   * A spec that will not parse is separated out rather than audited as one.
+   *
+   * `policiesFor` reports an unparseable file as its own entry, and this loop used to hand it to
+   * `ungatedRisks` like any other policy - where `approval` and `enabled` being absent are read as
+   * the harness defaults. Every tool on every server here is annotated, so the defaults gate all of
+   * them and the risk list came back empty: this script printed "Every reachable tool is annotated.
+   * The default policy gates what it claims to gate." and exited 0 for a repository whose agent
+   * policy nobody could read. The verdict is withheld below instead.
+   */
+  const { policies, unreadable } = splitPolicies(policiesFor(name));
+  for (const agent of unreadable) unreadableSpecs.add(agent);
   const risks = new Map();
   for (const policy of policies.length ? policies : [{ agent: null, approval: undefined, enabled: undefined }]) {
     for (const tool of ungatedRisks(tools, policy.approval, policy.enabled)) {
@@ -102,6 +119,25 @@ for (const server of list) {
     const via = risky && risks.get(tool.name) ? ` - via ${risks.get(tool.name)}` : '';
     console.log(`  ${label}  ${String(tool.name).padEnd(30)} ${kind}${via}`);
   }
+}
+
+/**
+ * Said before the ungated count, and not folded into it.
+ *
+ * Every label printed above was resolved from the specs that did parse, so with one of them missing
+ * the table is incomplete and the count below is a floor rather than a total. Reporting a number as
+ * though it were the answer would be the reassuring falsehood - the same one `unauditable` was
+ * added for, one layer further in. preflight records the same failure on every connector, so the
+ * two tools agree about a repository they cannot audit.
+ */
+if (unreadableSpecs.size) {
+  console.log(
+    `\n${unreadableSpecs.size} agent spec(s) could not be parsed: ` +
+      `${[...unreadableSpecs].map((agent) => `agents/${agent}.json`).join(', ')}.\n` +
+      'What those agents let through is unknown, so the labels above are incomplete and no clean\n' +
+      'verdict is offered. Fix the JSON and run this again.',
+  );
+  process.exit(1);
 }
 
 if (ungated > 0) {

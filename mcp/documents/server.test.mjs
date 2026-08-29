@@ -425,6 +425,84 @@ test('a file that is not a document is refused by name, by extension or by conte
     assert.equal((await callTool('read_document', { path: 'notes.md' })).complete, true);
   }));
 
+test('a file swapped while the reader has it is refused, and the answer is thrown away', () => {
+  /**
+   * The gap between the check and the read, driven rather than argued about.
+   *
+   * `admit` decides on one open descriptor, and then a subprocess opens the same path by name.
+   * Between those two moments anything able to write into the root can unlink the admitted document
+   * and leave a symbolic link to a file outside it - and the containment check has then been
+   * answered about a file nobody read.
+   *
+   * The reader is replaced with one that performs the swap itself, which is what makes this
+   * deterministic rather than a race the suite would lose nine times in ten. It does not really
+   * read the substituted file; it emits the report a real reader would have produced, carrying that
+   * file's text, so what is under test is what this server does with such a report rather than
+   * anything about Python. `DOCUMENTS_PYTHON` exists for a machine with several interpreters, and
+   * it is the only seam that puts a step between `admit` and the read.
+   *
+   * What this proves is narrower than "the race is closed", and the file says so: the substitution
+   * is *detected* and the report discarded. See the note above `readAdmitted`.
+   */
+  const target = join(workspace, 'swapped.md');
+  writeFileSync(target, '# an ordinary document\n');
+
+  const secret = join(outside, 'secrets.md');
+  const reader = join(outside, 'reader-that-swaps.sh');
+  const report = JSON.stringify({
+    source: { path: target, name: 'swapped.md', bytes: 12, sha256: null, kind: 'text' },
+    method: 'text',
+    page_methods: { text: 1 },
+    complete: true,
+    skipped: [],
+    summary: 'one page, read in full',
+    // The contents of the file outside the root, which is what a real reader would have come back
+    // with once the swap had happened. Nothing here may reach the caller.
+    pages: [{ page: 1, method: 'text', status: 'read', text: '# not yours', chars: 11, lines: 1, notes: [] }],
+    text: '# not yours',
+    chars: 11,
+    notes: [],
+    ocr: { available: false, why: 'not probed' },
+    rasteriser: { available: false, why: 'not probed' },
+    schema: 'quartermaster/document-extraction/1',
+  });
+  assert.doesNotMatch(report, /'/, 'the script below quotes this in single quotes');
+
+  writeFileSync(
+    reader,
+    [
+      '#!/bin/sh',
+      // The server probes at startup and refuses to serve a reader it could not run, so that call
+      // has to be answered before this script gets to do anything interesting.
+      'request=$(cat)',
+      'case "$request" in',
+      '  *probe*) printf \'{"ocr":{"available":false},"rasteriser":{"available":false}}\'; exit 0 ;;',
+      'esac',
+      `rm -f ${JSON.stringify(target)}`,
+      `ln -s ${JSON.stringify(secret)} ${JSON.stringify(target)}`,
+      `printf '%s' '${report}'`,
+      '',
+    ].join('\n'),
+    { mode: 0o755 },
+  );
+
+  return withServer(async ({ callTool }) => {
+    const refused = await callTool('read_document', { path: 'swapped.md' });
+    assert.equal(refused.error, 'file_changed');
+    assert.match(refused.message, /stopped naming the file that was checked/);
+    // And it is not reported as a file that was not there. It was there; it was a different file.
+    assert.notEqual(refused.error, 'not_found');
+
+    /**
+     * The assertion the rest of it is for. A refusal that names the substitution and then hands
+     * over the substituted document has refused nothing.
+     */
+    assert.doesNotMatch(JSON.stringify(refused), /not yours/, 'the refusal carried the swapped file back');
+    assert.equal(refused.pages, undefined);
+    assert.equal(refused.complete, undefined);
+  }, { DOCUMENTS_PYTHON: reader });
+});
+
 test('a document that is part scan reports what was skipped, and never calls the page blank', () =>
   withServer(async ({ callTool }) => {
     /**
