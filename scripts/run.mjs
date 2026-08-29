@@ -609,13 +609,22 @@ try {
       if (resume.length) {
         checkpoint.denied = [...denied];
         save();
-        // Sent, so the harness is not left holding a turn that will never be answered. A failure
-        // here must not replace the escalation with a stack: the refusals are already recorded.
-        try {
-          await consume(await client.sessions.createTurnStream(checkpoint.sessionId, { input: resume }));
-        } catch (err) {
-          console.log(`  The refusals could not be delivered: ${err?.message ?? err}`);
-        }
+        /**
+         * Cancel the turn rather than answering it.
+         *
+         * Sending the refusals back as a new turn was rejected - `Expected "user.message". Received
+         * "user.tool_approval"` - so an escalated run ended with no answer text at all and a verdict
+         * of NO ANSWER, which reads like a model that produced nothing rather than a run that was
+         * stopped. An eval scenario caught it: four behavioural assertions had already held.
+         *
+         * Cancelling is the honest shape anyway. The run is not continuing, so there is nothing to
+         * say to the harness except that it should stop waiting - and `smoke-agents.mjs` already
+         * ends its own timeouts this way. The refusals are recorded here and in the ledger whether
+         * or not the cancel lands.
+         */
+        await client.sessions.cancel(checkpoint.sessionId).catch((err) => {
+          console.log(`  The turn could not be cancelled: ${err?.message ?? err}`);
+        });
       }
       break;
     }
