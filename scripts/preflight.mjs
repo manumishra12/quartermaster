@@ -285,7 +285,9 @@ try {
   for (const spec of specs) {
     const live = server.find((a) => a.name === spec.name);
     if (!live) continue;
-    const resolved = model ? JSON.parse(JSON.stringify(spec).replaceAll('${TRUEFORGE_MODEL}', model)) : spec;
+    // A function replacement, because `$&` and `$$` in a model FQN are substitution patterns to
+    // `replaceAll` and would rewrite the string being compared.
+    const resolved = model ? JSON.parse(JSON.stringify(spec).replaceAll('${TRUEFORGE_MODEL}', () => model)) : spec;
     for (const line of driftBetween(live, resolved)) drifted.push(`${spec.name} - ${line}`);
   }
 

@@ -14,6 +14,12 @@ const VERDICT_TEXT = {
   unsubstantiated: 'UNSUBSTANTIATED',
   contradicted: 'CONTRADICTED',
   'no-claim': 'NO CLAIM',
+  /**
+   * Missing, so a run that produced no answer at all rendered `undefined` in the written report
+   * while the terminal said NO ANSWER. The two have to agree - the report is the artifact somebody
+   * reads afterwards, and disagreeing with the screen is how the screen stops being believed.
+   */
+  'no-answer': 'NO ANSWER',
 };
 
 export function buildReport({ agent, prompt, sessionId, finalText = '', toolResponses = [], failure = null, at }) {

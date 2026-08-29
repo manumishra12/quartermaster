@@ -35,6 +35,11 @@ jobs:
           python-version: '3.12'
       # The fixtures must keep failing. If one starts passing, the demo silently has nothing to do.
       - run: node scripts/check-fixtures.mjs
+      # The document reader's own suite. It is chained into `npm run check`, which no job runs -
+      # the tests job runs lint, typecheck and `npm test` separately - so these thirty-two were
+      # green on one machine and nowhere else. This job already installs Python and then never
+      # used it.
+      - run: npm run documents:test
 
   ui:
     name: ui tests and build

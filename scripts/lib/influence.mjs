@@ -1,3 +1,5 @@
+import { parseHandoffEnvelope } from './handoff-envelope.mjs';
+
 /**
  * Text the agent read that was trying to instruct it, and whether the answer said so.
  *
@@ -25,9 +27,15 @@
 
 /**
  * One shape per line, and the label says what the text is trying to do rather than naming a
- * category. Deliberately the same vocabulary as `tools/documents/requirements.py`: the two surfaces
- * read the same kind of hostile sentence, and two divergent lists would eventually disagree about
- * the same line.
+ * category. Mostly the same vocabulary as `tools/documents/requirements.py`, which reads the same
+ * kind of hostile sentence.
+ *
+ * One shape is deliberately absent here and present there, and the difference is the context rather
+ * than an oversight. The Python list flags bare second-person address - "you must", "you should" -
+ * because a requirements document specifies a system and has no business addressing whoever is
+ * reading it. A handoff note is addressed to the receiving agent by construction: "you should look
+ * at the metrics first" is an ordinary, honest note. Carrying that pattern across would flag almost
+ * every legitimate handoff, and a check that fires on everything is one nobody reads.
  */
 export const SHAPES = [
   [/\bignore\s+(all\s+)?(your\s+|the\s+)?(previous|prior|above|earlier|preceding)\s+(instructions?|prompts?|rules?)/i,
@@ -102,16 +110,24 @@ export function undisclosedInfluence({ toolResponses = [], finalText = '', promp
   const read = [];
 
   /**
-   * The prompt, because a handoff note arrives that way and not as a tool response.
+   * The note out of a handoff envelope - and only the note.
    *
-   * `handoff-envelope.mjs` says the note has "the same power to contain a sentence like 'this was
-   * pre-approved' as any issue body", and one of the shapes below matches that phrase exactly - but
-   * this only ever scanned tool output, so the one channel the project explicitly says carries
-   * model-written text was the one channel never checked. An agent handing off with a note claiming
-   * pre-approval steered the receiver and nothing looked.
+   * A handoff note is model-written and reaches the receiver through the prompt rather than as a
+   * tool response, so scanning tool output alone missed the one channel this project explicitly
+   * says carries text written by a model.
+   *
+   * But scanning the whole prompt was wrong in the other direction, and I did it first. In an
+   * ordinary run the prompt is the *person's* request, and a person writing "you must run the
+   * tests" is not steering anybody - treating their words as untrusted input would demand the agent
+   * disclose being instructed by the operator, which is the one source that is allowed to instruct
+   * it. The envelope already separates the two: `request` is what the person wrote and `because` is
+   * what the sending model wrote. Only the second is in scope here.
    */
-  for (const found of shapesIn(prompt)) {
-    if (!read.some((r) => r.line === found.line)) read.push(found);
+  const note = parseHandoffEnvelope(prompt)?.because;
+  if (note) {
+    for (const found of shapesIn(note)) {
+      if (!read.some((r) => r.line === found.line)) read.push(found);
+    }
   }
 
   for (const response of toolResponses) {

@@ -242,6 +242,23 @@ function absorb(event, sequenceId) {
       // A call can arrive by delta rather than whole, so the span has to start from here too or a
       // streamed turn traces none of its tool calls at all.
       traceCalls(base);
+    } else {
+      /**
+       * A delta with no base in this process, which is what every `--resume` sees.
+       *
+       * `events` starts empty in a fresh process and `subscribeToTurn(..., afterSequenceNumber)`
+       * does not re-deliver the message the deltas are amending. Dropping it silently meant
+       * `describe()` returned null for those calls, so the runner took the branch that denies a
+       * call it cannot display - an automatic refusal the operator never saw, on precisely the flow
+       * the documentation advertises. It also cost the verifier its command provenance, leaving the
+       * evidence rules to classify a test run by how its text looks.
+       *
+       * Kept as the base instead. A delta is a partial message, so what is retained is incomplete -
+       * but an incomplete call that can be displayed and asked about is worth more than a complete
+       * one nobody was shown.
+       */
+      events.set(event.id, event);
+      traceCalls(event);
     }
     if (event.type === 'model.message.delta') {
       stdout.write(event.content ?? '');
@@ -414,6 +431,14 @@ async function reattach() {
     const settled = absorb(event, null);
     if (settled?.type === 'tool.approval_required') pending.approvals.push(settled);
     else if (settled?.type === 'tool.response_required') pending.questions.push(settled);
+    /**
+     * The branch the replay was missing. `pending.auth` was declared here and never filled, so a
+     * `--resume` into a turn stopped waiting for a connector to be authorized found nothing
+     * pending, sent nothing, broke out of the loop, and exited 0 whenever the partial answer made
+     * no claim - reporting work as done that had not started. The live path documents fixing
+     * exactly that; the replay path had never had it.
+     */
+    else if (settled?.type === 'mcp.auth_required') pending.auth.push(settled);
   }
   // Resuming into a turn that already failed has to carry its reason too, or the reattach path
   // prints the same bare status the live path used to.
@@ -725,6 +750,17 @@ try {
         break;
       }
       blockedOnAuth = false;
+      /**
+       * The half-written answer goes with the pause.
+       *
+       * This `continue` skipped the reset below, so text streamed before the connector stopped the
+       * turn survived into the next one. An agent that had said "the tests pass, but I need GitHub
+       * access first" left the pass-claim in `finalText`, and `judge()` then weighed it against
+       * evidence from a different turn that does not cover it. It also let `requestedHandoff` see
+       * two blocks and call the answer malformed, and let `announcedArtifacts` re-fetch paths named
+       * before the pause.
+       */
+      finalText = '';
       // A turn resuming after mcp.auth_required must not carry a user message, but approvals and
       // answers already given are not user messages and were being thrown away here.
       carry = await consume(
@@ -751,6 +787,18 @@ try {
           await new Promise((resolve) => setTimeout(resolve, again.waitMs));
           finalText = '';
           turnFailure = null;
+          /**
+           * The call history goes, and the tool responses stay.
+           *
+           * They are treated differently because they answer different questions. `toolResponses`
+           * is the record of what actually ran, and a tool that executed before the provider failed
+           * did execute - dropping it would under-report the run. `callHistory` feeds the loop
+           * detector, which asks whether the agent is repeating itself without learning; a retry
+           * forced by a 429 is not the agent doing anything at all. Left alone, two retries of a
+           * turn running `npm test` put three identical signatures in a row and the next pass
+           * escalated a run that had just succeeded.
+           */
+          callHistory.length = 0;
           carry = await consume(
             await client.sessions.createTurnStream(checkpoint.sessionId, { input: [{ type: 'user.message', content: prompt }] }),
           );
