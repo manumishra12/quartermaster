@@ -28,12 +28,14 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, FIXTURE)
 
 import build as fixture_build  # noqa: E402
+import build_appendix as appendix_build  # noqa: E402
 import extract as extraction  # noqa: E402
 import pdfread  # noqa: E402
 import requirements as parser  # noqa: E402
 
 TXT = os.path.join(FIXTURE, 'requirements.txt')
 PDF = os.path.join(FIXTURE, 'requirements.pdf')
+APPENDIX = os.path.join(FIXTURE, 'appendix.pdf')
 
 # An OCR probe that says the binary is missing, which is the state in this project's sandbox and
 # the one that cannot be reproduced on the machine these tests were written on by any other means.
@@ -629,6 +631,54 @@ class OcrIfItIsHere(unittest.TestCase):
         self.assertFalse(result['complete'])
         self.assertIn(page['status'], (extraction.STATUS_UNAVAILABLE, extraction.STATUS_NEEDS_OCR))
         self.assertTrue(result['skipped'])
+
+
+class AppendixPublishedAnswers(unittest.TestCase):
+    """
+    The numbers in the `appendix.pdf` half of fixture/README.md.
+
+    That fixture exists for one sentence the requirements fixture cannot make: a list of four
+    correct, verbatim, cited requirements that is missing two, with nothing in the list itself to
+    say so. These assertions are what stops the README claiming that and the file quietly meaning
+    something else.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.parsed = parse_fixture(APPENDIX)
+
+    def test_the_appendix_is_reproducible_from_its_generator(self) -> None:
+        """The checked-in bytes are the ones build_appendix.py produces, so nobody hand-edited them."""
+        with open(APPENDIX, 'rb') as handle:
+            self.assertEqual(handle.read(), appendix_build.build_pdf(appendix_build.PAGES))
+
+    def test_the_middle_page_is_reported_as_unread_rather_than_as_empty(self) -> None:
+        coverage = self.parsed['coverage']
+        self.assertEqual(coverage['pages_in_document'], 3)
+        self.assertEqual(coverage['pages_parsed'], 2)
+        self.assertEqual(coverage['pages_not_parsed'], [appendix_build.UNREADABLE_PAGE])
+        self.assertFalse(coverage['complete'])
+        # The sentence itself, because it is the field that has to survive to the last reader.
+        self.assertIn('2 of 3 pages', coverage['warning'])
+        self.assertIn('Do not describe this list', coverage['warning'])
+
+    def test_the_four_that_survive_are_the_published_four(self) -> None:
+        self.assertEqual(self.parsed['counts']['requirements'], 4)
+        self.assertEqual(self.parsed['counts']['by_strength'], {'MUST': 3, 'SHOULD': 0, 'MAY': 1})
+        self.assertEqual([item['id'] for item in self.parsed['requirements']],
+                         ['REQ-001', 'REQ-002', 'REQ-003', 'REQ-004'])
+
+    def test_the_two_on_the_unread_page_are_nowhere_in_the_output(self) -> None:
+        """
+        The half that makes the fixture worth having.
+
+        A parse that somehow recovered page 2 would be a better reader and a broken fixture, and
+        one that reported those sentences without reading them would be worse than either.
+        """
+        rendered = repr(self.parsed)
+        for line in appendix_build.PAGES[appendix_build.UNREADABLE_PAGE - 1]:
+            if any(word in line for word in ('MUST', 'SHOULD', 'MAY')):
+                self.assertNotIn(line, rendered)
 
 
 if __name__ == '__main__':
