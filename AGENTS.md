@@ -26,14 +26,22 @@ And six the list does not ask for:
 ### The three added last, and what each is for
 
 `requirements-analyst` is the use case the document tooling in `tools/documents/` was built for and
-nothing else uses. It runs `extract.py` and `requirements.py` in the sandbox, reports what could not
-be read before it reports what the document says, and drafts a ticket per requirement carrying the
-sentence verbatim, its page and line, and the `basis` on which the parser called it a MUST. It is
-the sharpest of the three because its input is untrusted by construction: a requirements document is
-a list of instructions written by somebody who is not the operator. `requirements.py` already lifts
-directives out of a document and names what they are trying to do, and the agent reports those above
-the summary and never acts on them. It reaches the sandbox and six named `front-desk` tools, of which
-only `create_issue` writes, and that one is gated.
+nothing else uses. It reaches that tooling through the `documents` connector rather than by
+assembling a command line in the sandbox, which is the change worth naming: the shell is not gated,
+so a reader reached through it was the one guarantee in this agent's job living in a skill document
+instead of in a mechanism. Through `read_document`, `list_pages`, `parse_requirements` and
+`ocr_status` the extraction report arrives as fields the agent is answered with rather than a
+paragraph it could scroll past, and a path outside the connector's root is refused before anything
+is opened. It reports what could not be read before it reports what the document says, and drafts a
+ticket per requirement carrying the sentence verbatim, its page and line, and the `basis` on which
+the parser called it a MUST.
+
+It is the sharpest of the three because its input is untrusted by construction: a requirements
+document is a list of instructions written by somebody who is not the operator. `parse_requirements`
+lifts the lines addressed to the reader into a top-level `directives` array that is never paged
+however many there are, and names what each one is trying to achieve; the agent quotes those above
+the summary and carries on with the job unchanged. It reaches four `documents` tools and six named
+`front-desk` tools, of which only `create_issue` writes, and that one is gated.
 
 `release-notes` reads merged pull requests and drafts the changelog. The temptation in that job is
 exactly the fabrication `scripts/lib/evidence.mjs` exists to catch: a pull request title is right
@@ -81,7 +89,7 @@ The clearest case is in the table above. `code-reviewer` reaches five named GitH
 comment tools, and cannot
 branch, write a file or open a pull request, because a reviewer that lands its own fix is not a
 reviewer. Handing its work to `quartermaster` is how it would land one anyway, and that handoff is
-refused with the eight capabilities it would have gained.
+refused with the seven capabilities it would have gained.
 
 Approvals never travel - the envelope has no field for one, and a test asserts the absence. The
 chain is bounded at three agents. The sender's note reaches the receiver framed as untrusted text,
@@ -97,7 +105,7 @@ much as a question of whether there is anything to fan out and whether the answe
 approval prompts. `release-notes` has them on because thirty merged pull requests are thirty
 independent reads; `policy-auditor` has them on because its four questions are independent and all
 read-only; `requirements-analyst` has them off because one document, parsed by one deterministic
-command, does not divide - and every extra agent is one more reader of text written to be read by an
+call, does not divide - and every extra agent is one more reader of text written to be read by an
 agent. In all three the gated action stays with the parent, for accountability rather than for
 safety: one person approving one draft, rather than several prompts for one decision in front of
 somebody who has stopped reading them.
@@ -148,7 +156,7 @@ guaranteed to do - and section 2a of `TOOLS.md` explains why that matters more t
 | `research-desk` | nothing - neither Exa nor parallel-web needs auth |
 | `incident-responder` | nothing - `npm run ops-desk` and `npm run observability` |
 | `desk-assistant` | nothing - `npm run front-desk` |
-| `requirements-analyst` | nothing - `npm run front-desk`, and the parsers are standard library |
+| `requirements-analyst` | nothing - `npm run documents` and `npm run front-desk`, and the readers behind the first are standard library |
 | `policy-auditor` | nothing - it reads this repository |
 | `quartermaster` | a GitHub PAT |
 | `code-reviewer` | a GitHub PAT |
