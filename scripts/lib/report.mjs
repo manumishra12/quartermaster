@@ -39,7 +39,23 @@ export function buildReport({ agent, prompt, sessionId, finalText = '', toolResp
     reason,
     phase: { index: phase.index, label: phase.label, of: PHASES },
     counts: { executions: executions.length, testRuns: runs.length, refused: refusals.length },
-    executions: executions.map((e, i) => ({ index: i, command: e.command ?? null, exitCode: e.exitCode, output: e.output })),
+    /**
+     * `errored` travels with the execution, because the readers downstream cannot recover it.
+     *
+     * `resultOf` already tells a call that errored before running anything - a sandbox that failed
+     * to provision - from a command that ran and printed nothing, and `testRuns()` drops the first
+     * kind on exactly that flag. This record dropped it, so `evals/lib/assertions.mjs` had no way
+     * to ask: a run whose sandbox never came up still filled `executions`, and
+     * `executions_at_least: 1` - the assertion `passing-line-with-no-sandbox` exists to fail on a
+     * claimed run with nothing behind it - counted the failure as the call.
+     */
+    executions: executions.map((e, i) => ({
+      index: i,
+      command: e.command ?? null,
+      exitCode: e.exitCode,
+      errored: e.errored === true,
+      output: e.output,
+    })),
     refused: refusals.map((e, i) => ({ index: i, command: e.command ?? null })),
     /**
      * Why the turn ended badly, when it did.
