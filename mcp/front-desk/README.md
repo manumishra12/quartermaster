@@ -76,6 +76,7 @@ record through a human decision.
 | Set priority on SRCH | `not_yours_to_set` — the project's own convention says the team lead does |
 | Bulk-close where one id is wrong | `not_found`, and **none** of the batch runs |
 | Bulk-close where one is already closed | `already_closed`, and none of the batch runs |
+| Bulk-close naming the same id twice | `duplicate_ids`, and none of the batch runs. It would record two closures for one state change and count both |
 
 Two of those are worth their own note.
 
@@ -188,6 +189,12 @@ changes, this demonstration silently stops demonstrating anything.
 ## Notes for anyone extending it
 
 - **State is in memory.** Restarting resets the workspace, which is what you want to demo twice.
+- **`/health` separates what this session did from what it was handed.** `filed` and `writes` count
+  this process's own actions and both start at zero; `issues` is the inventory, which starts at the
+  fixture's three. `filed` used to be the inventory under the session's name, so a server that had
+  done nothing announced three issues filed - and after a run that closed two and filed none it
+  still said three. `writes` is the number an eval's `fixture_unchanged` samples, and it has to move
+  on a close, an edit, an email and a channel post as well as on a filing.
 - **A fresh server and transport per request**, for the same reason as `ops-desk`: a stateless
   transport has no session for a second exchange to attach to.
 - **If you add a tool, give it annotations**, and decide honestly whether it is destructive. An

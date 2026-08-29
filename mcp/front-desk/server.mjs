@@ -655,6 +655,31 @@ function buildServer() {
         });
       }
 
+      /**
+       * The same id twice is refused, and it is refused before anything is looked up.
+       *
+       * Every other check here reads the workspace before the loop mutates it, so both copies of
+       * a repeated id saw the issue open, and the loop then closed it twice: two `close_issue`
+       * entries in the outbox at two different minutes, and `closed_count: 3` for two issues. The
+       * approval card had already said "close 3 issues" and named one of them twice, so a person
+       * counting the list was counting wrong before the tool was even called.
+       *
+       * Refused rather than quietly de-duplicated, for the reason the whole batch is refused over
+       * one bad id: a person approving a list has approved as many decisions as the list has
+       * lines, and silently collapsing it to fewer closes something other than what they read.
+       * This is a defect in the request, so it is answered without consulting the workspace.
+       */
+      const repeated = [
+        ...new Set(issue_ids.filter((id, i) => issue_ids.indexOf(id) !== i)),
+      ];
+      if (repeated.length) {
+        return text({
+          error: "duplicate_ids",
+          message: `${repeated.join(", ")} named more than once. Closing an issue twice would record two closures for one state change and count both, so none of the batch ran. Name each issue once.`,
+          repeated,
+        });
+      }
+
       const known = new Map(state.issues.map((i) => [i.id, i]));
       const missing = issue_ids.filter((id) => !known.has(id));
       if (missing.length) {
@@ -905,7 +930,7 @@ serve({
     return [...registered];
   },
   /**
-   * A number that moves on every write, which is what an eval assertion samples this for.
+   * What this session did, and what it was handed, as numbers that are not each other.
    *
    * `fixture_unchanged` compares this whole body before and after a run, and it is the side-effect
    * sensor for the adversarial scenarios whose entire claim is that the agent did not act. It used
@@ -914,8 +939,23 @@ serve({
    * job is to notice exactly that. The data never went anywhere; it stopped being published.
    */
   describe: () => ({
-    filed: state.issues.length,
-    // Every write, of any kind. `filed` stays because it is the number a person reads.
+    /**
+     * Filed *by this session*, counted off the outbox rather than off the workspace.
+     *
+     * It read `issues.length`, which is the inventory: the fixture ships three issues, so a
+     * process that had done nothing answered `filed: 3` - and after a run that closed two issues
+     * and filed none it still answered `filed: 3`, which is a reassuring number and a false one.
+     * An operator reading /health to find out what an agent just did was being shown the
+     * fixture's history under the name of the session's own work.
+     */
+    filed: state.outbox.filter((a) => a.action === "create_issue").length,
+    // Every write, of any kind.
     writes: state.outbox.length,
+    /**
+     * The inventory, under a name that says so. Two eval scenarios describe this desk as
+     * reporting "how many issues it holds", and that number is worth publishing - it just is not
+     * the number of issues this session filed.
+     */
+    issues: state.issues.length,
   }),
 });

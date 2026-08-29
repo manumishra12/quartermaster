@@ -96,7 +96,7 @@ number an investigation can act on, arrived at honestly, and wrong.
 | A service this store has no series for | `unknown_service`, with `in_service_map` saying whether it is a real but uninstrumented node |
 | A metric and a service it keeps separately and not together | `no_series`, naming which services do carry that metric |
 | A comparison window with no readings in it | `refused: no_points_in_window`, and **no change is computed** |
-| A comparison window the store only half kept | `refused: window_not_fully_retained` - the mean of a window missing half its minutes is the mean of the half that was kept. Where the missing half is the future rather than the past, `retained_part` names the window that would have answered |
+| A comparison window the store only half kept | `refused: window_not_fully_retained` - the mean of a window missing half its minutes is the mean of the half that was kept, and nothing in the number says which half. `retained_part` names the window that would have answered |
 | A comparison window with a rollback inside it | `refused: window_straddles_remediation` - a summary across it is a summary of two different worlds and lands between them, which reads as a partial recovery that nothing partially recovered |
 | A service name off `Object.prototype` | `unknown_service` - `store.series["constructor"]` is truthy, and `ops-desk` shipped that mistake once already |
 | An `ops-desk` that cannot be reached, or answers something unusable | `world.reachable: false` with the reason, and the store ends where its fixture does. **Never reported as "nothing has been done"** |
@@ -110,6 +110,13 @@ is 1142, a number that looks like a slow service rather than a broken one, and a
 that averaged would turn this fixture's step change into a gentle slope. Percentile metrics are
 downsampled by taking the **maximum** of each bucket, and every reply that does it says so and says
 it is an approximation.
+
+Buckets start at the first reading served, not on a grid laid from the store's retention origin.
+Anchored to the origin, a lower bound off that grid - `from: 12:00:30Z` at `step_s: 300` - returned
+a first point stamped `12:00:00Z` and reported it as `served.from`, beside `truncated: false` and
+`missing_before: null`: a reply claiming to have served exactly the window asked for, with a
+timestamp outside it at the front. The grid bought nothing in exchange, either, because that
+escaped bucket held four minutes where the same label in an aligned query holds five.
 
 **`compare_windows` refuses rather than reporting `null`.** A tool that answered `mean_ratio: null`
 and left it there would let "recovered" be written on the strength of a field nobody read.

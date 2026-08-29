@@ -1040,9 +1040,32 @@ function buildServer() {
        */
       const points = [];
       if (downsampled) {
+        /**
+         * Buckets start at the first reading served, not at the store's retention origin.
+         *
+         * Anchored to `RETAINED_FROM`, a window whose lower bound was not on the bucket grid got
+         * its first bucket stamped *before the window it asked for*: `from: 12:00:30Z` with
+         * `step_s: 300` returned a point at 12:00:00Z and reported it as `served.from`, beside
+         * `truncated: false` and `missing_before: null` - a reply claiming to have served exactly
+         * the window asked for, with a timestamp outside it at the front. On this server that is
+         * the whole class of failure being defended against: the number is arrived at honestly and
+         * is wrong, and nothing in the reply says so.
+         *
+         * The global grid looked like it bought comparability between two queries. It did not:
+         * that first bucket held four minutes rather than five, so the same label carried a
+         * different value in a differently-bounded query - which is worse than an offset grid,
+         * because it is invisible.
+         *
+         * The first served reading is used rather than `cover.from` so that every `at` this server
+         * emits stays an instant something was actually scraped at. `rawPoints` already starts at
+         * the first scrape on or after the lower bound, so this is inside the requested window by
+         * construction, and the documented step-change trap - the 13:55 bucket at `step_s: 300`
+         * from an aligned 13:40 - is unmoved, because an aligned window anchors where it did.
+         */
+        const origin = Date.parse(raw[0].at);
         const buckets = new Map();
         for (const point of raw) {
-          const start = Math.floor((Date.parse(point.at) - RETAINED_FROM) / bucketMs) * bucketMs + RETAINED_FROM;
+          const start = Math.floor((Date.parse(point.at) - origin) / bucketMs) * bucketMs + origin;
           if (!buckets.has(start)) buckets.set(start, []);
           buckets.get(start).push(point.value);
         }
