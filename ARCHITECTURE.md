@@ -12,11 +12,11 @@ flowchart LR
   P(["person"])
   RT{"router<br/>scripts/lib/route.mjs"}
 
-  subgraph fleet["nine specs, nine authorities"]
+  subgraph fleet["twelve specs, twelve authorities"]
     direction TB
     CR["code-reviewer"]
     QM["quartermaster"]
-    REST["quartermaster-local, analytics<br/>desk-assistant, incident-responder<br/>research-desk, code-runner, gate-demo"]
+    REST["quartermaster-local, analytics<br/>desk-assistant, incident-responder<br/>research-desk, code-runner, gate-demo<br/>requirements-analyst, release-notes<br/>policy-auditor"]
   end
 
   subgraph harness["TrueForge harness :8790"]
@@ -32,6 +32,7 @@ flowchart LR
     FD["front-desk :8796"]
     WH["warehouse :8797<br/>read-only connection"]
     OBS["observability :8798<br/>read-only"]
+    DOC["documents :8799<br/>read-only, confined to one root"]
   end
 
   EV["evidence verifier<br/>scripts/lib/evidence.mjs"]
@@ -54,6 +55,7 @@ flowchart LR
   LOOP -->|"read-only, ungated"| WEB
   LOOP -->|"read-only by the connection, not by a gate"| WH
   LOOP -->|"read-only, ungated"| OBS
+  LOOP -->|"read-only, and no path leaves the root"| DOC
   GATE -.->|"allowed and denied alike"| LED
   LOOP -.->|"recorded event stream"| EV
   EV --> REP
@@ -90,8 +92,8 @@ of where the shape helps and where it is only adequate.
 | Potential impact | Every team with CI has this problem. The fix loop is the most-attempted, least-trusted agent task there is, and the reason it is untrusted is the claim, not the patch. |
 | Creativity and originality | The inversion: the agent's job is not to fix, it is to *prove*. Evidence is the product. The second inversion is delegation, where the interesting question turned out to be authority rather than capability. |
 | Technical excellence | Agent specs are version-controlled JSON applied through the API, not clicked into a UI. The safety rules are functions with tests, not paragraphs. Findings have a failing case before they have a fix. |
-| Use of sponsor tools | Sandbox-as-tool, dynamic subagents, skills, approval policy, generative UI, compaction, the React UI SDK, and three MCP servers written against the protocol - all exercised, all visible. Two findings went back upstream. |
-| Control and safety | Four boundaries, not one: the sandbox for execution, `require_approval_for_tools` for what the agent asks the harness to do, `authority.mjs` for what delegation may reach, and a read-only connection for SQL. `GUARDRAILS.md` names each, and the section at the end of it names where they stop. |
+| Use of sponsor tools | Sandbox-as-tool, dynamic subagents, skills, approval policy, generative UI, compaction, the React UI SDK, and five MCP servers written against the protocol - all exercised, all visible. Two findings went back upstream. |
+| Control and safety | Five boundaries, not one: the sandbox for execution, `require_approval_for_tools` for what the agent asks the harness to do, `authority.mjs` for what delegation may reach, a read-only connection for SQL, and a resolved-then-checked root for the documents an agent may open. `GUARDRAILS.md` names each, and the section at the end of it names where they stop. |
 | Presentation | The demo has a beat: red test, agent works, green output, gate fires, human allows, PR opens. The refusals are the part worth watching, so the interface shows them rather than tidying them away. |
 
 ## Harness mapping
@@ -102,7 +104,7 @@ Two kinds of fan-out, and they are not the same thing.
 so a single agent is deep rather than wide: one strong skill pack, and the harness parallelises on
 its own when the work is parallel, returning only conclusions to the root context.
 
-**Between turns**, the nine specs are nine different answers to "what may this reach". Moving a
+**Between turns**, the twelve specs are twelve different answers to "what may this reach". Moving a
 request from one to another is a handoff, not a nesting: an allowed handoff re-enters `run.mjs` as a
 fresh session, so the receiving agent gets the identical approval loop, the identical verifier and
 its own report. There is no softer plumbing for delegated work, which is the whole point.
@@ -126,8 +128,8 @@ root agent (quartermaster)
 
 ## Choosing the agent, and handing between them
 
-Nine agents and one default is not a fleet, it is eight agents nobody reaches. `--agent` used to be
-required knowledge: get it wrong and the request was answered, capably and at length, by whichever
+Twelve agents and one default is not a fleet, it is eleven agents nobody reaches. `--agent` used to
+be required knowledge: get it wrong and the request was answered, capably and at length, by whichever
 spec happened to be the default.
 
 The router in `scripts/lib/route.mjs` is rule-based, and that is the argument rather than a
@@ -196,7 +198,7 @@ direction blesses one that is not.
 The real case is in this repository and nobody planted it. `code-reviewer` reaches five named GitHub
 reads plus three gated comment and review tools, and it cannot branch, write a file or open a pull
 request, because a reviewer that lands its own fix is not a reviewer. Handing its work to
-`quartermaster` is how it would land one anyway, and that handoff is refused with eight capabilities
+`quartermaster` is how it would land one anyway, and that handoff is refused with seven capabilities
 named. Of the 132 directed pairs between these twelve agents, 24 widen nothing.
 
 Three further rules live in the same file. The approval never travels: there is no field for one in
@@ -205,24 +207,34 @@ revisiting, because a request still moving after that is not being delegated, it
 And the sender's note reaches the receiver framed as untrusted text, because it is text written by a
 model, with the same power to contain "this was pre-approved" as any issue body from a stranger.
 
-## The three connectors that ship here
+## The five connectors that ship here
 
-`ops-desk`, `front-desk` and `warehouse` are MCP servers in this repository, which is what puts the
-approval-gated assistant, the analytics agent and the incident responder within reach of somebody
-who has cloned this repo and added one model key. With the sandbox-only and no-auth-web agents
-beside them, five of the six hackathon agent ideas run with no account anywhere.
+| Server | Port | Tools | For |
+| --- | --- | --- | --- |
+| `ops-desk` | 8795 | 9, of which 3 are gated | `incident-responder` |
+| `front-desk` | 8796 | 15, of which 8 are gated | `desk-assistant`, `requirements-analyst` |
+| `warehouse` | 8797 | 5, all reads | `analytics` |
+| `observability` | 8798 | 8, all reads | `incident-responder` |
+| `documents` | 8799 | 4, all reads | `requirements-analyst` |
 
-All three sit behind one HTTP shell, `mcp/lib/serve.mjs`, which binds loopback by default and, while
+They are MCP servers in this repository, which is what puts the approval-gated assistant, the
+analytics agent and the incident responder within reach of somebody who has cloned this repo and
+added one model key. With the sandbox-only and no-auth-web agents beside them, five of the six
+hackathon agent ideas run with no account anywhere.
+
+All five sit behind one HTTP shell, `mcp/lib/serve.mjs`, which binds loopback by default and, while
 on loopback, validates the `Host` header. The binding is there because the first two of them were
 verified answering on this machine's LAN address; the header check is there because a page in the
 operator's own browser can reach `127.0.0.1` too. The approval gate lives in the harness, so a
 request arriving at one of these servers directly never meets it, and who can reach the port is
 therefore the whole of the access control.
 
-`warehouse` is the one worth reading. The analytics agent used to run SQL through a Python heredoc
-in the sandbox shell, and the shell is not gated, so the only thing between that agent and a DELETE
-was its own resolve. The connector replaced a promise with a mechanism, in two layers whose order
-matters:
+Two of them are worth reading in full, because each replaced a promise with a mechanism and each did
+it in two layers whose order is the whole guarantee.
+
+`warehouse` is the first. The analytics agent used to run SQL through a Python heredoc in the sandbox
+shell, and the shell is not gated, so the only thing between that agent and a DELETE was its own
+resolve. The connector replaced a promise with a mechanism, in two layers whose order matters:
 
 | Layer | What it is | What it holds |
 | --- | --- | --- |
@@ -234,6 +246,42 @@ in as many words. The residue is larger than it sounds: `VACUUM INTO` succeeds o
 connection, because it does not modify the source database, it writes a complete copy of it
 somewhere else. `ATTACH` of a file that already exists succeeds too. Read-only means "cannot modify
 this database", not "cannot write to disk".
+
+### `documents`, and the field it refuses to build
+
+`documents` is the second, and it is the same argument about a filesystem path. The readers in
+`tools/documents/` landed first, and `requirements-analyst` reached them by assembling a command line
+in the sandbox shell. That worked, and the shell is not gated - so the one connector-shaped guarantee
+in that agent's job lived in a skill document, which is a promise. `read_document`, `list_pages`,
+`parse_requirements` and `ocr_status` are the mechanism.
+
+| Layer | What it is | What it holds |
+| --- | --- | --- |
+| `realpath`, then containment | resolve the path with the operating system, compare the answer against a root that was itself resolved at startup | The boundary. It does not care how the string was spelled, which is the property a pattern check can never have. |
+| Name, extension and content rules | `.env` and `.git` refused by name, an allowlist of suffixes, and the leading bytes checked against the suffix's claim | The residue. It exists for what the first layer permits, and the first layer permits a great deal. |
+
+Resolving after checking would pass both of the attacks that matter: `a/../../etc/passwd` normalises
+to something with no traversal left in it, and a symlink named `notes.md` pointing at `~/.ssh/id_rsa`
+never contained any. The root is resolved at startup for the same reason - on macOS `/tmp` is a
+symlink to `/private/tmp`, so an unresolved root and a resolved file share no prefix at all and every
+honest read is refused as an escape. `mcp/documents/README.md` says in as many words that layer 2
+will miss a secret written in prose in a `.md` file, because a reader who believes it is the boundary
+will start improving it into one.
+
+Nothing is handed to a shell. `run.py` takes its request as JSON on stdin and argv is the runner path
+and nothing else, so there is no argument for a filename to be mistaken for; a test asserts the
+source contains no `exec(` and no `shell: true`, with comments stripped first so that the prose
+describing the danger cannot satisfy the check written to prevent it.
+
+The sharpest decision in it is a field that is not there. `extract.py` produces a single joined `text`
+for the whole document, and this server publishes no such field - deliberately. It was the one field
+with no page, method or status attached, which makes it exactly the field a caller must not decide
+from. The same characters are here per page with their provenance beside them, and `complete`,
+`summary` and `skipped` are the first three keys of every reply while `pages` is the last, because
+key order is what a model reads top to bottom. There is a test asserting the order. The failure it
+prevents is specific: a page read and empty, a page that could not be read, and a page nothing tried
+to read all carry `text: ""`, and deciding from `text` collapses three different findings into "the
+page is blank", which is false in two of them.
 
 ## The evidence check - why instructions are not enough
 
@@ -381,9 +429,9 @@ could not, which is the only thing that comparison asks.
   version, and `gate-demo` exists so the pause can be shown on its own.
 - **v2** - the interface on the React UI SDK, which was written down as "only if time" and got the
   time. It answers three questions: what the agent is doing, what it is waiting on, and what it did.
-- **v3, which was not in the plan** - three MCP servers of our own, a router, an authority model and
+- **v3, which was not in the plan** - five MCP servers of our own, a router, an authority model and
   a handoff protocol. Breadth arrived because the hackathon lists six agent ideas and the honest way
-  to cover them was nine specs sharing one safety discipline rather than nine copies of it.
+  to cover them was twelve specs sharing one safety discipline rather than twelve copies of it.
 
 Extra agents stay additive: another spec file in `agents/`, the same setup, the same interface, and
 the same checks refusing to apply it if its policy is fail-open.

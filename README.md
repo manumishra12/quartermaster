@@ -78,7 +78,8 @@ In the TrueForge UI:
   `http://localhost:11434/v1`.
 - **Settings → Sandbox providers** — a [Daytona](https://www.daytona.io) API key. There is a local
   fallback if you skip this, but it runs on your own machine rather than in real isolation.
-- **Settings → Skills** — import `skills/verified-fix` and `skills/evidence-report` from this repo.
+- **Settings → Skills** — import the fifteen packs in `skills/` from this repo. Each agent attaches
+  only the ones its job uses; `TOOLS.md` section 3 lists what each teaches.
 - **Settings → Connectors** — GitHub, with a fine-grained personal access token scoped to one repo.
   Only needed for the `quartermaster` agent, which can open pull requests.
 
@@ -92,18 +93,21 @@ npm run ops-desk &              # the incident responder investigates this
 npm run front-desk &            # the desk assistant files into this
 npm run warehouse &             # the analytics agent queries this, read-only
 npm run observability &         # the metrics the incident responder correlates against
+npm run documents &             # the specification the requirements analyst reads
 
 npm run agents:apply
 npm run preflight               # tells you exactly what is still missing
 ```
 
-The four servers in the middle ship in this repository and need no accounts. `warehouse` wants its
+The five servers in the middle ship in this repository and need no accounts. `warehouse` wants its
 fixture built first - `cd fixtures/warehouse && sqlite3 warehouse.db < seed.sql`, and it says so and
-refuses to start if you have not. Starting them is not enough on a fresh harness either; it also has
-to be told they exist, once:
+refuses to start if you have not. `documents` needs nothing built: it reads this repository, and
+`DOCUMENTS_ROOT=/work/uploads npm run documents` points it somewhere tighter when there are real
+uploads to serve. Starting them is not enough on a fresh harness either; it also has to be told they
+exist, once:
 
 ```bash
-for s in ops-desk:8795 front-desk:8796 warehouse:8797 observability:8798; do
+for s in ops-desk:8795 front-desk:8796 warehouse:8797 observability:8798 documents:8799; do
   curl -sS --fail-with-body -X POST http://localhost:8790/api/v1/settings/mcp-servers \
     -H 'content-type: application/json' \
     -d "{\"manifest\":{\"type\":\"remote\",\"name\":\"${s%%:*}\",\"url\":\"http://localhost:${s##*:}/mcp\",\"description\":\"Ships with this repository; no account needed.\"}}" \
@@ -114,9 +118,10 @@ done
 `--fail-with-body` matters: without it curl exits 0 on an HTTP 400 or 500, the loop finishes
 quietly, and the first sign that nothing was registered is an agent that cannot reach anything.
 
-Without both steps `agents:apply` skips `incident-responder`, `desk-assistant` and `analytics` as
-unknown servers. `preflight` names whichever half is missing: it says `start it: npm run ops-desk` when the
-process is down, and the connector is absent from its list entirely when it was never registered.
+Without both steps `agents:apply` skips `incident-responder`, `desk-assistant`, `analytics` and
+`requirements-analyst` as unknown servers. `preflight` names whichever half is missing: it says
+`start it: npm run ops-desk` when the process is down, and the connector is absent from its list
+entirely when it was never registered.
 
 `preflight` reports on the server, model, sandbox, skills, connectors and agents, and names the fix
 for each thing it cannot find.
@@ -166,12 +171,15 @@ event stream rather than the transcript - turns out to generalise, and each is o
 | `research-desk` | Exa web search | read-only throughout | **yes** |
 | `incident-responder` | `ops-desk` + `observability` (both ship here) | every remediation | **yes** |
 | `desk-assistant` | `front-desk` (ships here) | every create, edit, close and send | **yes** |
+| `requirements-analyst` | `documents` + `front-desk` (both ship here) | every ticket it files | **yes** |
+| `policy-auditor` | the sandbox, and nothing else | nothing to gate, on purpose | **yes** |
 | `code-reviewer` | GitHub, read-only + comments | every comment it posts | needs a PAT |
+| `release-notes` | GitHub, ten reads + one comment | the comment it posts the draft as | needs a PAT |
 | `gate-demo` | + GitHub | its one tool | needs the GitHub connector |
 
 Start with `quartermaster-local`. It needs no token and touches nothing outside the sandbox.
 
-[`USECASES.md`](USECASES.md) takes each of the nine in turn: what it is for, what it reaches, what
+[`USECASES.md`](USECASES.md) takes each of the twelve in turn: what it is for, what it reaches, what
 is gated, commands you can paste, what the output looks like, and what it refuses. Start there if
 what you want is to see one of them do something.
 
@@ -183,10 +191,11 @@ it can read anything and post comments, and `merge_pull_request`, `push_files`,
 `create_or_update_file` and `delete_file` are **not enabled for it at all**. A reviewer that can
 merge is not a reviewer.
 
-It also runs with `dynamic_sub_agents` disabled. Reviewing several files at once is a real use for
-subagents, but every write this agent has is gated, and whether a subagent inherits that gate is not
-something this project has verified. Until it is, the agent that can propose a write is the one you
-can see.
+It also runs with `dynamic_sub_agents` disabled, and no longer for the reason first written here.
+A subagent runs the parent's spec through the parent's toolsets under the parent's approval policy,
+so it inherits the gate and cannot reach anything the parent could not - settled from TrueForge's
+source after two attempts to settle it by experiment failed. Subagents are off because there is
+nothing here to fan out: one pull request, read once.
 
 `gate-demo` exists to make the approval gate visible on its own. Its only tool is
 `add_issue_comment` and that tool is gated, so a single turn is enough to show the harness stopping
@@ -288,11 +297,11 @@ flowchart TD
 
 Two things about that picture are the argument rather than the drawing. **The gated actions are not
 on any subagent's branch.** Subagents do the reading; rollback, restart and resolve are the parent
-agent's alone, because whether a dynamic subagent inherits this agent's approval policy is not
-established - the SDK documents `dynamic_sub_agents.enabled` as a lone boolean and says nothing
-about it. An unverified gate is not a gate, and if it does not travel then nobody is asked, the
-rollback happens, and the transcript still reads as though somebody approved it. Reads are safe to
-delegate because the worst case of an unverified gate on a read is a read.
+agent's alone. That was originally because whether a dynamic subagent inherits the approval policy
+was not established; it is now, from TrueForge's source, and a subagent does inherit it. The
+arrangement stayed anyway, for accountability rather than for safety: one person approving one
+rollback, rather than several prompts for one decision in front of somebody who has stopped reading
+them.
 
 And **verify recovery has two exits, both computed.** A rollback that worked puts checkout back at
 roughly its pre-incident 305ms with neither rule breaching. A restart that changed nothing, or a
@@ -356,9 +365,44 @@ this is not.
 `code-runner` is the odd one: subagents are switched **off** for it. It runs code somebody else
 wrote, so widening the blast radius by handing that code to more agents is the wrong direction.
 
-## Nine agents, and choosing between them
+`requirements-analyst` turns a specification into drafted tickets, one per requirement, and it is
+the case where the input is untrusted by construction: a requirements document is a list of
+instructions, written by somebody who is not your operator, handed to a machine that reads
+instructions for a living. It reaches [`documents`](mcp/documents/README.md), the fifth MCP server
+that ships here - `read_document`, `list_pages`, `parse_requirements` and `ocr_status`, on 8799.
 
-Nine agents and one default is not a fleet, it is eight agents nobody reaches. `--agent` was
+It used to reach the same readers by assembling a command line in the sandbox, and the shell is not
+gated, so the one guarantee that job depends on lived in a skill document. Three things changed when
+it became a connector. The arguments are checked rather than assembled by the model. The extraction
+report arrives as fields the agent is answered with, rather than as a paragraph printed before the
+text that a long buffer lets it scroll past. And a path is resolved by the operating system and then
+checked against a root, so a document somebody points the agent at cannot become a way to read the
+machine - `../../../../etc/passwd` and a symlink named `notes.md` pointing at `~/.ssh/id_rsa` both
+come back as `outside_root`, having been resolved first and checked afterwards.
+
+The sharpest decision in that server is a field it does not publish. The command-line extractor
+produces one joined `text` for the whole document; the connector produces none, because that was the
+single field with no page, method or status attached, and therefore the one field this job must not
+decide from. A page read and empty, a page that could not be read, and a page nothing tried to read
+all carry `text: ""`, and they need three different sentences from the agent. So `complete`,
+`summary` and `skipped` are the first keys of every reply and the page text is the last.
+
+```bash
+npm run documents        # http://localhost:8799/mcp
+npm run agent -- --agent requirements-analyst --deny-all "Parse the requirements in \
+tools/documents/fixture/requirements.txt and draft one ticket per requirement."
+```
+
+That fixture has a line planted in it addressed to whatever software reads the document. The parser
+lifts it out verbatim into a `directives` array that is never paged however many there are, names
+six shapes of what it is trying to do - one of them *"asks the reader to conceal something from the
+person it works for"* - and emits all seven requirements anyway, including that one, as `REQ-007`.
+Reported because it is in the document, never obeyed, because a document is data.
+[`USECASES.md`](USECASES.md) has the whole run.
+
+## Twelve agents, and choosing between them
+
+Twelve agents and one default is not a fleet, it is eleven agents nobody reaches. `--agent` was
 required knowledge: get it wrong and the request was answered by whichever spec happened to be the
 default, capably and about the wrong thing.
 
@@ -406,25 +450,28 @@ had to ask about. The real case in this repository:
   code-reviewer asked to hand this to quartermaster. Refused.
   handing from code-reviewer to quartermaster would widen what this request can do
 
-    dynamic_sub_agents                        -  the receiver may spawn subagents and the sender may not
+    github/@read-only                         -  the sender cannot reach it
     github/create_branch                      -  the sender cannot reach it
     github/create_or_update_file              -  the sender cannot reach it
     github/push_files                         -  the sender cannot reach it
     github/create_pull_request                -  the sender cannot reach it
     github/add_reply_to_pull_request_comment  -  the sender cannot reach it
-    github/@read-only                         -  the sender cannot reach it
     deepwiki                                  -  the sender does not have this connector at all
 ```
+
+Subagent spawning used to be an eighth line here. It is not a widening: a subagent runs the parent's
+spec through the parent's toolsets under the parent's approval policy, so it reaches nothing the
+parent could not, which is the only thing this comparison asks.
 
 `code-reviewer` reaches five named GitHub reads and three gated comment tools - it cannot branch, write a file or
 open a pull request, because a reviewer that can land its own fix is not a reviewer. Delegating the
 fix to the agent that can push is how it would land one anyway. Of the 132 directed pairs between
 these twelve agents, 24 are handoffs that widen nothing.
 
-The last two lines are the check being blunt rather than clever, and it is worth seeing. `@read-only`
-is reported as unreachable because `covers` will not expand a selector into the tools it stands for -
-that expansion needs annotations the servers publish at runtime, and this has to answer in CI with
-nothing connected. The same bluntness refuses the reverse direction, `quartermaster` to
+The first line and the last are the check being blunt rather than clever, and both are worth seeing.
+`@read-only` is reported as unreachable because `covers` will not expand a selector into the tools it
+stands for - that expansion needs annotations the servers publish at runtime, and this has to answer
+in CI with nothing connected. The same bluntness refuses the reverse direction, `quartermaster` to
 `code-reviewer`, over `pull_request_read`. Over-reporting names a handoff that is in fact safe; the
 error in the other direction blesses one that is not.
 
@@ -474,9 +521,10 @@ do, and you discover it on camera.
 
 | Path | What it is |
 | --- | --- |
-| `agents/*.json` | agent specs - the source of truth, applied through the API |
-| `skills/verified-fix/` | the reproduce → patch → verify procedure the agent follows |
-| `skills/evidence-report/` | how the verdict renders as a Generative UI card |
+| `agents/*.json` | twelve agent specs - the source of truth, applied through the API |
+| `mcp/*/` | five MCP servers of our own - ops-desk, front-desk, warehouse, observability, documents |
+| `skills/*/` | fifteen skill packs, each attached only to the agents whose job uses it |
+| `tools/documents/` | the PDF text layer, the layered extractor and the requirement parser behind the `documents` connector |
 | `scripts/run.mjs` | headless client - streams a turn, handles the pauses, writes the verdict |
 | `scripts/lib/evidence.mjs` | judges the agent's claim against the recorded event stream |
 | `scripts/lib/contrast.mjs` | WCAG maths, so the design tokens are under test |
@@ -543,7 +591,7 @@ demo that has to run on a stranger's laptop cannot have a microphone that first 
 ## Development
 
 ```bash
-npm run check             # lint, typecheck, 593 tests, and the fixture check - what CI runs
+npm run check             # lint, typecheck, 627 tests, the fixture check, the reader's own 32 - what CI runs
 npm test                  # the root suite alone
 npm run fixtures:check    # the fixtures must still fail
 npm run tools:audit       # every reachable tool is gated as claimed
@@ -552,6 +600,7 @@ npm run ops-desk          # the MCP server the incident responder investigates
 npm run front-desk        # the workspace the desk assistant files into
 npm run warehouse         # the read-only SQL surface the analytics agent queries
 npm run observability     # the metrics store the incident responder correlates against
+npm run documents         # the document reader the requirements analyst reads through
 cd ui && npm run test:unit && npm run build   # 191 tests, then the interface compiles
 ```
 
@@ -619,7 +668,7 @@ What it surfaced, and what changed:
 | **Disabled tools flagged ungated** - a tool absent from an explicit `enable_tools` allowlist cannot run, yet the audit reported it as an ungated risk | **Fixed.** The audit was contradicting the fail-closed design `SECURITY.md` prescribes, and failing loudest for the specs doing it right. One of our own tests asserted the wrong behaviour and was corrected with it |
 | **Unverified exit codes accepted** - a claimed exit code was only checked when some execution reported a numeric one, so a fabricated `exit code: 0` passed whenever none did | **Fixed.** Having nothing to check against is not the same as having checked |
 | **Mobile sheet stays open** - selecting a conversation left the drawer covering it | **Fixed.** The row closes the sheet, so it works by keyboard as well as pointer |
-| **GitHub writes lack durable approval** - no repository-bound approval artifact independent of the harness | **Dismissed, with reasoning in the thread.** The approval *is* the harness's `tool.approval_required` pause: the turn stops server-side and resumes only when a `user.tool_approval` arrives for that `toolCallId`. Building a second gate beside TrueForge's would contradict the premise of the submission. The blast radius concern is addressed instead by enabling five of the seventeen GitHub write tools, so the agent cannot merge, delete, fork, or create a repository at all |
+| **GitHub writes lack durable approval** - no repository-bound approval artifact independent of the harness | **Dismissed, with reasoning in the thread.** The approval *is* the harness's `tool.approval_required` pause: the turn stops server-side and resumes only when a `user.tool_approval` arrives for that `toolCallId`. Building a second gate beside TrueForge's would contradict the premise of the submission. The blast radius concern is addressed instead by enabling six of the seventeen GitHub write tools, so the agent cannot merge, delete, fork, or create a repository at all |
 | **deepwiki policy duplicated** across both quartermaster specs | **Dismissed, with reasoning.** Agent specs are plain JSON with no include mechanism, and inventing one would put a build step between a reviewer and the safety policy they are reading. A test now fails if the two drift apart |
 
 ### The rest of the history
