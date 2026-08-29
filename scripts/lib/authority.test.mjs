@@ -58,14 +58,20 @@ test('a shell the sender does not have is the largest widening available', () =>
   assert.deepEqual(widening(from, to).map((w) => w.kind), ['sandbox']);
 });
 
-test('subagents count, and an omitted setting counts as enabled', () => {
+test('subagents are not a widening, because they run the parent\'s toolsets under its gate', () => {
   /**
-   * The SDK's own default is true, so a spec that says nothing permits them. Comparing the
-   * omission as `false` would report the permissive spec as the restrictive one.
+   * Counted as a widening until TrueForge's source settled it. The child is built with
+   * `toolSets: parentDefinition.toolSets`, each ToolSet holds the policy from that spec's
+   * `require_approval_for_tools`, and `AgentInfoSchema` gives the model no way to ask for different
+   * tools or a different spec. A subagent reaches nothing the parent could not.
+   *
+   * The default is still read as enabled, because the SDK's own default is true and comparing an
+   * omission as false would describe the permissive spec as the restrictive one - it is simply no
+   * longer a finding.
    */
   const silent = authorityOf({ manifest: { config: {} } });
   assert.equal(silent.subAgents, true);
-  assert.deepEqual(widening(authorityOf(spec([])), silent).map((w) => w.kind), ['sub-agents']);
+  assert.deepEqual(widening(authorityOf(spec([])), silent), []);
 });
 
 test('coverage is only ever concluded from what the spec literally says', () => {

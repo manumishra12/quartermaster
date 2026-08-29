@@ -98,14 +98,36 @@ export function widening(from, to) {
     });
   }
 
-  if (to.subAgents && !from.subAgents) {
-    findings.push({
-      kind: 'sub-agents',
-      server: null,
-      capability: 'dynamic_sub_agents',
-      detail: 'the receiver may spawn subagents and the sender may not',
-    });
-  }
+  /**
+   * Subagents are deliberately NOT a widening, and this is a correction.
+   *
+   * They were counted as one for days on the conservative reading: the SDK documents
+   * `dynamic_sub_agents.enabled` as a lone boolean, says nothing about approval inheritance, and
+   * two attempts to settle it empirically failed - a 4B model printed the call instead of making
+   * it, and the hosted model was rate limited. Under that uncertainty, assuming the worst was
+   * right.
+   *
+   * The uncertainty is over. Read from TrueForge's own source rather than guessed at:
+   *
+   *   - `SessionHandle.makeCreateDynamicSubAgentThread` builds the child with
+   *     `toolSets: params.parentDefinition.toolSets ?? definition.toolSets`, so it runs on the
+   *     parent's ToolSet instances.
+   *   - `ToolSet` holds a `ToolSelectorPolicy` built from that spec's `require_approval_for_tools`,
+   *     and `buildToolCallInfo` sets `is_approval_required` from it on every call.
+   *   - `AgentInfoSchema` offers the model only `name`, `input` and an optional `model` override.
+   *     There is no field for different tools, and none for a different spec.
+   *   - `SUB_AGENT_IDENTITY` states it: "The Agent has access to the same tools as the parent
+   *     agent."
+   *
+   * So a subagent is the same spec, through the same toolsets, under the same gate. It reaches
+   * nothing the parent could not, which is exactly the question this function asks. Keeping it here
+   * would refuse handoffs on a hazard that does not exist, and a control that refuses safe work
+   * teaches people to route around it.
+   *
+   * What subagents do change is how many gated calls arrive and how fast. That is a real concern -
+   * `limits.mjs` caps approvals at ten for it - but it is a question about a person's attention,
+   * not about what a request can reach.
+   */
 
   for (const [name, receiver] of to.servers) {
     const sender = from.servers.get(name);
