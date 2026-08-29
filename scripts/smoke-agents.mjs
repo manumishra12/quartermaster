@@ -166,6 +166,71 @@ const CASES = [
     /** Needs the GitHub connector, like gate-demo and quartermaster. */
     needsConnector: 'github',
   },
+  {
+    agent: 'requirements-analyst',
+    what: 'parses a document through the documents connector',
+    /**
+     * The connector rather than the shell, which is the first line of this agent's own spec. The
+     * same reader sits behind both, and the difference is that the connector answers with the
+     * extraction report as fields and refuses a path outside its root.
+     */
+    prompt:
+      'Use the documents connector to run parse_requirements on tools/documents/fixture/requirements.txt ' +
+      'and tell me how many requirements it found. Do not draft or file anything.',
+    /**
+     * The count and the id of the planted directive, which only a parse can produce together.
+     *
+     * Matching `REQ-007` alone would pass on a run that quoted the agent's own instructions back -
+     * they name that line - and matching the count alone would pass on any sentence with a 7 in
+     * it. A refusal payload from this server carries `error` and a message and neither of these.
+     */
+    expect: /"requirements":\s*7[\s\S]*REQ-007|REQ-007[\s\S]*"requirements":\s*7/,
+    needsConnector: 'documents',
+  },
+  {
+    agent: 'release-notes',
+    what: 'reads a merged pull request',
+    /**
+     * Points at this repository's own history, for the reason the code-reviewer case gives: a
+     * smoke case whose fixture is somebody else's open pull request passes until they merge it.
+     * 18 is merged and will not move.
+     *
+     * Read-only by construction: the one write this agent has is `add_issue_comment` and it is
+     * gated, so a smoke run cannot post anything whatever the model decides.
+     *
+     * "Do not delegate" is not politeness. This agent may spawn subagents, and a subagent's tool
+     * responses arrive on its own session - so a delegated read would leave this stream with no
+     * recorded execution and the case would report that the agent never reached its tools.
+     */
+    prompt:
+      'Read pull request 18 of manumishra12/quartermaster yourself, without delegating, and tell me its ' +
+      'title. Do not draft or post anything.',
+    expect: /first thing a stranger runs/i,
+    needsConnector: 'github',
+  },
+  {
+    agent: 'policy-auditor',
+    what: 'reaches the sandbox its checks run in',
+    /**
+     * No connector, and nothing to skip on: this agent has none by design, because giving an
+     * auditor of approval policies the ability to reach anything gated would be an odd thing to do.
+     * The sandbox is the whole of what it reaches, so the sandbox is the whole of what this checks.
+     *
+     * `git --version` rather than `node --version`, and the reason is a finding rather than a
+     * preference. **There is no Node in this sandbox image** - `node --version` comes back exit 127,
+     * `node: command not found` - and every check the spec names is a Node command: `npm run
+     * tools:audit`, `npm run preflight`, `npm test`, `node --test scripts/lib/authority.test.mjs`.
+     * A smoke case asserting on one of those would fail for good, and it would be reporting the
+     * image rather than the agent.
+     *
+     * So this asserts the one prerequisite that is actually there: the shell, and the tool the
+     * repository would have to arrive through, since nothing mounts this checkout into a sandbox.
+     * Be clear about how narrow that is. Reaching the sandbox is not being able to complete an
+     * audit inside it, and `EVALS.md` states the rest of what stands between the two.
+     */
+    prompt: 'Use the sandbox shell to run exactly: git --version',
+    expect: /git version \d+\.\d+/,
+  },
 ];
 
 const client = new TrueForge({ baseUrl: BASE, timeoutInSeconds: 900 });

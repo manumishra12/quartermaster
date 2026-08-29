@@ -85,3 +85,77 @@ python3 tools/documents/fixture/build.py
 Deterministic, so the same two files come out every time - and a test compares the checked-in bytes
 against what the generator produces, so a hand-edit to the PDF fails the build. Edit `BODY` in
 `build.py` rather than either output file.
+
+---
+
+# appendix.pdf - the document with a page nobody read
+
+`requirements.pdf` is the document where every page is readable and the traps are in the words.
+`appendix.pdf` is the other half, and until it was added nothing in this repository had one: a
+three-page document whose **middle page this reader cannot decode**, so the honest answer is a
+short list that says it is short.
+
+```bash
+python3 tools/documents/fixture/build_appendix.py
+python3 tools/documents/requirements.py tools/documents/fixture/appendix.pdf
+```
+
+Page 2's content stream is labelled `/Filter /LZWDecode`, which `pdfread.py` does not implement.
+The bytes behind the label are the appendix text, uncompressed, because `decode_stream` raises
+`UnsupportedFilter` on the filter's *name* before it looks at a byte - a genuine LZW stream would
+be refused at the same line, and this way the fixture's own claim is literally true: the text is on
+that page and nothing has seen it.
+
+**The answer does not move with the machine.** A scanned page would report `unavailable` where
+there is no tesseract and `needs-ocr` where there is one, so its published answer would be a
+different sentence on different machines, which is not a published answer. This page is `needs-ocr`
+either way and the coverage is 2 of 3 either way; only the reason in `skipped` differs.
+
+## The answers
+
+Computed from the data, not from memory - `build_appendix.py` prints these.
+
+**4 requirements, from 2 of the 3 pages. 3 MUST, 1 MAY. `complete` is false.**
+
+| id | Level | Requirement | Page |
+| --- | --- | --- | --- |
+| REQ-001 | MUST | A.1.1 A failed upload MUST be retried at most three times. | 1 |
+| REQ-002 | MUST | A.1.2 The interval between retries MUST double after each attempt. | 1 |
+| REQ-003 | MAY | A.3.1 An operator MAY run the export outside the nightly schedule. | 3 |
+| REQ-004 | MUST | A.3.2 A manual run MUST be recorded in the audit log with the operator name. | 3 |
+
+**Two requirements are on page 2 and are in none of that output.** They are written out in `PAGES`
+in the builder so that a reader can see exactly what is missing:
+
+> A.2.1 Every exported row MUST carry the partner id issued by the partner.
+> A.2.2 The partner id MAY be omitted from an export marked as a test run.
+
+`coverage` carries the gap all the way out:
+
+```json
+{ "pages_in_document": 3, "pages_parsed": 2, "pages_not_parsed": [2], "complete": false,
+  "warning": "This list was parsed from 2 of 3 pages. Page(s) 2 could not be read, so any
+              requirement on them is missing from this list and nothing here shows it is
+              missing. Do not describe this list as the document's requirements." }
+```
+
+## The one to look at
+
+The last clause of that warning is the whole fixture. **Nothing in the list of four shows that two
+are missing.** REQ-001 to REQ-004 are correct, verbatim, cited, and read as a complete appendix to
+anybody who does not open `coverage` - and by the time somebody is looking at a ticket, nobody is
+looking at the extraction report. An incomplete list that says so is useful. An incomplete list
+presented as the requirements is worse than no list, because the reader's next move is to stop
+looking, and A.2.1 is now a requirement nobody will ever read.
+
+If a parse of this fixture comes back saying "4 requirements" and nothing else, it did the thing
+this file exists to catch.
+
+## Rebuilding it
+
+```bash
+python3 tools/documents/fixture/build_appendix.py
+```
+
+Deterministic, and a test compares the checked-in bytes against what the generator produces, so a
+hand-edit fails the build. Edit `PAGES` in `build_appendix.py` rather than the PDF.
