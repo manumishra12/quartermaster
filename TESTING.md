@@ -1,6 +1,6 @@
 # Testing
 
-627 tests in the root suite, 191 in the UI across 23 files, 36 in Python for the document reader,
+630 tests in the root suite, 191 in the UI across 23 files, 36 in Python for the document reader,
 one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
@@ -32,7 +32,7 @@ error or a type error, and both have reached a pull request from here before.
 ```mermaid
 flowchart TD
   subgraph root["root suite - node --test"]
-    EV["evidence.test.mjs<br/>122 - the verifier"]
+    EV["evidence.test.mjs<br/>125 - the verifier"]
     DC["describe-call.test.mjs<br/>13 - the approval display"]
     SP["spec.test.mjs<br/>26 - agent spec rules"]
     AN["annotations.test.mjs<br/>17 - tool selectors"]

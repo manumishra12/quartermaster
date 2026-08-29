@@ -1089,9 +1089,28 @@ export function unexecutedToolCalls(text = '') {
   const candidates = [String(text)];
   for (const [, body] of String(text).matchAll(/```(?:json)?\n([\s\S]*?)```/g)) candidates.push(body);
   for (const [, body] of String(text).matchAll(/<tool_call>([\s\S]*?)<\/tool_call>/gi)) candidates.push(body);
+  /**
+   * `<function_call>` as well as `<tool_call>`, because a model that cannot use tools writes
+   * whichever wrapper its training suggests and neither is a standard.
+   *
+   * This one arrived from a real run: three `pull_request_read` calls printed inside
+   * `<function_call>` tags, which the interface then rendered as raw markup because nothing here
+   * recognised them. The failure the detector exists to name was on screen in its rawest form and
+   * the detector was the thing that missed it.
+   */
+  for (const [, body] of String(text).matchAll(/<function_call>([\s\S]*?)<\/function_call>/gi)) candidates.push(body);
 
   for (const candidate of candidates) {
     const trimmed = candidate.trim();
+    /**
+     * Every printed call in this candidate, not the first one.
+     *
+     * It returned as soon as one balanced value parsed into a call, so a message printing three
+     * of them was reported as printing one - and the banner then told somebody a single call had
+     * not been made while two more sat unmentioned above it. Undercounting a fabrication is a
+     * quieter version of missing it.
+     */
+    const found = [];
     /**
      * Every top-level JSON value in the text, and only those.
      *
@@ -1120,16 +1139,20 @@ export function unexecutedToolCalls(text = '') {
        * unrecognised. It worked only when the JSON happened to be fenced.
        */
       const parsed = JSON.parse(value);
-      const calls = (Array.isArray(parsed) ? parsed : [parsed]).filter(
-        (c) =>
-          c &&
-          typeof c === 'object' &&
-          typeof c.name === 'string' &&
-          /^[a-z][a-z0-9_.-]*$/i.test(c.name) &&
-          ('arguments' in c || 'parameters' in c),
-      );
+      /**
+       * `function_name` as well as `name`. Same reason as the wrapper above: the key a model picks
+       * when it writes a call out instead of making it is not fixed, and reading only one spelling
+       * meant a printed call in the other went unnamed.
+       */
+      const nameOf = (c) => (typeof c?.name === 'string' ? c.name : typeof c?.function_name === 'string' ? c.function_name : null);
+      const calls = (Array.isArray(parsed) ? parsed : [parsed]).filter((c) => {
+        const name = nameOf(c);
+        return c && typeof c === 'object' && name && /^[a-z][a-z0-9_.-]*$/i.test(name) && ('arguments' in c || 'parameters' in c);
+      });
       if (calls.length > 0) {
-        return calls.map((c) => ({ name: c.name, arguments: c.arguments ?? c.parameters ?? {} }));
+        for (const c of calls) found.push({ name: nameOf(c), arguments: c.arguments ?? c.parameters ?? {} });
+        at += value.length - 1;
+        continue;
       }
       /**
        * Valid JSON is one value, so step over it - that is what stops wrapper data being read
@@ -1142,6 +1165,9 @@ export function unexecutedToolCalls(text = '') {
       // Not JSON here. Advance one character so anything nested inside is still examined.
     }
     }
+    // The first candidate that yields anything wins, so a fenced block is not also counted as part
+    // of the whole-text scan that contains it.
+    if (found.length > 0) return found;
   }
   return [];
 }

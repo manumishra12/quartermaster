@@ -1296,3 +1296,38 @@ test('but output written to a file and read back is the runner talking', () => {
     );
   }
 });
+
+test('a call printed inside <function_call> tags is a printed call', () => {
+  /**
+   * From a real run, pasted out of the interface. Three `pull_request_read` calls written as text
+   * inside `<function_call>` wrappers with a `function_name` key - neither the wrapper nor the key
+   * was recognised, so the interface rendered raw markup and the banner that names this exact
+   * failure never appeared. The detector was the thing that missed the failure it exists to name.
+   */
+  const printed = [
+    '<function_call> { "function_name": "pull_request_read", "arguments": { "pullNumber": 17 } } </function_call>',
+    '<function_call> { "function_name": "pull_request_read", "arguments": { "pullNumber": 18 } } </function_call>',
+  ].join('\n\n');
+  const found = unexecutedToolCalls(printed);
+  assert.equal(found.length, 2);
+  assert.equal(found[0].name, 'pull_request_read');
+  assert.deepEqual(found[1].arguments, { pullNumber: 18 });
+});
+
+test('every printed call is counted, not just the first', () => {
+  /**
+   * It returned on the first balanced value that parsed, so a message printing three calls was
+   * reported as printing one - the banner naming a single call while two more sat unmentioned
+   * above it. Undercounting a fabrication is a quieter version of missing it.
+   */
+  const three = ['exec', 'read_file', 'create_issue']
+    .map((n) => `{ "name": "${n}", "arguments": {} }`)
+    .join('\n\nand then\n\n');
+  assert.deepEqual(unexecutedToolCalls(three).map((c) => c.name), ['exec', 'read_file', 'create_issue']);
+});
+
+test('wrapper data is still not read as a call', () => {
+  /** The guard that stops an answer illustrating a call being accused of printing one. */
+  assert.deepEqual(unexecutedToolCalls('{"example":{"name":"exec","arguments":{}}}'), []);
+  assert.deepEqual(unexecutedToolCalls('{"function_name":"exec"}'), []);
+});
