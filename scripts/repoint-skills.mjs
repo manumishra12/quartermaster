@@ -77,7 +77,12 @@ if (dryRun) {
 let moved = 0;
 for (const skill of moving) {
   const body = { manifest: { ...skill.manifest, ref: target } };
-  const put = await fetch(`${BASE}/api/v1/settings/skills/${encodeURIComponent(skill.name)}`, {
+  /**
+   * `PUT` on the collection, not on the name. The per-name path answers 404 - the harness updates a
+   * skill by putting the whole manifest back, and the name inside it is what identifies it. POSTing
+   * instead answers "Skill name already exists", which is the same fact from the other side.
+   */
+  const put = await fetch(`${BASE}/api/v1/settings/skills`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
