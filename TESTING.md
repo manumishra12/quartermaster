@@ -1,6 +1,7 @@
 # Testing
 
-573 tests in the root suite, 191 in the UI across 23 files, one mount test, and a fixture check. What follows is
+573 tests in the root suite, 191 in the UI across 23 files, 32 in Python for the document reader,
+one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
 
@@ -14,6 +15,7 @@ npm run typecheck    # tsc --noEmit
 
 cd ui
 npm run test:unit    # 191 tests, jsdom
+npm run documents:test  # 32 tests, python, the document reader and requirement parser
 npm run test:mount   # the one test that mounts the whole app
 npm run build        # production build
 ```
