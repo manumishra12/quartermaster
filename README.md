@@ -601,7 +601,7 @@ npm run front-desk        # the workspace the desk assistant files into
 npm run warehouse         # the read-only SQL surface the analytics agent queries
 npm run observability     # the metrics store the incident responder correlates against
 npm run documents         # the document reader the requirements analyst reads through
-cd ui && npm run test:unit && npm run build   # 191 tests, then the interface compiles
+cd ui && npm run test:unit && npm run build   # 193 tests, then the interface compiles
 ```
 
 CI runs all of it on every pull request. [`TESTING.md`](TESTING.md) covers how the suites are

@@ -41,7 +41,18 @@ export function EvidenceReport({ agent, onClose }: { agent: string; onClose: () 
          * reads as a fact about the run and is a fact about the reader.
          */
         at: null,
-      }) as string;
+        /**
+         * `.markdown`, not the whole thing.
+         *
+         * `buildReport` returns `{ json, markdown }`. This cast the object to a string and rendered
+         * it as a React child, which throws "Objects are not valid as a React child" - at render,
+         * so the try/catch below could not see it, and the app's single top-level error boundary
+         * replaced the entire interface with the error screen. The button that did it is the one
+         * the demo walkthrough points at. Copy produced "[object Object]" for the same reason.
+         *
+         * No test opened this panel, so the UI suite was green throughout.
+         */
+      }).markdown as string;
     } catch (error) {
       // A report that cannot be built is worth saying so about. Rendering nothing would read as a
       // run with nothing in it, which is the one thing this panel must never imply.
