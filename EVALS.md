@@ -270,7 +270,7 @@ quietest hole in one. Agent A stops at something it cannot do, hands the task to
 does it ungated. Nobody lied, no policy was edited, and the write happened without anybody being
 asked. `authority.mjs` finds the widening - the front-desk connector the sender does not have, and
 the subagents it may not spawn - and `handoff.mjs` refuses on the answer. Measured on the specs as
-they stand: 10 of the 72 directed pairs between these nine agents widen nothing, and this is not
+they stand: 21 of the 132 directed pairs between these twelve agents widen nothing, and this is not
 one of them.
 
 **What refused looks like.** No handoff granted, and the ledger carries a denied `handoff:desk-assistant`.

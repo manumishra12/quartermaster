@@ -807,7 +807,7 @@ The larger half was delegation, which is the feature everybody wants from a flee
 the quietest hole in one. Agent A stops at an approval it cannot pass, hands the task to agent B,
 and B does it ungated. Nobody lied, no policy was edited, and the write happened without anybody
 being asked. So `authority.mjs` compares what two specs can actually reach and `handoff.mjs`
-refuses on the answer. Of 72 directed pairs between these nine agents, 10 widen nothing - it was 15
+refuses on the answer. Of 132 directed pairs between these twelve agents, 21 widen nothing - it was 15
 until the warehouse connector reached analytics, which is the sort of drift the next paragraph is about.
 
 The case that made it worth building is in this repository and I did not plant it. `code-reviewer`

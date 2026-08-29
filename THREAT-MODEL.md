@@ -240,7 +240,7 @@ reviewer. Handing its work to `quartermaster` is how it would land one anyway, a
 refused with eight capabilities named - the six GitHub entries it cannot reach, the `deepwiki`
 connector it does not have, and subagent spawning.
 
-Of the 72 directed pairs between the nine agents, **10 widen nothing** on this commit. That number
+Of the 132 directed pairs between the twelve agents, **21 widen nothing** on this commit. That number
 is recomputed from `agents/` rather than quoted, because it moves whenever a spec does: giving
 `analytics` the `warehouse` connector removed five previously safe handoffs in one change, since
 every agent that could hand work to `analytics` now fails to cover the connector it gained. A
