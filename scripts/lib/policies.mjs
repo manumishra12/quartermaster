@@ -37,8 +37,15 @@ export function policiesFor(serverName, dir = DEFAULT_AGENTS) {
     try {
       spec = JSON.parse(readFileSync(join(dir, file), 'utf8'));
     } catch {
-      // A spec that will not parse cannot be audited. Skipping it silently would report the
-      // remaining ones as the whole picture, so it is surfaced as its own entry.
+      /**
+       * A spec that will not parse cannot be audited. Skipping it silently would report the
+       * remaining ones as the whole picture, so it is surfaced as its own entry.
+       *
+       * It is surfaced for *every* server name asked about, because which servers an unreadable
+       * file declares is exactly what could not be established. Callers must split it out with
+       * `splitPolicies` rather than pass it on as a policy - it carries no selectors, and a
+       * selector that is absent is read as the harness default by everything downstream.
+       */
       policies.push({ agent: file.replace(/\.json$/, ''), unreadable: true });
       continue;
     }
@@ -54,4 +61,32 @@ export function policiesFor(serverName, dir = DEFAULT_AGENTS) {
   }
 
   return policies;
+}
+
+/**
+ * The entries that are policies, separated from the specs that could not be read.
+ *
+ * `policiesFor` surfaces an unparseable spec rather than dropping it, and then both callers looped
+ * over the whole list as though every entry were a policy. An `unreadable` entry has no `approval`
+ * and no `enabled`, and `ungatedRisks` fills a missing selector with the harness default - so a hole
+ * was audited as an agent that had declared the safe default.
+ *
+ * This was measured rather than assumed. Against a connector whose every tool is annotated, which is
+ * what all five servers in this repository publish, one malformed spec produced an empty risk list
+ * and `audit-tools` printed "Every reachable tool is annotated. The default policy gates what it
+ * claims to gate." and exited 0. The check that could not run is not the check that passed.
+ *
+ * Splitting here rather than in each caller for the reason this file exists at all: two copies of a
+ * safety rule drift, and these two have already drifted once.
+ */
+export function splitPolicies(entries) {
+  return {
+    policies: entries.filter((entry) => !entry.unreadable),
+    /**
+     * Named, because "one spec could not be read" is not something anybody can act on. For an
+     * unparseable file the agent's own `name` field is unreachable too, so this is the filename
+     * without its suffix - which is what somebody has to open.
+     */
+    unreadable: entries.filter((entry) => entry.unreadable).map((entry) => entry.agent),
+  };
 }

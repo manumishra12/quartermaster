@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { policiesFor, DEFAULT_APPROVAL } from './policies.mjs';
+import { policiesFor, splitPolicies, DEFAULT_APPROVAL } from './policies.mjs';
+import { ungatedRisks } from './annotations.mjs';
 
 /**
  * Both the preflight check and the tool audit had their own copy of this, and both merged every
@@ -48,6 +49,49 @@ test('a spec that will not parse is reported rather than skipped', () => {
   const found = policiesFor('ops', dir);
   assert.equal(found.length, 1);
   assert.equal(found[0].unreadable, true);
+});
+
+test('an unreadable spec is separated from the policies rather than counted as one', () => {
+  // An entry with no selectors is a hole, not a policy. Callers that could not tell the two apart
+  // handed the hole to `ungatedRisks`, which fills an omitted selector with the harness default.
+  const dir = mkdtempSync(join(tmpdir(), 'policies-'));
+  writeFileSync(join(dir, 'broken.json'), '{ not json');
+  writeFileSync(
+    join(dir, 'sound.json'),
+    JSON.stringify({ name: 'sound', manifest: { mcp_servers: [{ name: 'ops', require_approval_for_tools: ['@write'], enable_tools: ['@all'] }] } }),
+  );
+
+  const { policies, unreadable } = splitPolicies(policiesFor('ops', dir));
+  assert.deepEqual(unreadable, ['broken'], 'the file somebody has to open is the one that is named');
+  assert.equal(policies.length, 1, 'and the spec that did parse is still a policy');
+  assert.deepEqual(policies[0].approval, ['@write']);
+});
+
+test('the hole an unreadable spec leaves is what made a malformed repository audit clean', () => {
+  /**
+   * The failure this exists to prevent, asserted through the loop both scripts actually run.
+   *
+   * Every tool on every server in this repository is annotated, so the harness defaults gate all of
+   * them and the risk list from an unreadable entry comes back empty. `audit-tools` then printed
+   * "Every reachable tool is annotated. The default policy gates what it claims to gate." and
+   * exited 0 for a repository whose only spec could not be read.
+   */
+  const dir = mkdtempSync(join(tmpdir(), 'policies-'));
+  writeFileSync(join(dir, 'broken.json'), '{ not json');
+  const tools = [
+    { name: 'restart_service', annotations: { destructiveHint: true } },
+    { name: 'ack_alert', annotations: { readOnlyHint: false } },
+    { name: 'get_alert', annotations: { readOnlyHint: true } },
+  ];
+
+  const entries = policiesFor('ops', dir);
+  const asIfPolicies = entries.flatMap((entry) => ungatedRisks(tools, entry.approval, entry.enabled));
+  assert.deepEqual(asIfPolicies, [], 'read as a policy, an unreadable spec clears a connector it never described');
+
+  // Split apart, there is nothing left to audit against and a name to report instead.
+  const { policies, unreadable } = splitPolicies(entries);
+  assert.deepEqual(policies, []);
+  assert.deepEqual(unreadable, ['broken']);
 });
 
 test('a server no spec declares has no policies, and no invented one', () => {

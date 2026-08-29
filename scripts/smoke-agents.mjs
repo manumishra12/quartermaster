@@ -268,6 +268,8 @@ async function runCase(testCase) {
   let said = '';
   let status;
   let timedOut = false;
+  /** Whether the reader had actually finished by the time the verdict below was read off it. */
+  let stopped = true;
 
   const drain = async () => {
     const stream = await client.sessions.createTurnStream(session.id, {
@@ -310,12 +312,40 @@ async function runCase(testCase) {
     timedOut = true;
     // The turn keeps running on the server after we stop reading, so tell it to stop - and then
     // wait for the reader to notice, so nothing is still being written while it is being judged.
+    // Whether it noticed is the answer that matters and it used to be discarded; see below.
     await client.sessions.cancel(session.id).catch(() => {});
-    await settledWithin(draining, CANCEL_GRACE_MS);
+    stopped = await settledWithin(draining, CANCEL_GRACE_MS);
   }
   if (readerFailure) return { ...testCase, ok: false, why: `turn failed: ${readerFailure.message}` };
 
   const seconds = ((Date.now() - started) / 1000).toFixed(0);
+
+  /**
+   * A reader that has not stopped is evidence still being written, and there is no verdict to read
+   * off it.
+   *
+   * `settledWithin` says whether the work finished; it does not stop it. The answer from the grace
+   * wait above was thrown away, so a cancelled turn whose stream was still delivering events was
+   * judged anyway - on whatever had arrived by the instant the grace expired. The same event stream
+   * then reported `no tool response` or a pass depending on where the stream happened to be, and a
+   * verdict decided by timing is not a verdict. It is reported as its own outcome rather than as a
+   * failure of the agent, because what it actually says is that this runner could not establish
+   * either answer.
+   *
+   * Not retried. The two retryable causes are known to come good on a second attempt with a small
+   * local model; a stream that will not close after a cancel is not one of them, and trying again
+   * would spend another whole budget to learn the same thing.
+   */
+  if (!stopped) {
+    return {
+      ...testCase,
+      ok: false,
+      seconds,
+      why:
+        `the event stream was still delivering events ${CANCEL_GRACE_MS / 1000}s after the turn was cancelled, so ` +
+        'what it had recorded was still changing. This case has no verdict rather than one decided by timing',
+    };
+  }
 
   if (timedOut && recorded.length === 0) {
     /**
@@ -412,6 +442,16 @@ async function runCase(testCase) {
     ...testCase,
     ok: matched,
     seconds,
+    /**
+     * A pass after a cancelled turn is still a pass, and it is not the same fact as a pass inside
+     * the budget.
+     *
+     * The recorded execution matched, which is the whole question this suite asks, and failing the
+     * case for having been slow would be the false negative the budget's own comment warns about -
+     * a loaded machine is not a broken agent. But the stream was cut off mid-turn, and printing
+     * that identically to a clean run hides the one thing whoever raises the budget needs to know.
+     */
+    cancelled: timedOut,
     why: matched
       ? `${recorded.length} execution(s) recorded, one matched`
       : `${recorded.length} execution(s) recorded, none matched ${testCase.expect}\n` +
@@ -537,7 +577,14 @@ for (const testCase of selected) {
     result.retried = true;
   }
   results.push(result);
-  console.log(result.ok ? `ok (${result.seconds}s)${result.retried ? ' after one retry' : ''}` : 'FAILED');
+  console.log(
+    result.ok
+      ? `ok (${result.seconds}s)${result.retried ? ' after one retry' : ''}` +
+          (result.cancelled
+            ? ` - but the turn was cancelled at the ${BUDGET_SECONDS}s budget and this is the execution recorded before that; raise --budget to see the agent finish`
+            : '')
+      : 'FAILED',
+  );
   if (!result.ok) console.log(`  ${' '.repeat(20)} ${result.why}`);
 }
 

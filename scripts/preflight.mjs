@@ -8,7 +8,7 @@
  *   npm run preflight
  */
 import { readdirSync, readFileSync } from 'node:fs';
-import { policiesFor } from './lib/policies.mjs';
+import { policiesFor, splitPolicies } from './lib/policies.mjs';
 import { describeConnectorFailure } from './lib/connector-advice.mjs';
 import { join } from 'node:path';
 import { classify, ungatedRisks } from './lib/annotations.mjs';
@@ -189,7 +189,17 @@ try {
          * agent's narrow gate was covered by another's wide one and the connector was reported ok
          * for a route `audit-tools` rejects.
          */
-        const policies = policiesFor(name);
+        /**
+         * A spec that will not parse is not a spec that declared the default.
+         *
+         * `policiesFor` reports an unparseable file as its own entry, and this loop used to pass it
+         * to `ungatedRisks` like any other policy - where its absent selectors were read as the
+         * harness defaults. Since every tool on every server here is annotated, the defaults gate
+         * all of them, the risk list came back empty and the connector was recorded ok. That is a
+         * clean verdict on a policy nobody could read, which is the one thing this file exists to
+         * refuse.
+         */
+        const { policies, unreadable } = splitPolicies(policiesFor(name));
         const risks = [];
         const seenRisk = new Set();
         for (const policy of policies.length ? policies : [{ agent: null }]) {
@@ -201,15 +211,34 @@ try {
         }
         const summary = tools.map((t) => classify(t.annotations));
         const unannotated = summary.filter((k) => k === 'unannotated').length;
+        /**
+         * The unreadable specs first, because the ungated count below was computed without them and
+         * is therefore a floor rather than an answer. Saying so is the difference between a finding
+         * and a total.
+         */
+        const problems = [];
+        if (unreadable.length) {
+          problems.push(
+            `${unreadable.map((agent) => `agents/${agent}.json`).join(', ')} will not parse, so what those agents ` +
+              'let through here is unknown and the count below is a floor',
+          );
+        }
+        if (risks.length) {
+          problems.push(
+            `${risks.length} of ${tools.length} tools would run UNGATED: ${risks.map((r) => (r.agent ? `${r.name} (via ${r.agent})` : r.name)).join(', ')}`,
+          );
+        }
         record(
-          risks.length === 0,
+          problems.length === 0,
           `Connector: ${name}`,
-          risks.length
-            ? `${risks.length} of ${tools.length} tools would run UNGATED: ${risks.map((r) => (r.agent ? `${r.name} (via ${r.agent})` : r.name)).join(', ')}`
+          problems.length
+            ? problems.join('; ')
             : unannotated > 0
               ? `${tools.length} tools, ${unannotated} unannotated but reached by name`
               : `${tools.length} tools, all annotated`,
-          'make the spec fail closed: name the tools you want in enable_tools rather than reaching them with a tag',
+          unreadable.length
+            ? 'fix the JSON in the spec(s) named above - a policy that cannot be read cannot be audited, and this check will not guess at one'
+            : 'make the spec fail closed: name the tools you want in enable_tools rather than reaching them with a tag',
         );
       } catch (err) {
         /**
