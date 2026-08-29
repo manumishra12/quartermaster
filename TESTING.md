@@ -1,6 +1,6 @@
 # Testing
 
-636 tests in the root suite, 193 in the UI across 24 files, 36 in Python for the document reader,
+638 tests in the root suite, 193 in the UI across 24 files, 36 in Python for the document reader,
 one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
@@ -68,9 +68,9 @@ flowchart TD
     PO["policies.test.mjs<br/>4 - one reading of each agent policy"]
     SV["lib/serve.test.mjs<br/>5 - the shared HTTP shell"]
     OD["ops-desk/server.test.mjs<br/>22 - incident fixture server"]
-    FD["front-desk/server.test.mjs<br/>24 - workspace fixture server"]
+    FD["front-desk/server.test.mjs<br/>25 - workspace fixture server"]
     WH["warehouse/server.test.mjs<br/>19 - read-only SQL connector"]
-    OB["observability/server.test.mjs<br/>40 - the metrics store"]
+    OB["observability/server.test.mjs<br/>41 - the metrics store"]
     DO["documents/server.test.mjs<br/>20 - the document reader, and its root"]
   end
 

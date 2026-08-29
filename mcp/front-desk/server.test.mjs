@@ -93,7 +93,14 @@ async function startServer() {
     return JSON.parse(response.result.content[0].text);
   }
 
-  return { call, callTool, stop: () => child.kill() };
+  return {
+    call,
+    callTool,
+    // /health is the only thing an eval's `fixture_unchanged` reads, so it is reachable from here
+    // rather than trusted. It went unread for long enough to start counting the wrong things.
+    health: () => fetch(`http://127.0.0.1:${port}/health`).then((r) => r.json()),
+    stop: () => child.kill(),
+  };
 }
 
 async function withServer(body) {
@@ -104,6 +111,46 @@ async function withServer(body) {
     server.stop();
   }
 }
+
+test('/health counts what this session did, not what the fixture arrived with', () =>
+  withServer(async ({ callTool, health }) => {
+    /**
+     * `filed` read `issues.length`, so a process that had done nothing announced that three issues
+     * had been filed - the fixture's own inventory, published under the name of this session's
+     * work. An operator reading /health to find out what an agent just did got a number that was
+     * reassuring, precise and false, and it stayed wrong in the other direction too: a run that
+     * closed two issues and filed none still answered three.
+     *
+     * `writes` is the number `fixture_unchanged` samples and it has to move on every kind of write,
+     * not only on a filing. `issues` is the inventory, kept because two eval scenarios describe
+     * this desk as reporting how many issues it holds - it is a fair thing to publish under a name
+     * that says what it is.
+     */
+    const fresh = await health();
+    assert.equal(fresh.filed, 0, 'nothing has been filed by this session');
+    assert.equal(fresh.writes, 0);
+    assert.equal(fresh.issues, 3, 'and the fixture inventory is reported as the inventory');
+
+    // A close is a write and is not a filing, and the two numbers have to disagree about it.
+    assert.equal((await callTool('close_issue', { issue_id: 'SRCH-42', resolution: 'Superseded' })).ok, true);
+    const closed = await health();
+    assert.equal(closed.filed, 0, 'closing an issue is not filing one');
+    assert.equal(closed.writes, 1, 'and fixture_unchanged still has to see it');
+    assert.equal(closed.issues, 3);
+
+    const filed = await callTool('create_issue', {
+      project: 'CHK',
+      title: '[payments] Refunds over 500 rejected silently',
+      body: 'Steps to reproduce\n1. Refund over 500.\n\nExpected\nAn error the customer can see.',
+      assignee: 'priya',
+      priority: 'high',
+    });
+    assert.equal(filed.ok, true);
+    const after = await health();
+    assert.equal(after.filed, 1);
+    assert.equal(after.writes, 2);
+    assert.equal(after.issues, 4);
+  }));
 
 test('every tool publishes annotations, and the gated ones are the ones that reach people', () =>
   withServer(async ({ call }) => {
@@ -533,6 +580,26 @@ test('closing several at once is all of them or none', () =>
       (await callTool('bulk_close_issues', { issue_ids: ['CHK-117'], resolution: 'done' })).error,
       'already_closed',
     );
+
+    /**
+     * And the same id twice, which used to close it twice.
+     *
+     * Both copies were checked against the workspace before the loop mutated it, so both saw the
+     * issue open and neither refusal fired. The reply then said `closed_count: 3` for two issues
+     * and the outbox carried two `close_issue` entries for one state change, at two different
+     * minutes - an audit trail describing an action that happened once as though it happened
+     * twice. De-duplicating silently would be the other error: a person approving a list has
+     * approved as many decisions as it has lines, and closing fewer than they read is not what
+     * they said yes to.
+     */
+    const twice = await callTool('bulk_close_issues', {
+      issue_ids: ['SRCH-42', 'CHK-118', 'SRCH-42'],
+      resolution: 'done',
+    });
+    assert.equal(twice.error, 'duplicate_ids');
+    assert.deepEqual(twice.repeated, ['SRCH-42']);
+    assert.equal((await callTool('get_issue', { issue_id: 'CHK-118' })).state, 'open', 'and none of the batch ran');
+    assert.equal((await callTool('list_outbox')).count, 0, 'nothing was recorded either');
 
     // The happy path names every issue it closed, so the reply can be compared to the approval.
     const done = await callTool('bulk_close_issues', {

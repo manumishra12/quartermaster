@@ -708,6 +708,55 @@ test('a coarse step moves where the step change appears to be, which is why the 
     assert.match(coarse.note, /Query at the 60s scrape interval before quoting a number/);
   }));
 
+test('a downsampled point is never stamped outside the window it was asked for', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * Buckets were anchored to the store's retention origin rather than to the window served, so a
+     * lower bound off the bucket grid put the first point *before the window*. `from: 12:00:30Z`
+     * at `step_s: 300` came back with a point at 12:00:00Z and `served.from: 12:00:00Z`, beside
+     * `truncated: false` and `missing_before: null` - the reply insisting it had served exactly
+     * what was asked for while the front of it lay outside.
+     *
+     * That is this server's whole failure mode in miniature: an honestly computed number that is
+     * wrong, with nothing in the reply to catch it. And the grid bought nothing in exchange - the
+     * escaped bucket held four readings where the same label in an aligned query holds five, so
+     * two queries disagreeing about one labelled bucket was the thing the alignment was supposed
+     * to prevent.
+     */
+    const offGrid = await callTool('query_range', {
+      metric: 'latency_p99_ms',
+      service: 'checkout-api',
+      from: '2026-08-26T12:00:30Z',
+      to: '2026-08-26T12:20:00Z',
+      step_s: 300,
+    });
+    assert.equal(offGrid.error, undefined);
+    assert.ok(
+      offGrid.served.from >= '2026-08-26T12:00:30Z',
+      `served.from ${offGrid.served.from} is before the window that was asked for`,
+    );
+    for (const point of offGrid.points) {
+      assert.ok(point.at >= '2026-08-26T12:00:30Z' && point.at <= '2026-08-26T12:20:00Z', `${point.at} is outside the window`);
+    }
+
+    /**
+     * Every bucket start is still an instant something was scraped at. The window is anchored to
+     * the first reading served rather than to the requested bound for this: a point stamped
+     * 12:00:30Z would be inside the window and would be a time this store never measured, which is
+     * the same kind of invented reading `bad_step` refuses a sub-scrape step over.
+     */
+    const fine = await callTool('query_range', {
+      metric: 'latency_p99_ms',
+      service: 'checkout-api',
+      from: '2026-08-26T12:00:30Z',
+      to: '2026-08-26T12:20:00Z',
+    });
+    const scrapes = new Set(fine.points.map((p) => p.at));
+    for (const point of offGrid.points) {
+      assert.ok(scrapes.has(point.at), `${point.at} is not a minute this store scraped`);
+    }
+  }));
+
 /* ---------------------------------------------------------------------------------------------- */
 /* compare_windows, which is where "it recovered" gets refused.                                     */
 /* ---------------------------------------------------------------------------------------------- */
@@ -764,6 +813,22 @@ test('a comparison over a window the store only half kept is refused too', () =>
     assert.equal(half.change, null);
     assert.equal(half.refused[0].why, 'window_not_fully_retained');
     assert.ok(half.baseline.points > 0, 'the points it did have are still reported, so the refusal is checkable');
+
+    /**
+     * And the window it could have answered, pinned rather than assumed.
+     *
+     * A review read `retained_part` as `{ from: w.from, to: w.to }` over a summary it believed had
+     * neither field, and called it an empty object. It is not - `summarise()` spreads `from` and
+     * `to` in under the same guard that makes `points > 0` true. But nothing here checked it, so
+     * the difference between a populated refusal and `{}` was invisible to this suite either way,
+     * and a refusal that does not say what would have worked costs the round trip it exists to
+     * save.
+     */
+    assert.deepEqual(half.refused[0].retained_part, {
+      from: '2026-08-26T12:00:00Z',
+      to: '2026-08-26T12:30:00Z',
+    });
+    assert.doesNotMatch(half.refused[0].detail, /undefined/);
   }));
 
 test('a comparison it can make reports the step, and calls the mean what it is', () =>
