@@ -366,9 +366,11 @@ covering delegation and SQL respectively. The instructions tell the agents not t
 an egress path; that is an instruction, and instructions are the weaker mechanism, as this project
 keeps saying.
 
-`GUARDRAILS.md` ends with the longer version of this, including the one that is not a limit but an
-unknown: whether a dynamically spawned subagent inherits its parent's approval gate has not been
-verified here, which is why `authority.mjs` counts subagents as a widening capability.
+`GUARDRAILS.md` ends with the longer version of this, including the one that stopped being an
+unknown: a dynamically spawned subagent runs the parent's toolsets under the parent's approval
+policy, read from TrueForge's source after two attempts to settle it by experiment failed. So
+`authority.mjs` no longer counts subagent spawning as a widening - it reaches nothing the parent
+could not, which is the only thing that comparison asks.
 
 ## Build order, and what actually shipped
 

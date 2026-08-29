@@ -113,10 +113,13 @@ the reason for each. The request does not move. An allowed handoff re-enters `sc
 fresh session, so the receiving agent meets the identical approval loop and the identical verifier -
 there is no softer plumbing for delegated work.
 
-`widening()` reports five kinds of finding: a shell the sender has not got, subagents the sender may
-not spawn, a connector the sender has not got, a named tool the sender cannot reach, and the
+`widening()` reports five kinds of finding: a shell the sender has not got, a connector the sender
+has not got, a named tool the sender cannot reach, a spec that cannot be read at all, and the
 laundering case proper - a capability both can reach that the sender must ask about and the receiver
-need not. That last one is the one that looks completely fine in both specs read separately.
+need not. That last one is the one that looks completely fine in both specs read separately. The
+unreadable case exists because a policy written as a string instead of a list made `new Set()`
+iterate characters, so a gate matched nothing and the comparison passed in silence; it is reported
+rather than repaired, since the honest answer when a spec cannot be read is that nobody knows.
 
 Three further rules live in `handoff()`. The approval never travels: there is no field for one in
 the envelope, and `handoff.test.mjs` asserts the absence rather than trusting it. The chain is
@@ -457,29 +460,44 @@ The honest framing is two boundaries rather than one - the gate covers what the 
 harness to do, the sandbox covers what the agent runs itself - and the instruction telling agents
 not to use the shell as an egress path is an instruction, which is the weaker mechanism.
 
-**Whether a dynamic subagent inherits the parent's approval gate is not verified.** This is an
-unknown rather than a limitation, and it is written down as an unknown on purpose.
+**A dynamic subagent inherits the parent's approval gate.** This sat here as an unknown for days,
+and how it stopped being one is worth keeping.
 
-Two attempts to establish it were made on the day this was written, and both failed before they
-reached the question. A small local model reached for a subagent and printed the call as text
-instead of making it, which is what a model that cannot use tools does instead of failing, so
-nothing was spawned and nothing was recorded. The second attempt, against Gemini, was rate-limited
-before it produced a turn. Neither attempt is evidence in either direction.
+Two attempts to establish it empirically failed before they reached the question. A small local
+model reached for a subagent and printed the call as text instead of making it, which is what a
+model that cannot use tools does instead of failing, so nothing was spawned and nothing was
+recorded. The second attempt, against a hosted model, was rate-limited through three backoffs.
+Neither is evidence in either direction, and the conservative reading held in the meantime:
+`authority.mjs` counted subagent spawning as a widening capability, taken because nobody had
+checked.
 
-The SDK is no help here. `DynamicSubAgentsConfig` documents exactly one field:
+The SDK is no help. `DynamicSubAgentsConfig` documents one field:
 
     /** Allow the agent to spawn dynamic subagents. Default: true. */
     enabled?: boolean;
 
 A lone boolean, saying nothing about whether a spawned subagent carries its parent's
-`require_approval_for_tools` policy, and nothing about depth - a rule for `max_sub_agent_depth` was
-nearly written before somebody went and looked for the field, which does not exist.
+`require_approval_for_tools`, and nothing about depth - a rule for `max_sub_agent_depth` was nearly
+written before somebody went looking for the field, which does not exist.
 
-So `authority.mjs` counts `dynamic_sub_agents` as a widening capability, and `widening()` reports a
-handoff from an agent that may not spawn subagents to one that may. That is the conservative
-reading, taken **because nobody has checked**, not because anything here demonstrates the gate is
-lost across a subagent boundary. It has not been shown to hold and it has not been shown to fail.
-Anyone relying on it should establish it themselves.
+The answer came from reading TrueForge's source rather than running a third experiment, which is
+better evidence than the experiment would have been. `SessionHandle` builds the child with
+`toolSets: params.parentDefinition.toolSets ?? definition.toolSets`, so it runs on the parent's
+ToolSet instances. Each `ToolSet` holds a `ToolSelectorPolicy` built from that spec's
+`require_approval_for_tools`, and `buildToolCallInfo` sets `is_approval_required` from it on every
+call. `AgentInfoSchema` offers the model a name, an input and an optional model override - there is
+no field for different tools and none for a different spec. And `SUB_AGENT_IDENTITY` says it in
+prose: "The Agent has access to the same tools as the parent agent."
+
+So a subagent is the same spec, through the same toolsets, under the same gate, and `widening()` no
+longer reports one. The effect was smaller than it sounds: no handoff pair had ever been refused on
+that finding alone, so it removed a false reason without changing a decision.
+
+What it does not settle: nothing here bounds depth, and nothing here says how many gated calls a
+person will actually read. Several subagents fanning out raise more prompts than one operator reads
+carefully, and a gate in front of somebody who has stopped reading launders the decision it exists
+to make. `limits.mjs` caps approvals at ten for that, and it is a question about attention rather
+than about reach.
 
 **The router is only as good as the phrases in the specs.** It declines to guess, which turns a
 routing gap into a question rather than a wrong answer, but a request routed to the wrong agent by a

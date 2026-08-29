@@ -306,11 +306,16 @@ they wave through is a rollback.
 
 **And nothing gated is ever delegated.** `dynamic_sub_agents` is on for this agent, and the
 instructions use it: the metrics, the deploys and the logs are three independent lines of enquiry
-and a subagent takes each. But rollback, restart and resolve stay with the parent agent, because
-whether a spawned subagent inherits this agent's approval policy has not been established - the SDK
-documents `dynamic_sub_agents.enabled` as a lone boolean and says nothing about it. An unverified
-gate is not a gate. Reads are safe to delegate because the worst case of an unverified gate on a
-read is a read.
+and a subagent takes each. But rollback, restart and resolve stay with the parent agent, and the
+reason is not that delegation is unsafe - a subagent runs this agent's spec through this agent's
+toolsets, so a tool gated for the parent is gated for it, which is settled from TrueForge's source.
+
+The reason is that an irreversible act needs one person accountable for it and one person asked
+about it. Four analysts across the metrics, logs, deploys and code are four readers of the same
+incident, any of which might reach for a rollback holding a quarter of the picture. And every extra
+asker spends the same operator's attention, until somebody is clearing prompts rather than reading
+calls - which is a gate in front of a person who has stopped reading, laundering the decision it
+exists to make.
 
 **Needs an account?** No. It needs `npm run ops-desk` and `npm run observability` running and
 registered once.
@@ -562,8 +567,9 @@ review, because somebody will believe it.
 **What it reaches.** Five GitHub reads by name - `pull_request_read`, `get_file_contents`,
 `get_commit`, `list_commits`, `issue_read` - three tools that post, and the sandbox. No search tool
 is enabled, on purpose: given a pull request number, searching returns every pull request in the
-repository, which is the wrong answer and too large to read. Subagents are off, because whether a
-subagent inherits the approval gate is not something this project has verified.
+repository, which is the wrong answer and too large to read. Subagents are off because there is
+nothing here to fan out - one pull request, read once - not because delegation would lose the gate.
+It would not: a subagent runs this spec through this spec's toolsets.
 
 **What is gated.** `add_issue_comment`, `add_comment_to_pending_review` and
 `pull_request_review_write` - every comment it posts. `merge_pull_request`, `push_files`,
