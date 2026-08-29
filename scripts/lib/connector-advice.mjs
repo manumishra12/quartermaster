@@ -22,6 +22,7 @@ export const LOCAL_SERVERS = {
   'front-desk': { command: 'npm run front-desk', port: 8796, portEnv: 'FRONT_DESK_PORT' },
   warehouse: { command: 'npm run warehouse', port: 8797, portEnv: 'WAREHOUSE_PORT' },
   observability: { command: 'npm run observability', port: 8798, portEnv: 'OBSERVABILITY_PORT' },
+  documents: { command: 'npm run documents', port: 8799, portEnv: 'DOCUMENTS_PORT' },
 };
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);

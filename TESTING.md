@@ -1,6 +1,6 @@
 # Testing
 
-593 tests in the root suite, 191 in the UI across 23 files, 32 in Python for the document reader,
+613 tests in the root suite, 191 in the UI across 23 files, 32 in Python for the document reader,
 one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
@@ -71,6 +71,7 @@ flowchart TD
     FD["front-desk/server.test.mjs<br/>24 - workspace fixture server"]
     WH["warehouse/server.test.mjs<br/>18 - read-only SQL connector"]
     OB["observability/server.test.mjs<br/>27 - the metrics store"]
+    DO["documents/server.test.mjs<br/>20 - the document reader, and its root"]
   end
 
   subgraph ui["ui - vitest, two projects"]
