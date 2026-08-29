@@ -128,7 +128,16 @@ test('the handoff count in the documents is the count the specs produce', () => 
   const stated = [];
   for (const file of readdirSync(root).filter((f) => f.endsWith('.md'))) {
     const text = readFileSync(join(root, file), 'utf8');
+    /**
+     * Two phrasings, because one of them slipped past. "24 widen nothing" and "24 are handoffs that
+     * widen nothing" were caught; "24 of the 132 directed pairs between these twelve agents widen
+     * nothing" was not, since the number is nine words from the phrase. EVALS.md said 21 for a
+     * whole commit while this test reported the documents in agreement.
+     */
     for (const match of text.matchAll(/(\d+)\s+(?:are handoffs that )?widen nothing/g)) {
+      stated.push({ file, count: Number(match[1]) });
+    }
+    for (const match of text.matchAll(/(\d+) of the \d+ directed\s+pairs[^.]*?widen nothing/gs)) {
       stated.push({ file, count: Number(match[1]) });
     }
     for (const match of text.matchAll(/(\d+) directed pairs/g)) {

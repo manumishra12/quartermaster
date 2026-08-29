@@ -227,8 +227,10 @@ It is what a system with more than one agent gets for free unless something comp
 decision.
 
 **What stands in the way.** `scripts/lib/authority.mjs` reduces a spec to what it can reach -
-connectors, named tools, selectors, and, folded in as capabilities of the same kind, the sandbox and
-subagent spawning. `widening()` returns one finding per capability the receiver has and the sender
+connectors, named tools, selectors, and the sandbox, folded in as a capability of the same kind.
+Subagent spawning was folded in too until TrueForge's source settled the question: a subagent runs
+the parent's toolsets under the parent's approval policy, so it reaches nothing the parent could
+not, which is the only thing this comparison asks. `widening()` returns one finding per capability the receiver has and the sender
 does not, or that the sender gates and the receiver does not. `handoff()` refuses on a non-empty
 answer, and refuses as well when either spec is missing, because the check that could not run is not
 the check that passed.
@@ -237,10 +239,10 @@ The case that justifies the machinery is in this repository and was not planted.
 reaches five named GitHub reads and three comment tools, and has no `create_branch`, no
 `push_files` and no `create_pull_request`, because a reviewer that lands its own fix is not a
 reviewer. Handing its work to `quartermaster` is how it would land one anyway, and that handoff is
-refused with eight capabilities named - the six GitHub entries it cannot reach, the `deepwiki`
-connector it does not have, and subagent spawning.
+refused with seven capabilities named - the six GitHub entries it cannot reach and the `deepwiki`
+connector it does not have.
 
-Of the 132 directed pairs between the twelve agents, **21 widen nothing** on this commit. That number
+Of the 132 directed pairs between the twelve agents, **24 widen nothing** on this commit. That number
 is recomputed from `agents/` rather than quoted, because it moves whenever a spec does: giving
 `analytics` the `warehouse` connector removed five previously safe handoffs in one change, since
 every agent that could hand work to `analytics` now fails to cover the connector it gained. A

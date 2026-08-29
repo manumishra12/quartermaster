@@ -197,7 +197,7 @@ The real case is in this repository and nobody planted it. `code-reviewer` reach
 reads plus three gated comment and review tools, and it cannot branch, write a file or open a pull
 request, because a reviewer that lands its own fix is not a reviewer. Handing its work to
 `quartermaster` is how it would land one anyway, and that handoff is refused with eight capabilities
-named. Of the 132 directed pairs between these twelve agents, 21 widen nothing.
+named. Of the 132 directed pairs between these twelve agents, 24 widen nothing.
 
 Three further rules live in the same file. The approval never travels: there is no field for one in
 the envelope, and a test asserts the absence. The chain is bounded at three agents with no

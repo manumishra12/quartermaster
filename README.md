@@ -414,7 +414,7 @@ had to ask about. The real case in this repository:
 `code-reviewer` reaches five named GitHub reads and three gated comment tools - it cannot branch, write a file or
 open a pull request, because a reviewer that can land its own fix is not a reviewer. Delegating the
 fix to the agent that can push is how it would land one anyway. Of the 132 directed pairs between
-these twelve agents, 21 are handoffs that widen nothing.
+these twelve agents, 24 are handoffs that widen nothing.
 
 The last two lines are the check being blunt rather than clever, and it is worth seeing. `@read-only`
 is reported as unreachable because `covers` will not expand a selector into the tools it stands for -
