@@ -591,7 +591,7 @@ demo that has to run on a stranger's laptop cannot have a microphone that first 
 ## Development
 
 ```bash
-npm run check             # lint, typecheck, 636 tests, the fixture check, the reader's own 32 - what CI runs
+npm run check             # lint, typecheck, 642 tests, the fixture check, the reader's own 32 - what CI runs
 npm test                  # the root suite alone
 npm run fixtures:check    # the fixtures must still fail
 npm run tools:audit       # every reachable tool is gated as claimed
