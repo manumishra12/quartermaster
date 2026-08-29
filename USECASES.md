@@ -350,10 +350,11 @@ incident started twenty-eight minutes before the latency moved. `mcp/observabili
 publishes the trap and the answer.
 
 **And verifying the recovery is a separate step with two honest endings.** After an approved
-rollback the agent calls `compare_windows` against a pre-incident baseline. Immediately after a
-remediation a metric store has nothing past its last scrape, so it answers `no_points_in_window` and
-computes no change at all - which is a fact about the evidence, not an obstacle, and not a result
-that may be rounded up to recovery. `resolve_alert` on the ops desk refuses on the same grounds.
+rollback the agent calls `compare_windows` against a pre-incident baseline, and gets a real answer
+in both directions: back to roughly 305ms if the rollback worked, still near 2010ms and six times
+the baseline if it did not. The failure case is computed rather than refused, because the number
+showing nothing improved is the one a verify step needs most. `resolve_alert` on the ops desk reads
+its own coarser series and can still refuse while the metrics show recovery.
 
 **What you should see.** The first command answers `ALRT-4471`. The second reaches the gate:
 

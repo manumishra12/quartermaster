@@ -294,12 +294,17 @@ about it. An unverified gate is not a gate, and if it does not travel then nobod
 rollback happens, and the transcript still reads as though somebody approved it. Reads are safe to
 delegate because the worst case of an unverified gate on a read is a read.
 
-And **verify recovery has two exits.** Immediately after a rollback the honest answer is the left
-one: a metric store has nothing after its last scrape, so `compare_windows` refuses to compute a
-change and says the reading has not been taken yet. That is a fact about the evidence, not an
-obstacle, and it is not a result that may be rounded up to recovery. `resolve_alert` on the ops desk
-refuses on the same grounds - `still_unhealthy` while the rate is up, `no_readings` when a restart
-has cleared the series it would have read.
+And **verify recovery has two exits, both computed.** A rollback that worked puts checkout back at
+roughly its pre-incident 305ms with neither rule breaching. A restart that changed nothing, or a
+rollback of the wrong service, leaves it near 2010ms at six times the healthy baseline with both
+rules still breaching - and that is computed rather than refused, because a verify step that can
+only ever confirm success is not a verify step.
+
+Two limits are stated rather than smoothed. One remediation advances the clock by a minute, so the
+comparison reads a single scrape and calls it an observation rather than a trend. And `resolve_alert`
+reads its own coarser series, which a rollback does not refresh, so it can answer `still_unhealthy`
+while the metrics show recovery - correct on both sides, and left disagreeing rather than reconciled
+by quietly changing what a tool reports.
 
 ```bash
 npm run ops-desk         # in one terminal

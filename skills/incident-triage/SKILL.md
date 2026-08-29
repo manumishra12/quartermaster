@@ -137,10 +137,14 @@ So resolving is never proposed in the same breath as a fix. After the fix is app
    passed in step 3 is the half that has to pass now, and for the same reason.
 4. Only then propose resolving, quoting that number.
 
-A metric store has nothing after its last scrape, so immediately after a fix the honest answer is
-often that the reading has not been taken yet. That is a fact about the evidence, not an obstacle,
-and it is not a result you may round up to recovery. Say what you expect and why, and say that it is
-an expectation.
+Read the comparison in both directions. A fix that worked shows the metric back near its
+pre-incident value with the rules no longer breaching; one that changed nothing shows it still up,
+and that number is computed rather than withheld, because a verification that can only ever confirm
+success is not one. If it did not work, say so and say what you would try next.
+
+Say what you are reading, too. One remediation is usually one scrape, which is an observation and
+not a trend, and a coarser series elsewhere may still be reporting the old state. Neither is a
+result you may round up to recovery.
 
 A desk that refuses to resolve while the service is still failing is telling you something true.
 Read the refusal as a fact about the service, not an obstacle.
