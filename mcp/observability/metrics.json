@@ -50,6 +50,22 @@
       "hit_rate": [0.862, 0.868, 0.851, 0.871, 0.858, 0.864, 0.854, 0.867, 0.862, 0.868, 0.851, 0.871, 0.858, 0.864, 0.854, 0.867, 0.862, 0.868, 0.851, 0.871, 0.858, 0.864, 0.854, 0.867, 0.862, 0.868, 0.851, 0.871, 0.858, 0.864, 0.854, 0.867, 0.862, 0.868, 0.851, 0.871, 0.858, 0.864, 0.854, 0.867, 0.862, 0.868, 0.851, 0.871, 0.858, 0.864, 0.854, 0.867, 0.862, 0.868, 0.851, 0.871, 0.858, 0.864, 0.854, 0.867, 0.862, 0.868, 0.851, 0.871, 0.858, 0.864, 0.854, 0.867, 0.862, 0.868, 0.851, 0.871, 0.858, 0.864, 0.854, 0.867, 0.862, 0.868, 0.851, 0.871, 0.858, 0.864, 0.854, 0.867, 0.712, 0.718, 0.701, 0.721, 0.708, 0.714, 0.704, 0.717, 0.712, 0.718, 0.701, 0.721, 0.708, 0.714, 0.704, 0.717, 0.712, 0.718, 0.701, 0.721, 0.708, 0.714, 0.704, 0.717, 0.712, 0.718, 0.701, 0.721, 0.708, 0.714, 0.704, 0.717, 0.712, 0.718, 0.701, 0.721, 0.708, 0.714, 0.704, 0.717, 0.712, 0.718, 0.701, 0.721, 0.708, 0.714, 0.704, 0.717, 0.712, 0.718, 0.701, 0.721, 0.708, 0.714, 0.704, 0.717, 0.712, 0.718, 0.701, 0.721, 0.708]
     }
   },
+  "recovery": {
+    "description": "How checkout-api's two series carry on past this window once ops-desk reports that something has been done to the estate. Nothing here is a new measurement: every reading after 14:20 is one of the readings above, replayed. Which of the two levels gets replayed is decided by one comparison - the payment-gateway client timeout the deployed version sets, against the payment-gateway p99 this store measured. 4c21 set 2000ms and the gateway has never answered faster than 2388ms, so the call cannot finish; 9ab7 sets 5000ms and the gateway has never been slower than 2430ms, so it always can.",
+    "service": "checkout-api",
+    "dependency": "payment-gateway",
+    "metrics": ["latency_p99_ms", "error_rate"],
+    "deployed_at_window_end": "4c21",
+    "client_timeout_ms": {
+      "4c21": 2000,
+      "9ab7": 5000,
+      "77f0": 5000
+    },
+    "replay": {
+      "budget_above_dependency": { "from": "2026-08-26T12:00:00Z", "to": "2026-08-26T13:58:00Z" },
+      "budget_below_dependency": { "from": "2026-08-26T14:10:00Z", "to": "2026-08-26T14:20:00Z" }
+    }
+  },
   "dashboards": [
     {
       "id": "checkout-overview",

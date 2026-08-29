@@ -1,6 +1,6 @@
 # Testing
 
-613 tests in the root suite, 191 in the UI across 23 files, 32 in Python for the document reader,
+627 tests in the root suite, 191 in the UI across 23 files, 32 in Python for the document reader,
 one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
@@ -67,10 +67,10 @@ flowchart TD
     MA["model-advice.test.mjs<br/>6 - what a provider failure means"]
     PO["policies.test.mjs<br/>4 - one reading of each agent policy"]
     SV["lib/serve.test.mjs<br/>5 - the shared HTTP shell"]
-    OD["ops-desk/server.test.mjs<br/>21 - incident fixture server"]
+    OD["ops-desk/server.test.mjs<br/>22 - incident fixture server"]
     FD["front-desk/server.test.mjs<br/>24 - workspace fixture server"]
     WH["warehouse/server.test.mjs<br/>18 - read-only SQL connector"]
-    OB["observability/server.test.mjs<br/>27 - the metrics store"]
+    OB["observability/server.test.mjs<br/>40 - the metrics store"]
     DO["documents/server.test.mjs<br/>20 - the document reader, and its root"]
   end
 
@@ -102,8 +102,8 @@ flowchart TD
 | `flags.test.mjs`, `paths.test.mjs`, `settle.test.mjs`, `http.test.mjs` | Four one-line mistakes that each cost a real behaviour: a flag consumed as another flag's value, a percent-encoded path, a promise raced and abandoned, and an error page parsed as data. |
 | `mcp/front-desk/server.test.mjs` | The workspace server: every write tool refuses what it cannot honestly do and records nothing when it refuses, and the planted prompt injection is still in the fixture - if it is ever removed, the demonstration that the gate holds against a persuaded model silently stops demonstrating anything. |
 | `mcp/warehouse/server.test.mjs` | The read-only SQL connector, tested mostly by what it refuses. Two layers have to hold separately: the read-only connection, which is proved by submitting a write the statement check deliberately admits (`WITH x AS (...) DELETE FROM orders`) and watching SQLite refuse it; and the statement check, which covers what a read-only connection still permits. `VACUUM INTO` has a test of its own and asserts no copy of the database appears on disk - it succeeds on a read-only connection, and that is the finding the check was written for. The published answers from the fixture README are asserted here too, so the connector and the fixture cannot drift apart. |
-| `mcp/observability/server.test.mjs` | The metrics store, tested almost entirely on what a partial answer would let through. Nothing on that server writes, so the ops-desk question - does the destructive tool genuinely mutate - has no counterpart; what replaces it is harder. A window wider than the retention served as the points that happened to exist, a percentile averaged over a coarse bucket, a comparison against a window with nothing in it: each produces a number an investigation can act on, arrived at honestly, and wrong. The cross-server test is the strictest here - it reads `ops-desk`'s own fixture and asserts the two servers publish identical numbers at all seven instants both of them cover, so the two stories cannot drift apart. The planted traps are pinned too: eleven mutations were tried against this suite - moving the deploy annotation off the step change, moving the traffic rise onto it, moving the cache drop to where the log line says it is, raising checkout's p99 above its dependency's - and every one goes red. |
-| `mcp/ops-desk/server.test.mjs` | The fixture MCP server, tested over the wire: every tool publishes the annotations the selectors resolve from, the destructive ones genuinely mutate, and the fixture still tells a story an investigation can get right. The log tests pin the correlation - alert, deploy and log lines all naming the same 2000ms - and the two ways a search can lie about an empty result. |
+| `mcp/observability/server.test.mjs` | The metrics store, tested almost entirely on what a partial answer would let through. Nothing on that server writes, so the ops-desk question - does the destructive tool genuinely mutate - has no counterpart; what replaces it is harder. A window wider than the retention served as the points that happened to exist, a percentile averaged over a coarse bucket, a comparison against a window with nothing in it: each produces a number an investigation can act on, arrived at honestly, and wrong. The cross-server test is the strictest here - it reads `ops-desk`'s own fixture and asserts the two servers publish identical numbers at all seven instants both of them cover, so the two stories cannot drift apart. The planted traps are pinned too: eleven mutations were tried against this suite - moving the deploy annotation off the step change, moving the traffic rise onto it, moving the cache drop to where the log line says it is, raising checkout's p99 above its dependency's - and every one goes red. The verify half is pinned the same way and harder: after a rollback the store reads `ops-desk`'s live state and extends two series from its own pre-incident readings, so the tests cover the case a demo wants (recovery observed) and the case it does not (a restart, or a rollback of the wrong service, that leaves the regression exactly where it was and still computes a ratio saying so). Fourteen more mutations were tried - a hardcoded healthy series, a recovery keyed off "was anything done", a straddling window summarised anyway, an unreachable desk reported as a desk that has done nothing - and every one goes red. |
+| `mcp/ops-desk/server.test.mjs` | The fixture MCP server, tested over the wire: every tool publishes the annotations the selectors resolve from, the destructive ones genuinely mutate, the `/health` route publishes the live state the metrics store reads and carries no model-written prose across that boundary, and the fixture still tells a story an investigation can get right. The log tests pin the correlation - alert, deploy and log lines all naming the same 2000ms - and the two ways a search can lie about an empty result. |
 | `env.test.mjs` (8), `contrast.test.mjs` (28) | Config loading, and that every colour pair in both themes clears 4.5:1 — the reference design's own muted grey was 3.37:1 and had to be darkened. |
 
 ### UI — `ui/src/**/*.test.tsx`

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -23,9 +24,21 @@ import { fileURLToPath } from 'node:url';
  */
 
 const SERVER = fileURLToPath(new URL('./server.mjs', import.meta.url));
+const OPS_DESK = fileURLToPath(new URL('../ops-desk/server.mjs', import.meta.url));
 const INCIDENTS = JSON.parse(
   readFileSync(fileURLToPath(new URL('../ops-desk/incidents.json', import.meta.url)), 'utf8'),
 );
+const METRICS = JSON.parse(readFileSync(fileURLToPath(new URL('./metrics.json', import.meta.url)), 'utf8'));
+
+/**
+ * Where a test points this server when it wants no desk at all.
+ *
+ * Not "leave it unset". The default is ops-desk's documented port, so a copy left running from a
+ * manual demo - with a rollback already taken on it - would reach into every test in this file and
+ * change what the store publishes. Port 1 needs root to bind, so nothing is ever listening on it
+ * and the refusal is immediate.
+ */
+const NO_DESK = 'http://127.0.0.1:1';
 
 /**
  * A server per test, on a port the OS picks.
@@ -34,9 +47,14 @@ const INCIDENTS = JSON.parse(
  * fails with "did not report a port" - a flake that says nothing about the code under test. There
  * is no state to isolate here, unlike ops-desk, but the isolation is free and the port is not.
  */
-async function startServer() {
+async function startServer(opsDeskUrl = NO_DESK) {
   const child = spawn(process.execPath, [SERVER], {
-    env: { ...process.env, OBSERVABILITY_PORT: '0', OBSERVABILITY_HOST: '127.0.0.1' },
+    env: {
+      ...process.env,
+      OBSERVABILITY_PORT: '0',
+      OBSERVABILITY_HOST: '127.0.0.1',
+      OPS_DESK_URL: opsDeskUrl,
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -93,7 +111,7 @@ async function startServer() {
     return JSON.parse(response.result.content[0].text);
   }
 
-  return { call, callTool, port, stop: () => child.kill() };
+  return { call, callTool, port, health: () => fetch(`http://127.0.0.1:${port}/health`).then((r) => r.json()), stop: () => child.kill() };
 }
 
 async function withServer(body) {
@@ -102,6 +120,96 @@ async function withServer(body) {
     await body(server);
   } finally {
     server.stop();
+  }
+}
+
+/**
+ * A real ops-desk, so a rollback in one test is a rollback the other server has to answer for.
+ *
+ * Stubbing the desk here would test this file against its own idea of what a rollback looks like,
+ * which is precisely the thing the cross-server assertions exist to stop. The desk mutates in
+ * memory, so it is a fresh process per test for the same reason ops-desk's own suite uses one.
+ */
+async function startOpsDesk() {
+  const child = spawn(process.execPath, [OPS_DESK], {
+    env: { ...process.env, OPS_DESK_PORT: '0', OPS_DESK_HOST: '127.0.0.1' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  const port = await new Promise((resolve, reject) => {
+    let seen = '';
+    const done = (error, value) => {
+      clearTimeout(timer);
+      if (error) {
+        child.kill();
+        reject(error);
+      } else {
+        resolve(value);
+      }
+    };
+    const timer = setTimeout(() => done(new Error('ops-desk did not report a port within 10s')), 10_000);
+    child.stdout.on('data', (chunk) => {
+      seen += String(chunk);
+      const match = /listening on http:\/\/localhost:(\d+)\//.exec(seen);
+      if (match) done(null, Number(match[1]));
+    });
+    child.on('error', (error) => done(error));
+    child.on('exit', (code) => done(new Error(`ops-desk exited with code ${code} before reporting a port`)));
+  });
+
+  const endpoint = `http://127.0.0.1:${port}/mcp`;
+  async function callTool(name, args = {}) {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        host: `localhost:${port}`,
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method: 'tools/call', params: { name, arguments: args } }),
+    });
+    const body = await res.text();
+    const line = body.split('\n').find((l) => l.startsWith('data: '));
+    return JSON.parse(JSON.parse(line ? line.slice(6) : body).result.content[0].text);
+  }
+
+  return { callTool, url: `http://127.0.0.1:${port}`, stop: () => child.kill() };
+}
+
+/** Both servers, wired together the way the README says to wire them. */
+async function withPair(body) {
+  const desk = await startOpsDesk();
+  let store;
+  try {
+    store = await startServer(desk.url);
+    await body({ desk, ...store });
+  } finally {
+    store?.stop();
+    desk.stop();
+  }
+}
+
+/**
+ * A desk that answers /health with whatever a test wants it to.
+ *
+ * Only for the payloads a real ops-desk cannot produce. Everything a real one can produce is tested
+ * against a real one, because a stub that agrees with this file's assumptions proves nothing about
+ * the server it is standing in for.
+ */
+async function withStubDesk(payload, body) {
+  const http = createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(typeof payload === 'string' ? payload : JSON.stringify(payload));
+  });
+  await new Promise((resolve) => http.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${http.address().port}`;
+  let store;
+  try {
+    store = await startServer(url);
+    await body(store);
+  } finally {
+    store?.stop();
+    http.close();
   }
 }
 
@@ -607,10 +715,10 @@ test('a coarse step moves where the step change appears to be, which is why the 
 test('a comparison against a window with nothing in it is refused, not computed', () =>
   withServer(async ({ callTool }) => {
     /**
-     * The last step of an investigation, and the one a demo most wants to fake. After a rollback
-     * the honest state of this store is that no reading exists past 14:20 - nothing here advances
-     * a clock, because reading a graph does not make time pass. A tool that answered `change: null`
-     * and nothing else would let "recovered" be written on the strength of a field nobody read.
+     * The last step of an investigation, and the one a demo most wants to fake. With no desk to
+     * ask, the honest state of this store is that no reading exists past 14:20. A tool that
+     * answered `change: null` and nothing else would let "recovered" be written on the strength of
+     * a field nobody read.
      *
      * ops-desk refuses `resolve_alert` with `no_readings` for exactly this reason, and this is that
      * discipline on the metric side.
@@ -627,7 +735,14 @@ test('a comparison against a window with nothing in it is refused, not computed'
     assert.equal(recovery.refused.length, 1);
     assert.equal(recovery.refused[0].window, 'compare');
     assert.equal(recovery.refused[0].why, 'no_points_in_window');
-    assert.match(recovery.refused[0].detail, /has not been taken yet/);
+    /**
+     * And it says which empty it is. "There is no reading yet" and "I could not find out whether
+     * there is a reading" are the same blank chart, and only one of them may be reported as a
+     * recovery that has not been observed.
+     */
+    assert.match(recovery.refused[0].detail, /could not be reached/);
+    assert.match(recovery.refused[0].detail, /not evidence that nothing happened/);
+    assert.equal(recovery.world.reachable, false);
   }));
 
 test('a comparison over a window the store only half kept is refused too', () =>
@@ -801,4 +916,474 @@ test('list_metrics publishes the units and the retention, because both are guess
     assert.equal(byName.get('latency_p99_ms').percentile, true);
     assert.equal(byName.get('requests_per_second').percentile, false);
     assert.deepEqual(byName.get('hit_rate').services, ['session-cache']);
+  }));
+
+/* ---------------------------------------------------------------------------------------------- */
+/* Verifying a fix, which is the step this store could not reach before and the one worth faking.   */
+/* ---------------------------------------------------------------------------------------------- */
+
+/** A minute past two on the day this whole fixture is about. */
+const minute = (n) => `2026-08-26T14:${String(n).padStart(2, '0')}:00Z`;
+
+test('a rollback puts readings after the incident window, and they are this store own', () =>
+  withPair(async ({ desk, callTool }) => {
+    /**
+     * The step that was missing. Before this, the store ended at 14:20 whatever happened next, so
+     * the honest answer to "did the fix work" was always "no reading exists" - and an agent could
+     * only ever predict a recovery.
+     *
+     * What makes the new readings honest is that they are not new numbers. 9ab7 restores a 5000ms
+     * payment-gateway budget; this store measured that gateway at 2388-2430ms for 141 consecutive
+     * minutes; so the call finishes, and checkout-api's p99 is what it was for the 119 minutes it
+     * last ran with that budget. The assertion below is that literally - the post-rollback value
+     * has to be a reading this store already held before the incident.
+     */
+    const rolled = await desk.callTool('rollback_deploy', { deploy_id: '4c21', reason: 'the timeout was cut below the gateway' });
+    assert.equal(rolled.ok, true);
+    assert.equal(rolled.to, '9ab7');
+    assert.equal(rolled.at, minute(21), 'ops-desk ticks a minute per remediation, onto this store scrape boundary');
+
+    const after = await callTool('query_range', {
+      metric: 'latency_p99_ms',
+      service: 'checkout-api',
+      from: minute(19),
+      to: minute(21),
+    });
+    assert.equal(after.error, undefined);
+    assert.equal(after.retention.to, minute(21), 'the store now runs one reading past its fixture');
+    assert.equal(after.retention.in_fixture, RETAINED.to, 'and still says where the checked-in numbers stop');
+    assert.equal(after.retention.extended_by, 1);
+
+    const recovered = after.points.at(-1);
+    assert.equal(recovered.at, minute(21));
+    assert.ok(recovered.value < 320, `p99 must be back at its baseline, saw ${recovered.value}`);
+
+    /**
+     * Derived, not typed in. If somebody replaces the replay with a hardcoded healthy number this
+     * goes red, which is the point of asserting it rather than asserting `< 320`.
+     */
+    const before = METRICS.series['checkout-api'].latency_p99_ms.slice(0, 119);
+    assert.ok(
+      before.includes(recovered.value),
+      `${recovered.value} is not a reading this store took before the incident - a recovery has to be replayed, not invented`,
+    );
+
+    const errors = await callTool('query_range', { metric: 'error_rate', service: 'checkout-api', from: minute(20), to: minute(21) });
+    assert.ok(errors.points.at(-1).value < 0.01, 'and the error rate is back under the rule threshold');
+    assert.ok(METRICS.series['checkout-api'].error_rate.slice(0, 119).includes(errors.points.at(-1).value));
+  }));
+
+test('the arithmetic that decides a recovery is two numbers this store already published', () =>
+  withPair(async ({ desk, callTool }) => {
+    /**
+     * The claim in the README, asserted against the fixture rather than believed.
+     *
+     * A synchronous caller finishes if its deadline is above what the dependency takes. The
+     * dependency's spread is 141 readings on the chart next door and the deadlines are what each
+     * deploy set. 2000 is below the gateway's fastest minute and 5000 is above its slowest, so
+     * neither verdict depends on which minute you pick - and if somebody softens the gateway series
+     * until 2000ms starts fitting inside it, this goes red before the recovery does.
+     */
+    const gateway = await seriesOf(callTool, 'latency_p99_ms', 'payment-gateway', RETAINED.from, RETAINED.to);
+    const slowest = Math.max(...gateway.values());
+    const fastest = Math.min(...gateway.values());
+    const budgets = METRICS.recovery.client_timeout_ms;
+
+    assert.ok(budgets['4c21'] < fastest, `4c21 sets ${budgets['4c21']}ms, which must be below the gateway's fastest minute (${fastest}ms)`);
+    assert.ok(budgets['9ab7'] > slowest, `9ab7 sets ${budgets['9ab7']}ms, which must be above the gateway's slowest minute (${slowest}ms)`);
+
+    // And the deploy the fixture starts its replay from is the one ops-desk says is current, or the
+    // replay begins on a version nothing is running.
+    const deploys = await desk.callTool('list_deploys', { service: 'checkout-api' });
+    assert.equal(deploys.deploys[0].id, METRICS.recovery.deployed_at_window_end);
+
+    // Every deploy this store carries a budget for is a deploy ops-desk has, so the two servers
+    // cannot disagree about which versions exist.
+    for (const id of Object.keys(budgets)) {
+      assert.ok(
+        INCIDENTS.deploys.some((d) => d.id === id && d.service === METRICS.recovery.service),
+        `${id} is not an ops-desk checkout deploy`,
+      );
+    }
+  }));
+
+test('a remediation that fixes nothing still reads as broken, which is what makes this a verify step', () =>
+  withPair(async ({ desk, callTool }) => {
+    /**
+     * The half that matters. A verify step that can only ever confirm success is not a verify step,
+     * and this one is reachable from an ordinary agent: restarting is the first thing anybody tries.
+     *
+     * A restart cycles the instances 4c21 is on. The budget is still 2000ms, the gateway still
+     * takes 2400ms, so the call still cannot finish - and the reading taken after it has to say so.
+     */
+    assert.equal((await desk.callTool('restart_service', { service: 'checkout-api', reason: 'wedged workers' })).ok, true);
+
+    const after = await callTool('query_range', { metric: 'latency_p99_ms', service: 'checkout-api', from: minute(21), to: minute(21) });
+    assert.equal(after.error, undefined, 'a reading has to exist, or this is the old no-evidence-either-way');
+    assert.ok(after.points[0].value > 1900, `the regression must still be there, saw ${after.points[0].value}`);
+
+    const errors = await callTool('query_range', { metric: 'error_rate', service: 'checkout-api', from: minute(21), to: minute(21) });
+    assert.ok(errors.points[0].value > 0.1, `and the error rate with it, saw ${errors.points[0].value}`);
+
+    /**
+     * compare_windows must not report an improvement that did not happen. Against the pre-incident
+     * baseline the ratio is still six and a half; against the incident window it is one.
+     */
+    const versusHealthy = await callTool('compare_windows', {
+      metric: 'latency_p99_ms',
+      service: 'checkout-api',
+      baseline_from: '2026-08-26T13:30:00Z',
+      baseline_to: '2026-08-26T13:57:00Z',
+      compare_from: minute(21),
+      compare_to: minute(21),
+    });
+    assert.equal(versusHealthy.refused, null, 'the comparison is makeable - refusing it would hide the failure, not report it');
+    assert.ok(versusHealthy.change.max_ratio > 6, `no improvement may be reported, saw ${versusHealthy.change.max_ratio}`);
+    assert.ok(versusHealthy.change.max_delta > 0, 'and the delta has to point the wrong way');
+
+    const versusIncident = await callTool('compare_windows', {
+      metric: 'latency_p99_ms',
+      service: 'checkout-api',
+      baseline_from: minute(0),
+      baseline_to: RETAINED.to,
+      compare_from: minute(21),
+      compare_to: minute(21),
+    });
+    assert.ok(
+      Math.abs(versusIncident.change.max_ratio - 1) < 0.05,
+      `nothing changed, so the ratio is one, saw ${versusIncident.change.max_ratio}`,
+    );
+
+    // And the rules agree: the thresholds re-read against the latest reading are still breached.
+    const { rules } = await callTool('list_alert_rules', { service: 'checkout-api' });
+    for (const rule of rules) {
+      assert.equal(rule.still_breaching, true, `${rule.id} must still be breaching after a remediation that changed nothing`);
+      assert.equal(rule.latest.at, minute(21));
+    }
+  }));
+
+test('rolling back the wrong service is a remediation too, and it does not move this one', () =>
+  withPair(async ({ desk, callTool }) => {
+    /**
+     * The other unsuccessful path, and the one an investigation reaches by correlating with the
+     * wrong annotation. `1de9` is search-api's deploy: rolling it back is accepted, is destructive,
+     * ticks the clock, and does nothing whatever to checkout-api's budget.
+     *
+     * If this store keyed the recovery off "was anything done" rather than off what is deployed,
+     * this is the call that would fake one.
+     */
+    const rolled = await desk.callTool('rollback_deploy', { deploy_id: '1de9', reason: 'wrong suspect' });
+    assert.equal(rolled.ok, true);
+    assert.equal(rolled.service, 'search-api');
+
+    const after = await callTool('query_range', { metric: 'latency_p99_ms', service: 'checkout-api', from: minute(21), to: minute(21) });
+    assert.ok(after.points[0].value > 1900, `checkout-api must be unchanged, saw ${after.points[0].value}`);
+    assert.equal(after.world.deployed, '4c21', 'because checkout-api is still on the deploy that broke it');
+
+    const { rules } = await callTool('list_alert_rules', { service: 'checkout-api' });
+    assert.ok(rules.every((r) => r.still_breaching === true));
+  }));
+
+test('a window with the fix inside it is refused rather than averaged across', () =>
+  withPair(async ({ desk, callTool }) => {
+    /**
+     * A restart at 14:21 that changed nothing, then a rollback at 14:22 that changed everything.
+     * The window 14:21 to 14:22 holds one reading from each world.
+     *
+     * Its mean lands between the two levels, which reads as a service half way better - and nothing
+     * in the number says the window was two windows. Same failure as averaging a percentile across
+     * a coarse bucket, in a new place, and refused for the same reason.
+     */
+    await desk.callTool('restart_service', { service: 'checkout-api', reason: 'first try' });
+    await desk.callTool('rollback_deploy', { deploy_id: '4c21', reason: 'then the fix' });
+
+    const straddled = await callTool('compare_windows', {
+      metric: 'latency_p99_ms',
+      service: 'checkout-api',
+      baseline_from: '2026-08-26T13:30:00Z',
+      baseline_to: '2026-08-26T13:57:00Z',
+      compare_from: minute(21),
+      compare_to: minute(22),
+    });
+    assert.equal(straddled.change, null);
+    assert.equal(straddled.refused[0].window, 'compare');
+    assert.equal(straddled.refused[0].why, 'window_straddles_remediation');
+    assert.equal(straddled.compare.straddles[0].at, minute(22));
+    assert.equal(straddled.compare.straddles[0].to, '9ab7');
+
+    /**
+     * The number the refusal is protecting against, asserted so the refusal cannot be dropped later
+     * as pedantry. Between the two levels is exactly where a mean lands.
+     */
+    assert.ok(
+      straddled.compare.mean_of_points > 400 && straddled.compare.mean_of_points < 1900,
+      `the mean across the rollback is ${straddled.compare.mean_of_points}, which is a level nothing was ever at`,
+    );
+
+    // A window entirely on the far side of it is answered, so the refusal is about the straddle and
+    // not about the window being new.
+    const clean = await callTool('compare_windows', {
+      metric: 'latency_p99_ms',
+      service: 'checkout-api',
+      baseline_from: minute(0),
+      baseline_to: RETAINED.to,
+      compare_from: minute(22),
+      compare_to: minute(22),
+    });
+    assert.equal(clean.refused, null);
+    assert.ok(clean.change.max_ratio < 0.2, `recovered, and by this much: ${clean.change.max_ratio}`);
+    assert.match(clean.note, /observation rather than a trend/, 'one scrape is one scrape, and the reply has to say so');
+  }));
+
+test('a restart is not a straddle, because this store own numbers say nothing moved', () =>
+  withPair(async ({ desk, callTool }) => {
+    /**
+     * The refusal has to be about the readings and not about the ceremony. A restart leaves the
+     * same deploy running, so the minutes either side of it are one world - and refusing to
+     * summarise across it would deny the verify step the number it most needs, which is the one
+     * showing that nothing improved.
+     */
+    await desk.callTool('restart_service', { service: 'checkout-api', reason: 'probe' });
+
+    const across = await callTool('compare_windows', {
+      metric: 'latency_p99_ms',
+      service: 'checkout-api',
+      baseline_from: '2026-08-26T13:30:00Z',
+      baseline_to: '2026-08-26T13:57:00Z',
+      compare_from: minute(15),
+      compare_to: minute(21),
+    });
+    assert.equal(across.refused, null, 'a restart that moved nothing must not block a comparison');
+    assert.deepEqual(across.compare.straddles, []);
+    // It is still reported as having happened inside the window, because it did.
+    assert.equal(across.compare.remediations_inside[0].action, 'restart_service');
+    assert.ok(across.change.max_ratio > 6, 'and the answer is still that nothing got better');
+  }));
+
+test('only the series a client timeout decides run past the window, and the rest say why not', () =>
+  withPair(async ({ desk, callTool }) => {
+    /**
+     * The line between deriving and inventing. checkout-api's request rate after a rollback is not
+     * something the payment-gateway budget decides - the campaign traffic is still arriving - so
+     * this store has no basis for a number and publishes none rather than continuing the line.
+     */
+    await desk.callTool('rollback_deploy', { deploy_id: '4c21', reason: 'the fix' });
+
+    for (const [service, metric] of [
+      ['checkout-api', 'requests_per_second'],
+      ['payment-gateway', 'latency_p99_ms'],
+      ['session-cache', 'hit_rate'],
+    ]) {
+      const past = await callTool('query_range', { metric, service, from: minute(21), to: minute(21) });
+      assert.equal(past.error, 'outside_retention', `${service} ${metric}`);
+      assert.equal(past.points, undefined, 'not an empty list - an empty list reads as a flat metric');
+      assert.match(past.why_it_ends_here, /not something a payment-gateway client timeout decides/);
+      assert.equal(past.retention.to, RETAINED.to, `${service} ${metric} still ends where the fixture does`);
+    }
+
+    // And list_metrics names the two that do go further, so nobody has to work it out per series.
+    const listed = await callTool('list_metrics');
+    assert.deepEqual(
+      listed.retention.extended.map((s) => `${s.service} ${s.metric}`),
+      ['checkout-api latency_p99_ms', 'checkout-api error_rate'],
+    );
+    assert.equal(listed.retention.to, RETAINED.to, 'the store-wide block still reports where the fixture stops');
+    assert.equal(listed.retention.now, minute(21));
+  }));
+
+test('a desk this store cannot reach is not a desk that has done nothing', () =>
+  withServer(async ({ callTool, health }) => {
+    /**
+     * The quiet failure, and the reason every reply carries a `world` block. With nothing listening
+     * the store ends at 14:20, which is character for character the same output as a desk that has
+     * been asked and has done nothing - and an agent verifying a rollback would read the first as
+     * the second.
+     */
+    const answer = await callTool('query_range', { metric: 'latency_p99_ms', service: 'checkout-api', from: minute(21), to: minute(21) });
+    assert.equal(answer.error, 'outside_retention');
+    assert.equal(answer.world.reachable, false);
+    assert.match(answer.world.why, /could not be reached/);
+    assert.match(answer.world.note, /not the same as knowing nothing has been done/);
+    assert.match(answer.why_it_ends_here, /not evidence that nothing happened/);
+
+    // /health says the same thing rather than reporting a span it has not checked.
+    const line = await health();
+    assert.equal(line.retention, `${RETAINED.from} to ${RETAINED.to}`);
+    assert.deepEqual(line.extended_series, []);
+    assert.match(line.world_as_last_read, /could not be reached/);
+  }));
+
+test('a desk answering something this store cannot use is refused, not half read', async () => {
+  /**
+   * Every field below arrives from another process and decides whether this store publishes a
+   * recovery. Accepted half-read, each of them produces readings nobody measured under a timestamp
+   * nobody took, and the reply gives no way to tell those from the fixture's own.
+   *
+   * The off-boundary case is the subtle one: a remediation at 14:21:30 sits in the middle of the
+   * minute the 14:22 scrape covers, so attributing that whole scrape to either world publishes a
+   * percentile that is half of each.
+   */
+  const good = {
+    now: minute(21),
+    deployed: { 'checkout-api': '9ab7' },
+    remediations: [{ action: 'rollback_deploy', service: 'checkout-api', to: '9ab7', at: minute(21) }],
+  };
+
+  const cases = [
+    [{ ...good, now: 'half past two' }, /without a `now` this store can read/],
+    [{ ...good, now: '2026-08-26T13:00:00Z' }, /before this store's own/],
+    [{ ...good, now: '2026-08-27T14:21:00Z' }, /more than the 141 readings/],
+    [{ now: minute(21), deployed: {} }, /without a `remediations` list/],
+    [{ ...good, remediations: [{ ...good.remediations[0], at: 'the other day' }] }, /timestamp this store cannot read/],
+    [{ ...good, remediations: [{ ...good.remediations[0], at: '2026-08-26T14:21:30Z' }] }, /not on this store's 60s scrape boundary/],
+    ['{ not json', /could not be reached|JSON/],
+  ];
+
+  for (const [payload, expected] of cases) {
+    await withStubDesk(payload, async ({ callTool }) => {
+      const answer = await callTool('query_range', { metric: 'latency_p99_ms', service: 'checkout-api', from: minute(21), to: minute(21) });
+      assert.equal(answer.error, 'outside_retention', `${JSON.stringify(payload).slice(0, 60)} must not extend the store`);
+      assert.equal(answer.world.reachable, false);
+      assert.match(answer.world.why, expected);
+    });
+  }
+
+  /**
+   * And a desk that contradicts its own journal is refused rather than resolved in favour of
+   * either. Two servers disagreeing about which version is running is worse than one server,
+   * because the disagreement is invisible until somebody quotes both - and here it decides whether
+   * a recovery gets published.
+   */
+  await withStubDesk({ ...good, deployed: { 'checkout-api': '4c21' } }, async ({ callTool }) => {
+    const answer = await callTool('query_range', { metric: 'latency_p99_ms', service: 'checkout-api', from: minute(21), to: minute(21) });
+    assert.equal(answer.error, 'outside_retention');
+    assert.equal(answer.world.reachable, true, 'the desk answered - what it said is the problem');
+    assert.match(answer.why_it_ends_here, /replaying the actions it recorded gives 9ab7/);
+  });
+
+  /**
+   * A deploy this store has no budget for stops the replay rather than guessing one. Without this,
+   * an unknown version would fall through to whichever branch was written last.
+   */
+  await withStubDesk(
+    {
+      now: minute(21),
+      deployed: { 'checkout-api': 'beef' },
+      remediations: [{ action: 'rollback_deploy', service: 'checkout-api', to: 'beef', at: minute(21) }],
+    },
+    async ({ callTool }) => {
+      const answer = await callTool('query_range', { metric: 'latency_p99_ms', service: 'checkout-api', from: minute(21), to: minute(21) });
+      assert.equal(answer.error, 'outside_retention');
+      assert.match(answer.why_it_ends_here, /no payment-gateway client timeout recorded for it/);
+    },
+  );
+});
+
+test('the remediation is drawn on the timeline, so a step change down has its marker too', () =>
+  withPair(async ({ desk, callTool }) => {
+    /**
+     * This store opens by saying that a step change and a marker on the same minute is the whole
+     * finding and neither half says anything alone. That is as true of a recovery as of a
+     * regression, so the rollback goes on the timeline - labelled with where it came from, because
+     * this store did not observe it.
+     */
+    await desk.callTool('rollback_deploy', { deploy_id: '4c21', reason: 'the fix' });
+
+    const all = await callTool('list_annotations', {});
+    assert.equal(all.held, 7, 'six in the fixture, one reported by the desk');
+    assert.equal(all.reported_by_ops_desk, 1);
+
+    const marker = all.annotations.find((a) => a.source === 'ops-desk');
+    assert.equal(marker.kind, 'remediation');
+    assert.equal(marker.at, minute(21));
+    assert.equal(marker.deploy_id, '9ab7', 'the version it returned to, which ops-desk will answer for');
+    assert.equal(marker.within_retention, true, 'and the series does run that far, so it is chartable');
+
+    /**
+     * It is not a deploy. `list_deploys` on ops-desk has no row for a rollback, so folding it into
+     * `kind: "deploy"` would hand an agent an id that does not resolve on the desk it came from.
+     */
+    const deploys = await callTool('list_annotations', { kind: 'deploy' });
+    assert.equal(deploys.matched, 3);
+    assert.ok(deploys.annotations.every((a) => a.source === undefined));
+    assert.equal((await callTool('list_annotations', { kind: 'remediation' })).matched, 1);
+  }));
+
+test('what the rule recorded and what the latest reading says are published separately', () =>
+  withPair(async ({ desk, callTool }) => {
+    /**
+     * `state` is what the rule was doing when this fixture was written and it stays that - a stored
+     * fact this server did not compute and must not quietly rewrite. After a rollback it is the
+     * wrong answer to "is it still broken", so the threshold is read again against the latest
+     * reading and both are published. They disagree exactly when something has changed.
+     */
+    const before = await callTool('list_alert_rules', {});
+    const beforeById = new Map(before.rules.map((r) => [r.id, r]));
+    assert.equal(beforeById.get('RULE-CHK-5XX').still_breaching, true);
+    assert.equal(beforeById.get('RULE-EXPORT').still_breaching, null, 'a rule watching a job exit status has no series to re-read');
+    assert.equal(beforeById.get('RULE-GW-P99').still_breaching, false, 'the gateway was always inside its own objective');
+
+    await desk.callTool('rollback_deploy', { deploy_id: '4c21', reason: 'the fix' });
+
+    const after = await callTool('list_alert_rules', { service: 'checkout-api' });
+    for (const rule of after.rules) {
+      assert.equal(rule.state, 'firing', 'the recorded state is not rewritten');
+      assert.equal(rule.still_breaching, false, `${rule.id} no longer breaches its threshold`);
+      assert.equal(rule.latest.at, minute(21));
+    }
+    assert.match(after.note, /`state` is what the rule was doing at/);
+  }));
+
+test('the health line says where the store ends, and where its fixture ends', () =>
+  withPair(async ({ desk, callTool, health }) => {
+    /**
+     * /health is answered synchronously and cannot ask the desk, so it reports what the last query
+     * learned. The alternative was a health line saying "to 14:20" while list_metrics said
+     * "to 14:21", which is one server giving two answers about its own retention.
+     */
+    const cold = await health();
+    assert.match(cold.world_as_last_read, /no tool call has asked ops-desk yet/);
+
+    await desk.callTool('rollback_deploy', { deploy_id: '4c21', reason: 'the fix' });
+    await callTool('list_metrics');
+
+    const warm = await health();
+    assert.equal(warm.retention, `${RETAINED.from} to ${minute(21)}`);
+    assert.equal(warm.retention_in_fixture, `${RETAINED.from} to ${RETAINED.to}`);
+    assert.deepEqual(warm.extended_series, [
+      `checkout-api latency_p99_ms to ${minute(21)}`,
+      `checkout-api error_rate to ${minute(21)}`,
+    ]);
+    assert.match(warm.world_as_last_read, /1 remediation/);
+  }));
+
+test('the replay spans hold the two levels they are named for, or a recovery means nothing', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * The fixture pinned against being softened, the same way the traps above are.
+     *
+     * Widen the pre-incident span to include 13:59 and it picks up the 1124ms transition minute, so
+     * a recovery starts replaying a partly broken reading. Widen the settled span back to 14:00 and
+     * it picks up the error rate ramping from 0.021, so a remediation that fixed nothing starts
+     * looking like a slow improvement. Both were tried; both go red here.
+     */
+    const p99 = await seriesOf(callTool, 'latency_p99_ms', 'checkout-api', RETAINED.from, RETAINED.to);
+    const errors = await seriesOf(callTool, 'error_rate', 'checkout-api', RETAINED.from, RETAINED.to);
+    const within = (span, at) => at >= span.from && at <= span.to;
+    const { budget_above_dependency: healthy, budget_below_dependency: settled } = METRICS.recovery.replay;
+
+    for (const [at, value] of p99) {
+      if (within(healthy, at)) assert.ok(value < 320, `${at} is in the pre-incident replay span and reads ${value}`);
+      if (within(settled, at)) assert.ok(value > 1900, `${at} is in the settled replay span and reads ${value}`);
+    }
+    for (const [at, value] of errors) {
+      if (within(healthy, at)) assert.ok(value < 0.01, `${at} is in the pre-incident replay span and reads ${value}`);
+      if (within(settled, at)) assert.ok(value > 0.1, `${at} is in the settled replay span and reads ${value}`);
+    }
+
+    // Both spans have to be inside the retention, or the replay reads values this store never took.
+    for (const span of [healthy, settled]) {
+      assert.ok(span.from >= RETAINED.from && span.to <= RETAINED.to, `${span.from} to ${span.to} is not retained`);
+    }
+    assert.deepEqual(METRICS.recovery.metrics, ['latency_p99_ms', 'error_rate']);
   }));

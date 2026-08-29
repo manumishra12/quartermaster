@@ -100,6 +100,42 @@ function currentDeploy(service) {
     .sort((a, b) => b.shipped_at.localeCompare(a.shipped_at))[0];
 }
 
+/**
+ * This desk's live state, for the one other server that has to agree with it.
+ *
+ * The metrics store cannot verify a recovery on its own. It holds readings; whether those readings
+ * are still the current world depends on whether anybody has rolled anything back, and that is
+ * this desk's fact, not its own. Two copies of the same fact drift, so the store reads this one
+ * rather than keeping a second - and this is the smallest thing that lets it: the clock, what each
+ * service is running, and the order things were done in.
+ *
+ * It goes on /health rather than into a new tool because /health already carries `actions` from
+ * this same journal, and a new tool is a new gate decision and a new line in every agent spec that
+ * names its tools one by one.
+ *
+ * `reason` is deliberately not here. It is free text a model wrote, and the store puts what it
+ * reads from this route into replies an agent reads next. Passing model prose through one server
+ * into another server's output is the shape of every injection in this project's threat model, and
+ * nothing downstream needs the reason to work out what is deployed.
+ */
+function worldState() {
+  return {
+    now: state.now,
+    deployed: Object.fromEntries(
+      [...new Set(state.deploys.map((d) => d.service))].map((service) => [
+        service,
+        currentDeploy(service)?.id ?? null,
+      ]),
+    ),
+    remediations: journal.map((entry) => ({
+      action: entry.action,
+      service: entry.service ?? null,
+      to: entry.to ?? null,
+      at: entry.at,
+    })),
+  };
+}
+
 const text = (value) => ({
   content: [
     {
@@ -663,5 +699,9 @@ serve({
   },
   describe: () => ({
     actions: journal.length,
+    // The rest of what this desk knows about the estate, for the metrics store to read. Additive:
+    // `actions` stays where it was, because smoke-agents.mjs reads it to spot a fixture somebody
+    // has already remediated on.
+    ...worldState(),
   }),
 });
