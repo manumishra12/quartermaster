@@ -2,7 +2,7 @@
 /**
  * The demo, walked one beat at a time.
  *
- * Recording this by hand means remembering to start two servers, apply nine agents, check no
+ * Recording this by hand means remembering to start the servers, apply every agent, check no
  * previous run left a fixture dirty, and then type four commands correctly while talking. Every one
  * of those is a way to lose a take, and none of them is the thing being demonstrated.
  *
@@ -14,7 +14,9 @@
  */
 
 import { createInterface } from 'node:readline';
+import { readdirSync } from 'node:fs';
 import { loadEnv } from './lib/env.mjs';
+import { fromModule } from './lib/paths.mjs';
 
 loadEnv();
 
@@ -28,8 +30,27 @@ const dim = (s) => `[2m${s}[0m`;
 const say = (s = '') => console.log(s);
 
 const rl = createInterface({ input: process.stdin, output: process.stdout });
-const pause = (label) =>
-  new Promise((resolve) => rl.question(dim(`\n  ${label} `), () => resolve()));
+/**
+ * Waits for a person, and does not throw when there is not one.
+ *
+ * `rl.question` throws ERR_USE_AFTER_CLOSE once the input has ended, which is what happens the
+ * moment this is run with stdin closed or piped - and the walkthrough then died mid-beat with a
+ * stack trace over the script whose whole job is to make a recording go smoothly. A judge reading
+ * that sees a broken tool, not a paused one.
+ *
+ * With nobody there it prints the beat and moves on, so the walkthrough still reads end to end.
+ */
+let listening = true;
+rl.on('close', () => {
+  listening = false;
+});
+const pause = (label) => {
+  if (!listening) {
+    say(dim(`\n  ${label} (nothing is listening, so continuing)`));
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => rl.question(dim(`\n  ${label} `), () => resolve()));
+};
 
 async function reachable(url) {
   try {
@@ -50,10 +71,19 @@ async function reachable(url) {
 async function preconditions() {
   const problems = [];
 
+  /**
+   * How many specs there are, counted rather than remembered.
+   *
+   * This expected nine, which was right when it was written and wrong the moment three more
+   * landed - and the failure mode is the wrong one: with twelve applied it still passed, so the
+   * number it announced on camera was simply false. Reading `agents/` means the check cannot go
+   * stale and the walkthrough cannot announce a count nobody verified.
+   */
+  const expected = readdirSync(fromModule(import.meta.url, '../agents/')).filter((f) => f.endsWith('.json')).length;
   const agents = await reachable(`${BASE}/api/v1/agents`);
   if (!agents) problems.push(['the harness is not answering', `npm run forge   # ${BASE}`]);
-  else if ((agents.data ?? []).length < 9) {
-    problems.push([`only ${(agents.data ?? []).length} agents applied, expected 9`, 'npm run agents:apply']);
+  else if ((agents.data ?? []).length < expected) {
+    problems.push([`only ${(agents.data ?? []).length} agents applied, expected ${expected}`, 'npm run agents:apply']);
   }
 
   const ops = await reachable(`http://localhost:${OPS}/health`);
@@ -89,7 +119,7 @@ async function preconditions() {
     problems.push(['observability is not running', 'npm run observability']);
   }
 
-  return problems;
+  return { problems, expected };
 }
 
 const BEATS = [
@@ -181,7 +211,7 @@ say(dim('  Nothing here runs a command for you. Approving something irreversible
 say(dim('  and a script that typed "allow" would disprove the claim it is here to show.'));
 say();
 
-const problems = await preconditions();
+const { problems, expected } = await preconditions();
 if (problems.length) {
   say(bold('  Not ready:'));
   for (const [what, fix] of problems) {
@@ -194,7 +224,7 @@ if (problems.length) {
   process.exit(1);
 }
 
-say(dim('  Harness, both desks and nine agents ready. Fixtures are as the demo expects.'));
+say(dim(`  Harness, the desks and ${expected} agents ready. Fixtures are as the demo expects.`));
 
 const chosen = only ? BEATS.filter((_, i) => i + 1 === only) : BEATS;
 if (chosen.length === 0) {
