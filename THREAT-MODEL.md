@@ -368,7 +368,9 @@ allowlist but destructive is not contained by having been named, and reporting i
 worst thing that file could do. `spec.test.mjs` refuses the fail-open shape in any spec in the
 repository, so the configuration cannot regress silently.
 
-The live audit covers four servers as of 2026-08-23. Any connector added after that date is
+The live audit covers ten connectors as of 2026-08-29 - the five that ship here, github, exa,
+parallel-web, deepwiki, and one stray left over from testing a preflight check. Any connector added
+after that date is
 unaudited until somebody runs `npm run tools:audit` against it.
 
 ## 8. Network exposure of a local surface

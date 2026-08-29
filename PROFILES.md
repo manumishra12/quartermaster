@@ -70,12 +70,12 @@ refuses to start rather than serving an empty database if you have not.
 So the honest form of the claim is not that `git clone && npm install && npm run demo` is the whole
 of it. It is that **everything the agents observe ships in this repository**, and the only credential
 anywhere in the default path is a model key that is configured in the harness and never touches the
-repository. Six of the nine agents run with no credential beyond that, including five of the
+repository. Eight of the twelve agents run with no credential beyond that, including five of the
 hackathon's six cards. A judge clones, installs, starts three local servers, applies the specs, and
 runs.
 
 `npm run demo` walks the demonstration one beat at a time and checks its own preconditions before
-anything is on camera: the harness answering, nine agents applied, both desks running with unspent
+anything is on camera: the harness answering, twelve agents applied, both desks running with unspent
 fixtures. It prints each command and waits rather than running it, and that is deliberate for the
 one that matters - a pipe cannot approve, so a demo script that typed `allow` on your behalf would
 be disproving the claim it exists to show.
