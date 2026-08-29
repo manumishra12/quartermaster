@@ -53,6 +53,13 @@ export function record(entry, path = LEDGER) {
     tool: entry.tool ?? null,
     decision: entry.refused ? 'denied' : 'allowed',
     /**
+     * What kind of decision this was. Everything here was an approval until handoffs began writing
+     * to the same file, and they are not approvals: a handoff is allowed by a check rather than by
+     * a person, so filing one as an approval either breaks the terminal invariant or forces the
+     * invariant to be softened. Naming the kind keeps both honest.
+     */
+    kind: entry.kind ?? 'approval',
+    /**
      * How the decision arrived, which is the field an auditor reads first. A pipe can deny and can
      * never approve, so `allowed` beside anything other than `terminal` would be the finding.
      */
@@ -114,10 +121,13 @@ export function summarise(entries) {
    * The one line an auditor is actually looking for. A pipe may refuse and may never approve, so
    * an approval that did not come from a terminal is a broken invariant rather than a statistic.
    */
-  const approvedWithoutATerminal = allowed.filter((e) => e.by !== 'terminal');
+  const approvedWithoutATerminal = allowed
+    .filter((e) => (e.kind ?? 'approval') === 'approval')
+    .filter((e) => e.by !== 'terminal');
 
   return {
     total: entries.length,
+    handoffs: [...allowed, ...denied].filter((e) => e.kind === 'handoff'),
     allowed: allowed.length,
     denied: denied.length,
     unreadable: unreadable.length,

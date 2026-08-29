@@ -16,7 +16,7 @@ import { basename, dirname, join } from 'node:path';
 
 /** A run that has not started yet. Shape-compatible with what a good checkpoint parses to. */
 export function blankCheckpoint(agentName = null) {
-  return { sessionId: null, turnId: null, lastSequenceNumber: 0, agentName, denied: [] };
+  return { sessionId: null, turnId: null, lastSequenceNumber: 0, agentName, denied: [], chain: [] };
 }
 
 /**
@@ -53,12 +53,30 @@ export function parseCheckpoint(text) {
     if (typeof id !== 'string' || id === '') throw new Error('denied holds something that is not a tool call id');
   }
 
+  /**
+   * The handoff chain, which lived only on argv and therefore only until the process ended.
+   *
+   * `--resume` does not carry `--chain`, so a resumed delegated run rebuilt the chain as just
+   * itself. `MAX_CHAIN` and the no-revisiting rule are both computed from that list, so B could hand
+   * straight back to A and the pair would trade the request between them, one process per hop, with
+   * nothing counting. The bound that makes delegation terminate was one interrupted run from not
+   * existing.
+   *
+   * Read leniently rather than thrown on, unlike `denied`: a missing chain is a run that never
+   * delegated, which is the normal case, and an entry that is not an agent name is dropped rather
+   * than taking the resume down. `denied` is strict because losing an id turns a refusal into a
+   * call that ran; losing a chain entry only shortens a bound, and the shorter bound is the safe
+   * direction.
+   */
+  const chain = Array.isArray(raw.chain) ? raw.chain.filter((n) => typeof n === 'string' && n !== '') : [];
+
   return {
     sessionId: optionalString(raw.sessionId, 'sessionId'),
     turnId: optionalString(raw.turnId, 'turnId'),
     lastSequenceNumber: sequence,
     agentName: optionalString(raw.agentName, 'agentName'),
     denied: [...denied],
+    chain,
   };
 }
 

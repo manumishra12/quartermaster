@@ -359,7 +359,8 @@ function reportFrom(transcript) {
   const matches = [...String(transcript ?? '').matchAll(/^ {2}written: (\S+)\/report\.md$/gm)];
   if (matches.length === 0) return null;
   const dir = matches[matches.length - 1][1];
-  if (!/^evidence\/[A-Za-z0-9._-]+$/.test(dir)) return null;
+  // `.` was inside the character class, so `evidence/..` matched and resolved to the repo root.
+  if (!/^evidence\/[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$/.test(dir) || dir.split('/').includes('..')) return null;
   try {
     return JSON.parse(readFileSync(`${ROOT}${dir}/report.json`, 'utf8'));
   } catch {

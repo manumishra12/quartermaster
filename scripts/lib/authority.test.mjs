@@ -142,3 +142,41 @@ test('the handoff count in the documents is the count the specs produce', () => 
     assert.equal(count, clean, `${file} says ${count} handoffs widen nothing; the specs give ${clean}`);
   }
 });
+
+test('the sender\'s own gate list is compared, not only what the receiver enables', () => {
+  /**
+   * The loop walked `receiver.enabled` alone. With `@all` on both sides and the sender gating one
+   * tool by name, it ran once for `@all`: the receiver covers it, and the sender does not gate
+   * `@all`, so nothing was found - while the receiver could call ungated the very tool the sender
+   * had to ask about. `covers` expands `@all` and `isGated` does not, so one comparison was using
+   * two different notions of coverage.
+   */
+  const sender = authorityOf(spec([{ name: 'front-desk', enable_tools: ['@all'], require_approval_for_tools: ['bulk_close_issues'] }]));
+  const receiver = authorityOf(spec([{ name: 'front-desk', enable_tools: ['@all'], require_approval_for_tools: [] }]));
+  const found = widening(sender, receiver);
+  assert.equal(found.length, 1);
+  assert.equal(found[0].kind, 'approval');
+  assert.equal(found[0].capability, 'bulk_close_issues');
+});
+
+test('the same capability is not reported twice from the two directions', () => {
+  const sender = authorityOf(spec([{ name: 'ops-desk', enable_tools: ['rollback_deploy'], require_approval_for_tools: ['rollback_deploy'] }]));
+  const receiver = authorityOf(spec([{ name: 'ops-desk', enable_tools: ['rollback_deploy'], require_approval_for_tools: [] }]));
+  assert.equal(widening(sender, receiver).length, 1);
+});
+
+test('a policy written as a string refuses instead of comparing characters', () => {
+  /**
+   * `new Set('@all')` is three characters, so one missing bracket produced a gate matching nothing
+   * and a comparison that silently passed. validateSpec would catch the shape but is only reachable
+   * from apply-agents; the handoff path reads raw JSON straight into authorityOf.
+   */
+  const broken = authorityOf(spec([{ name: 'github', enable_tools: ['@all'], require_approval_for_tools: '@all' }]));
+  assert.equal(broken.problems.length, 1);
+  assert.match(broken.problems[0], /require_approval_for_tools is a string, not a list/);
+  assert.ok(widening(broken, authorityOf(spec([]))).some((f) => f.kind === 'unreadable'));
+});
+
+test('a well-formed spec reports no problems', () => {
+  assert.deepEqual(authorityOf(spec([{ name: 'ops-desk', enable_tools: ['read_logs'] }])).problems, []);
+});

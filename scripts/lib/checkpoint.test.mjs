@@ -20,6 +20,8 @@ test('a checkpoint the runner wrote reads back unchanged', () => {
     lastSequenceNumber: 42,
     agentName: 'quartermaster-local',
     denied: ['call_a'],
+    // A checkpoint written before delegation existed has no chain, which reads as never delegated.
+    chain: [],
   });
 });
 
@@ -109,4 +111,25 @@ test('an unusable sequence id leaves the mark where it was', () => {
   assert.equal(advance(10, undefined), 10);
   assert.equal(advance(10, 'evt_7'), 10);
   assert.equal(advance(10, Infinity), 10);
+});
+
+test('the handoff chain survives a resume, because argv does not', () => {
+  /**
+   * The chain lived only on argv, and `--resume` does not carry `--chain`. A resumed delegated run
+   * rebuilt it as just itself, so `MAX_CHAIN` counted one hop and the no-revisiting rule had
+   * nothing to check - B could hand straight back to A and the pair would trade the request
+   * between them, one process per hop, with nothing counting.
+   */
+  const read = parseCheckpoint(JSON.stringify({ ...blankCheckpoint('b'), chain: ['a', 'b'] }));
+  assert.deepEqual(read.chain, ['a', 'b']);
+});
+
+test('a chain entry that is not an agent name is dropped rather than throwing', () => {
+  /**
+   * Deliberately unlike `denied`, which throws on a bad entry. Losing a denial turns a refusal
+   * into a call that ran; losing a chain entry only shortens a bound, and shorter is the safe
+   * direction. A missing chain is simply a run that never delegated.
+   */
+  assert.deepEqual(parseCheckpoint(JSON.stringify({ ...blankCheckpoint('b'), chain: ['a', 7, ''] })).chain, ['a']);
+  assert.deepEqual(parseCheckpoint(JSON.stringify(blankCheckpoint('b'))).chain, []);
 });

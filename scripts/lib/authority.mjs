@@ -20,11 +20,31 @@ import { DEFAULT_APPROVAL, DEFAULT_ENABLED } from './policies.mjs';
 const ALL = '@all';
 
 /** One server's reach, as the spec declares it, with the harness defaults filled in. */
-function reachOf(server) {
+/**
+ * A list, or a note that it was not one.
+ *
+ * `new Set('@all')` is a set of three characters, so a spec that wrote its policy as a bare string
+ * instead of an array - one missing bracket - produced a gate that matched nothing and a comparison
+ * that silently passed. `validateSpec` would catch the shape, but it is only reachable from
+ * `apply-agents`; the handoff path reads the raw JSON straight into here.
+ *
+ * Reported rather than repaired. Guessing which array the author meant is how a check starts
+ * answering questions nobody asked it, and the honest answer to "is this handoff safe" when the
+ * spec cannot be read is that nobody knows.
+ */
+function listOr(value, fallback, problems, where) {
+  if (value == null) return fallback;
+  if (Array.isArray(value)) return value;
+  problems.push(`${where} is ${typeof value === 'string' ? 'a string' : typeof value}, not a list`);
+  return fallback;
+}
+
+function reachOf(server, problems) {
+  const name = server?.name ?? '(unnamed)';
   return {
     name: server?.name,
-    enabled: new Set(server?.enable_tools ?? DEFAULT_ENABLED),
-    gated: new Set(server?.require_approval_for_tools ?? DEFAULT_APPROVAL),
+    enabled: new Set(listOr(server?.enable_tools, DEFAULT_ENABLED, problems, `${name}.enable_tools`)),
+    gated: new Set(listOr(server?.require_approval_for_tools, DEFAULT_APPROVAL, problems, `${name}.require_approval_for_tools`)),
   };
 }
 
@@ -39,13 +59,14 @@ function reachOf(server) {
  */
 export function authorityOf(spec) {
   const manifest = spec?.manifest ?? spec ?? {};
+  const problems = [];
   const servers = new Map();
   for (const server of manifest.mcp_servers ?? []) {
     if (!server?.name) continue;
     // A spec naming the same connector twice is a union of both entries, which is how the harness
     // would read it. Taking the last would silently drop a policy somebody wrote.
     const existing = servers.get(server.name);
-    const next = reachOf(server);
+    const next = reachOf(server, problems);
     if (!existing) servers.set(server.name, next);
     else {
       for (const e of next.enabled) existing.enabled.add(e);
@@ -55,6 +76,7 @@ export function authorityOf(spec) {
 
   return {
     servers,
+    problems,
     sandbox: Boolean(manifest.config?.sandbox?.enabled),
     /** Absent means enabled: the SDK's own default, so a silence is compared as what it does. */
     subAgents: manifest.config?.dynamic_sub_agents?.enabled !== false,
@@ -129,6 +151,15 @@ export function widening(from, to) {
    * not about what a request can reach.
    */
 
+  /**
+   * A spec that could not be read is not a spec that compared clean.
+   */
+  for (const side of [['sender', from], ['receiver', to]]) {
+    for (const problem of side[1].problems ?? []) {
+      findings.push({ kind: 'unreadable', server: null, capability: problem, detail: `the ${side[0]}'s policy cannot be read, so nothing about it can be compared` });
+    }
+  }
+
   for (const [name, receiver] of to.servers) {
     const sender = from.servers.get(name);
 
@@ -166,6 +197,31 @@ export function widening(from, to) {
           detail: 'the sender must ask before using it; the receiver may use it without asking',
         });
       }
+    }
+
+    /**
+     * And now from the sender's side, which the loop above cannot see.
+     *
+     * It iterated `receiver.enabled` only. When both sides enable `@all` and the sender gates a
+     * tool by name, the loop runs once for `@all`: the receiver covers it, and `isGated` asks
+     * whether the sender gates `@all` - which it does not, because it gates a literal. No finding,
+     * handoff allowed, and the receiver may call ungated the very tool the sender had to ask about.
+     *
+     * `covers` expands `@all` to everything and `isGated` does not, so the two halves of one
+     * comparison were using different notions of coverage. Walking the sender's gate list closes
+     * it: anything the sender must ask about, the receiver must ask about too.
+     */
+    for (const capability of sender.gated) {
+      if (capability === ALL) continue;
+      if (!covers(receiver.enabled, capability)) continue;
+      if (isGated(receiver.gated, capability)) continue;
+      if (findings.some((f) => f.server === name && f.capability === capability)) continue;
+      findings.push({
+        kind: 'approval',
+        server: name,
+        capability,
+        detail: 'the sender must ask before using it; the receiver may use it without asking',
+      });
     }
   }
 

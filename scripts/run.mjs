@@ -32,7 +32,7 @@ import { advance, blankCheckpoint, parseCheckpoint, sessionDirName, writeCheckpo
 import { decideApproval } from './lib/approval.mjs';
 import { record as recordDecision } from './lib/ledger.mjs';
 import { loadAgents, route } from './lib/route.mjs';
-import { handoff, renderHandoff, requestedHandoff } from './lib/handoff.mjs';
+import { handoff, parseHandoffEnvelope, renderHandoff, requestedHandoff } from './lib/handoff.mjs';
 import { retryDecision } from './lib/retry.mjs';
 import { undisclosedInfluence } from './lib/influence.mjs';
 import { plan, renderPlan } from './lib/dry-run.mjs';
@@ -502,6 +502,8 @@ try {
     const { data: session } = await client.sessions.create({ agent: { name: agentName } });
     checkpoint.sessionId = session.id;
     checkpoint.agentName = agentName;
+    // Written before the first turn, because a run killed mid-turn is exactly the one that resumes.
+    checkpoint.chain = (flag('chain', '') || '').split(',').filter(Boolean);
     save();
     console.log(`agent: ${agentName}\nsession: ${session.id}\n`);
     /**
@@ -539,12 +541,57 @@ try {
     });
     if (loop.looping || budget.escalate) {
       escalation = escalate({
-        because: loop.looping ? REASONS.LOOP : REASONS.BUDGET,
+        because: loop.looping ? REASONS.LOOP_DETECTED : REASONS.BUDGET_EXHAUSTED,
         detail: loop.looping ? loop.why : budget.why,
         established: [`${toolResponses.length} tool call(s) recorded`, `${approvalsGranted} approval(s) granted`],
         notEstablished: ['whatever the run was asked for; it did not get there'],
         next: ['read the report, then either raise the ceiling deliberately or give the agent a narrower task'],
       });
+
+      /**
+       * Anything already waiting at the gate is refused on the way out.
+       *
+       * Breaking straight to the report abandoned every pending approval: nothing was sent to the
+       * harness, nothing was added to `denied`, and nothing reached the ledger. The turn stayed
+       * open with calls waiting, and a later `--resume` replayed their responses as executions the
+       * gate had in fact stopped - the record then showing work that never happened.
+       *
+       * Refusing is also the honest answer rather than a tidy one. The run is stopping because it
+       * hit a ceiling; nobody is being asked, and a call nobody was asked about does not proceed.
+       */
+      for (const event of pending.approvals) {
+        for (const ref of event.toolCalls ?? []) {
+          const call = describe(ref);
+          resume.push({
+            type: 'user.tool_approval',
+            threadId: event.threadId,
+            toolCallId: ref.id,
+            approval: { decision: 'deny', reason: escalation.detail ?? 'the run stopped before this was decided' },
+          });
+          denied.add(ref.id);
+          recordDecision({
+            session: checkpoint.sessionId,
+            agent: checkpoint.agentName,
+            tool: call?.toolInfo?.name ?? null,
+            args: call?.function?.arguments,
+            refused: true,
+            by: 'escalation',
+            reason: escalation.detail ?? null,
+          });
+          tracer.decided(ref.id, { tool: call?.toolInfo?.name ?? null, refused: true, by: 'escalation', reason: escalation.detail ?? null });
+        }
+      }
+      if (resume.length) {
+        checkpoint.denied = [...denied];
+        save();
+        // Sent, so the harness is not left holding a turn that will never be answered. A failure
+        // here must not replace the escalation with a stack: the refusals are already recorded.
+        try {
+          await consume(await client.sessions.createTurnStream(checkpoint.sessionId, { input: resume }));
+        } catch (err) {
+          console.log(`  The refusals could not be delivered: ${err?.message ?? err}`);
+        }
+      }
       break;
     }
 
@@ -781,6 +828,20 @@ if (stopped.length) {
 
 // The terminal scrolls. The artifact does not - and a reviewer needs the executions themselves,
 // not a summary of them.
+/**
+ * Said before the report is built, not after.
+ *
+ * This block used to sit below `buildReport`, so `turnFailure` was assigned to a report that had
+ * already been written and no escalation ever reached report.json or report.md. A run stopped by a
+ * loop or a spent budget produced an artifact byte-identical to one that simply ended, while the
+ * exit code said 1 - which is exactly the divergence `runExitCode` was written to remove.
+ * `ranOutOfHops` and `crash` were always above it; only this one was not.
+ */
+if (escalation) {
+  for (const line of renderEscalation(escalation)) console.log(line);
+  turnFailure ??= escalation.detail;
+}
+
 const report = buildReport({
   agent: checkpoint.agentName,
   prompt,
@@ -817,12 +878,6 @@ try {
  * trace could not carry. Working it out once means the process, the report and the span all say
  * the same thing about how the run ended, which is the only version worth recording.
  */
-if (escalation) {
-  for (const line of renderEscalation(escalation)) console.log(line);
-  // The report reads the failure, so an escalated run should not look like one that simply ended.
-  turnFailure ??= escalation.detail;
-}
-
 /**
  * Was the agent handed something written to instruct it, and did it say so?
  *
@@ -835,7 +890,7 @@ if (escalation) {
  * whether the agent told you what steered it are two questions, and collapsing them would lose the
  * one that was missing.
  */
-const influence = undisclosedInfluence({ toolResponses, finalText });
+const influence = undisclosedInfluence({ toolResponses, finalText, prompt });
 if (influence.read.length > 0) {
   console.log(`\n  ── WHAT IT READ ───────────────────────────────────`);
   console.log(`  ${influence.disclosed ? 'Disclosed' : 'NOT DISCLOSED'}: ${influence.why}`);
@@ -932,8 +987,31 @@ if (blockedOnAuth) {
  * why it is printed and recorded rather than silent.
  */
 const asked = requestedHandoff(finalText);
-if (asked) {
-  const chain = (flag('chain', '') || checkpoint.agentName).split(',').filter(Boolean);
+/**
+ * A run that did not finish does not get to delegate.
+ *
+ * The only guards here were `--deny-all` and a malformed block, so a run that hit its ceiling,
+ * crashed, or ran out of rounds still spawned a child - and every ceiling in `limits.mjs` is
+ * process-local, so the child began again with a full budget. Three hops, three budgets, from a
+ * block the model wrote.
+ *
+ * It laundered the verdict too. `process.exit(child.status)` replaced the parent's exit code, so a
+ * parent that had just been marked CONTRADICTED or steered-and-silent exited 0 because the receiver
+ * answered cleanly. The report on disk said one thing and the process said another, which is the
+ * exact divergence `runExitCode` exists to prevent.
+ */
+const mayHandOff = asked && !escalation && !crash && !ranOutOfHops && !blockedOnAuth && exitCode === 0;
+if (asked && !mayHandOff) {
+  console.log(`\n  ${checkpoint.agentName} asked to hand this to ${asked.to ?? '(unreadable)'}. Not delegating: this run did not finish cleanly.\n`);
+}
+if (mayHandOff) {
+  /**
+   * argv first, then the checkpoint, then this agent alone. The checkpoint is what makes the chain
+   * survive `--resume`; without it a resumed hop forgets where the request has been, and the
+   * no-revisiting rule has nothing to check against.
+   */
+  const chain = (flag('chain', '') || '').split(',').filter(Boolean);
+  if (chain.length === 0) chain.push(...(checkpoint.chain?.length ? checkpoint.chain : [checkpoint.agentName].filter(Boolean)));
 
   if (asked.malformed) {
     console.log(`  The agent asked to hand off and the request could not be read: ${asked.malformed}\n`);
@@ -951,11 +1029,30 @@ if (asked) {
       }),
     );
 
-    const decision = handoff({ from: checkpoint.agentName, to: asked.to, request: prompt, because: asked.because, chain, specs });
+    /**
+     * The person's words, not the last envelope.
+     *
+     * `prompt` in a delegated run *is* the rendered envelope, so passing it as `request` nested one
+     * envelope inside the next. From the second hop the parser locked onto the inner markers: the
+     * card showed the wrong sender and a stale chain, and - worse - the first sender's untrusted
+     * note ended up inside the block headed "The request, as the person wrote it". Each hop
+     * relabelled one model-written note as something a person had said, which is precisely the
+     * framing the envelope exists to keep.
+     */
+    const original = parseHandoffEnvelope(prompt)?.request ?? prompt;
+    const decision = handoff({ from: checkpoint.agentName, to: asked.to, request: original, because: asked.because, chain, specs });
 
     recordDecision({
       session: checkpoint.sessionId,
       agent: checkpoint.agentName,
+      kind: 'handoff',
+      /**
+       * Never `terminal`. Nobody at a terminal decided this - `authority.mjs` did, by finding the
+       * receiver could reach nothing the sender could not. Leaving `by` unset defaulted it to
+       * `terminal`, so a delegation chosen by a closed pipe was filed as a person's decision in the
+       * one field `npm run approvals` stakes its invariant on.
+       */
+      by: 'authority-check',
       tool: `handoff:${asked.to}`,
       args: asked.because,
       refused: !decision.ok,
@@ -985,6 +1082,12 @@ if (asked) {
         [fileURLToPath(import.meta.url), '--agent', asked.to, '--chain', decision.envelope.chain.join(','), renderHandoff(decision.envelope)],
         { stdio: 'inherit', env: carried ? { ...process.env, TRACEPARENT: carried } : process.env },
       );
+      if (child.error) {
+        // Never read before, so a child that failed to start printed the success line above and
+        // exited 1 with nothing saying the delegated run had not happened at all.
+        console.error(`\n  The delegated run could not be started: ${child.error.message}\n`);
+        process.exit(1);
+      }
       process.exit(child.status ?? 1);
     }
   }

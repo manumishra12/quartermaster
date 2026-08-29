@@ -1,6 +1,6 @@
 # Testing
 
-584 tests in the root suite, 191 in the UI across 23 files, 32 in Python for the document reader,
+590 tests in the root suite, 191 in the UI across 23 files, 32 in Python for the document reader,
 one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
@@ -41,7 +41,7 @@ flowchart TD
     EN["env.test.mjs<br/>8 - config loading"]
     TS["turn-state.test.mjs<br/>13 - why a turn ended, and what CI is told"]
     AP["approval.test.mjs<br/>7 - what the gate decides"]
-    CK["checkpoint.test.mjs<br/>11 - the file --resume trusts"]
+    CK["checkpoint.test.mjs<br/>13 - the file --resume trusts"]
     FL["flags.test.mjs<br/>6 - argv"]
     ST["settle.test.mjs<br/>5 - waiting without abandoning"]
     HT["http.test.mjs<br/>3 - an error page is not a body"]
@@ -51,7 +51,7 @@ flowchart TD
     LG["ledger.test.mjs<br/>5 - every gate decision, in one file"]
     OT["otel.test.mjs<br/>11 - spans that carry no payload"]
     DR["drift.test.mjs<br/>8 - the harness against the repository"]
-    AU["authority.test.mjs<br/>9 - what an agent may reach"]
+    AU["authority.test.mjs<br/>13 - what an agent may reach"]
     HO["handoff.test.mjs<br/>19 - delegation that cannot widen"]
     RT["route.test.mjs<br/>11 - which agent, and why"]
     RY["retry.test.mjs<br/>10 - when running it again is honest"]
