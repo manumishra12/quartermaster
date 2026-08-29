@@ -28,7 +28,8 @@
     "documents": "node mcp/documents/server.mjs",
     "demo": "node scripts/demo.mjs",
     "approvals": "node scripts/approvals.mjs",
-    "route": "node scripts/route.mjs"
+    "route": "node scripts/route.mjs",
+    "skills:repoint": "node scripts/repoint-skills.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
