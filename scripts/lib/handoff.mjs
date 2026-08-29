@@ -52,8 +52,25 @@ export function handoff({ from, to, request, because, chain = [], specs }) {
     };
   }
 
-  const sender = specs?.[from];
-  const receiver = specs?.[to];
+  /**
+   * `Object.hasOwn`, not a truthiness check on `specs[to]`.
+   *
+   * `run.mjs` builds this map with `Object.fromEntries`, so it carries `Object.prototype`. A bare
+   * lookup for `constructor`, `toString`, `valueOf` or `hasOwnProperty` returns an inherited member,
+   * which is truthy, so the "no spec" refusal never fired and `authorityOf` was handed a function
+   * instead of a manifest. It read no connectors, no sandbox and subagents-enabled, `widening`
+   * found nothing to compare, and the handoff was allowed - with the ledger recording it as allowed
+   * and the console announcing that nothing the receiver could reach was beyond the sender.
+   *
+   * `asked.to` comes out of a fenced block in model output, so an issue body or a web page could
+   * ask for exactly that name. The one control that makes an ungated handoff safe was skippable by
+   * a word.
+   *
+   * This project had already met this bug and fixed it in the MCP servers, which guard their
+   * lookups the same way. The lesson did not travel; it does now.
+   */
+  const sender = Object.hasOwn(Object(specs), from) ? specs[from] : undefined;
+  const receiver = Object.hasOwn(Object(specs), to) ? specs[to] : undefined;
   if (!sender || !receiver) {
     // Refusing on a missing spec rather than proceeding unchecked: the check that cannot run is
     // not the same as the check that passed, and this is the one place that distinction is free.

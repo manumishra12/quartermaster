@@ -144,3 +144,24 @@ test('a multi-line note survives the round trip intact', () => {
   const { envelope } = handoff({ ...ok, because: 'first line\n\nsecond paragraph', specs });
   assert.equal(parseHandoffEnvelope(renderHandoff(envelope)).because, 'first line\n\nsecond paragraph');
 });
+
+test('a receiver named after an Object.prototype member is not a spec', () => {
+  /**
+   * `specs` is built with Object.fromEntries and carries the prototype. A truthiness check on
+   * `specs[to]` returned an inherited member for `constructor`, so the refusal never fired,
+   * `authorityOf` read a function as a manifest, `widening` found nothing to compare, and the
+   * handoff was allowed and recorded as allowed. `asked.to` comes from model output, so an issue
+   * body could ask for that name by itself.
+   */
+  for (const to of ['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__']) {
+    const result = handoff({ ...ok, to, specs });
+    assert.equal(result.ok, false, `${to} was allowed`);
+    assert.match(result.refusal, /cannot compare authority|cannot hand off to itself/);
+  }
+});
+
+test('a spec map with no prototype still works', () => {
+  /** The fix must not depend on the caller having built the map one particular way. */
+  const bare = Object.assign(Object.create(null), specs);
+  assert.equal(handoff({ ...ok, specs: bare }).ok, true);
+});

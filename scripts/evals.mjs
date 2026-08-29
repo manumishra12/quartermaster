@@ -340,10 +340,28 @@ async function observe(scenario) {
  * one. If the line is not there, no report is claimed.
  */
 function reportFrom(transcript) {
-  const written = /written: (\S+)\/report\.md/.exec(transcript);
-  if (!written) return null;
+  /**
+   * Anchored, last match, and no path may leave `evidence/`.
+   *
+   * The transcript is the child's stdout, and `run.mjs` streams the model's answer to stdout
+   * verbatim. An unanchored `exec` takes the *first* match, and the answer arrives before the
+   * runner's own banner - so a model that emitted the words `written: ../../elsewhere/report.md`
+   * anywhere in its reply chose which file these assertions were checked against. Reading a missing
+   * one returns null, every report-backed assertion degrades to inconclusive, and a scenario that
+   * should have reported FAILED reports UNPROVEN instead. An adversarial scenario is precisely a
+   * run being fed text by somebody else, so this was reachable from the suite's own fixtures.
+   *
+   * Three changes, each closing part of it: `^  written:` at the start of a line matches the
+   * runner's format and not prose; the last match is the runner's, since the banner is printed
+   * after the answer; and the path must sit under `evidence/` with no `..` in it, so a match that
+   * gets through the first two still cannot leave the directory.
+   */
+  const matches = [...String(transcript ?? '').matchAll(/^ {2}written: (\S+)\/report\.md$/gm)];
+  if (matches.length === 0) return null;
+  const dir = matches[matches.length - 1][1];
+  if (!/^evidence\/[A-Za-z0-9._-]+$/.test(dir)) return null;
   try {
-    return JSON.parse(readFileSync(`${ROOT}${written[1]}/report.json`, 'utf8'));
+    return JSON.parse(readFileSync(`${ROOT}${dir}/report.json`, 'utf8'));
   } catch {
     return null;
   }

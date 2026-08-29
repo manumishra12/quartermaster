@@ -1,6 +1,6 @@
 # Testing
 
-582 tests in the root suite, 191 in the UI across 23 files, 32 in Python for the document reader,
+584 tests in the root suite, 191 in the UI across 23 files, 32 in Python for the document reader,
 one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
@@ -52,7 +52,7 @@ flowchart TD
     OT["otel.test.mjs<br/>11 - spans that carry no payload"]
     DR["drift.test.mjs<br/>8 - the harness against the repository"]
     AU["authority.test.mjs<br/>9 - what an agent may reach"]
-    HO["handoff.test.mjs<br/>17 - delegation that cannot widen"]
+    HO["handoff.test.mjs<br/>19 - delegation that cannot widen"]
     RT["route.test.mjs<br/>11 - which agent, and why"]
     RY["retry.test.mjs<br/>10 - when running it again is honest"]
     ID["idempotency.test.mjs<br/>11 - has this already been done"]

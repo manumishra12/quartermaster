@@ -332,6 +332,31 @@ function readCheck(sql) {
   const statement = statements[0].replace(/^explain\s+(query\s+plan\s+)?/i, "");
   const keyword = /^([A-Za-z_]+)/.exec(statement)?.[1]?.toLowerCase();
 
+  /**
+   * The PRAGMA allowlist below is reachable around, because SQLite publishes most pragmas a second
+   * time as table-valued functions. `SELECT * FROM pragma_database_list` is a SELECT by every test
+   * this file applies, so it never meets the branch that would have refused `PRAGMA database_list`.
+   *
+   * That particular one matters here rather than in general: it returns the absolute path of every
+   * attached database, which is the operator's checkout location. `/health` withholds `DB_PATH` for
+   * exactly that reason, and withholding it in one place while a query returns it in another is not
+   * withholding it.
+   *
+   * Matched on the bare syntax, so a string literal mentioning the name is not caught, and the
+   * refusal names the reason rather than saying no.
+   */
+  const asFunction = /\bpragma_[a-z_]+/i.exec(bare.text);
+  if (asFunction) {
+    return {
+      error: "not_a_read",
+      message:
+        `${asFunction[0]} is a table-valued function that reports the same thing as the PRAGMA of ` +
+        "that name, and the PRAGMA allowlist would be pointless if it could be reached this way. " +
+        "pragma_database_list in particular returns the absolute path of the database file.",
+      allowed_pragmas: [...READ_PRAGMAS],
+    };
+  }
+
   if (keyword === "pragma") {
     /**
      * `PRAGMA name` and `PRAGMA name(arg)` report. `PRAGMA name = value` sets, and setting is a

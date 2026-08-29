@@ -12,13 +12,22 @@ export default defineConfig({
   plugins: [react()],
   /**
    * The documentation lives above this package, and one test reads it to check that every mermaid
-   * block still parses. Vite refuses to serve above its root by default, which is the right default.
+   * block still parses. Vite refuses to serve above its root by default, so the test runner is told
+   * it may.
    *
-   * Widened here and deliberately NOT in `vite.config.ts`: this file configures the test runner, so
-   * the dev server keeps its narrow view. That distinction is not pedantry here - the dev server in
-   * this project was once bound to every interface and proxying to the harness unauthenticated, and
-   * a wider filesystem allowance on that server would have been the second half of the same
-   * mistake.
+   * An earlier version of this comment claimed the dev server kept a narrower view. It does not:
+   * `vite.config.ts` carries the same allowance and predates this file's, because the shared
+   * modules the interface imports - the evidence rules, the handoff envelope, the report builder -
+   * all live in `../scripts/lib`, and the aliases resolving to them are the whole reason the two
+   * surfaces cannot disagree about a verdict. Removing it would break the dev server.
+   *
+   * What actually limits that is the bind address: `vite.config.ts` sets `host: '127.0.0.1'` after
+   * this project shipped a dev server on every interface, proxying to the harness with no
+   * authentication. The filesystem allowance is reachable by whoever can reach the port, and only
+   * loopback can.
+   *
+   * A security comment claiming a property the code does not have is worse than no comment, and
+   * this one did until a review caught it.
    */
   server: { fs: { allow: ['..'] } },
   resolve: {
