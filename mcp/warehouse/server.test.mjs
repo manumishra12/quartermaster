@@ -225,6 +225,11 @@ test('a pragma table-valued function is refused however the name is quoted', () 
       'SELECT * FROM [pragma_database_list]',
       'SELECT * FROM `pragma_database_list`',
       'WITH x AS (SELECT * FROM [pragma_database_list]) SELECT * FROM x',
+      // No separator, which is how the second attempt was walked around: the word boundary died.
+      'SELECT * FROM"pragma_database_list"',
+      'SELECT * FROM[pragma_database_list]',
+      // A single-quoted token, which SQLite reads as an identifier where one is required.
+      "SELECT * FROM 'pragma_database_list'",
       'SELECT * FROM pragma_function_list',
     ]) {
       const refused = await callTool('run_query', { sql });
@@ -232,11 +237,23 @@ test('a pragma table-valued function is refused however the name is quoted', () 
     }
 
     /**
-     * And not over-blocked. A single-quoted run is a string literal and never an identifier, so a
-     * query that merely mentions the name in prose is an ordinary read.
+     * Including the single-quoted form, and that is a deliberate cost rather than an oversight.
+     *
+     * An earlier version exempted single quotes on the belief that such a run is always a string
+     * literal. SQLite does not honour that where an identifier is required, so the exemption was a
+     * bypass. Every delimiter is stripped before the scan now, which means a query mentioning the
+     * name inside a string is refused too.
+     *
+     * That is the right side to err on. The alternative is deciding, per position, whether SQLite
+     * would read a quoted token as a name - and being wrong about that produced two bypasses in one
+     * afternoon.
      */
     const mentioned = await callTool('run_query', { sql: "SELECT 'pragma_database_list' AS mentioned" });
-    assert.equal(mentioned.rows[0].mentioned, 'pragma_database_list');
+    assert.equal(mentioned.error, 'not_a_read');
+
+    // An ordinary string literal is untouched: only the name is what makes the difference.
+    const ordinary = await callTool('run_query', { sql: "SELECT count(*) AS n FROM orders WHERE status = 'paid'" });
+    assert.equal(ordinary.rows[0].n, 518);
   }));
 
 test('VACUUM INTO is refused, and no copy of the database appears anywhere', () =>

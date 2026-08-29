@@ -151,3 +151,22 @@ test('what a limit produces is an escalation, and an escalation does not exit 0'
   assert.equal(isEscalation(raised), true);
   assert.notEqual(runExitCode({ proved: true, ...runOutcome(raised) }), 0);
 });
+
+test('signing a signature returns it, so a caller passing either shape gets the same answer', () => {
+  /**
+   * The failure this prevents: run.mjs pushed signatures and detectLoop signed them again, so every
+   * element hashed a string with no tool and no arguments and collapsed to one value. Three
+   * different calls read as a loop, and every run escalated on its third tool response.
+   */
+  const call = { tool: 'bash', args: '{"c":1}' };
+  const signed = callSignature(call);
+  assert.equal(callSignature(signed), signed);
+
+  const distinct = [
+    { tool: 'bash', args: '{"c":1}' },
+    { tool: 'read_file', args: '{"p":"a"}' },
+    { tool: 'write_file', args: '{"p":"b"}' },
+  ];
+  assert.equal(detectLoop(distinct).looping, false);
+  assert.equal(detectLoop(distinct.map(callSignature)).looping, false);
+});

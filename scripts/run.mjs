@@ -36,7 +36,7 @@ import { handoff, parseHandoffEnvelope, renderHandoff, requestedHandoff } from '
 import { retryDecision } from './lib/retry.mjs';
 import { undisclosedInfluence } from './lib/influence.mjs';
 import { plan, renderPlan } from './lib/dry-run.mjs';
-import { callSignature, checkBudget, detectLoop } from './lib/limits.mjs';
+import { checkBudget, detectLoop } from './lib/limits.mjs';
 import { REASONS, escalate, renderEscalation, runOutcome } from './lib/escalation.mjs';
 import { keyFor, noteCall } from './lib/idempotency.mjs';
 import { createTracer } from './lib/otel.mjs';
@@ -333,7 +333,14 @@ function absorb(event, sequenceId) {
        * the way out is exactly the case both of these exist for, and at the gate it looks identical
        * to one that succeeded.
        */
-      callHistory.push(callSignature({ tool: call?.toolInfo?.name, args: call?.function?.arguments }));
+      /**
+       * The call, not its signature. `detectLoop` signatures what it is given, so pushing a digest
+       * here meant it hashed the digest: every element collapsed to one value and three different
+       * calls read as three identical ones. Every run escalated on its third tool response,
+       * denying whatever was at the gate and cancelling the turn, and no test caught it because
+       * `limits.test.mjs` passes calls to `detectLoop` exactly as the module intends.
+       */
+      callHistory.push({ tool: call?.toolInfo?.name, args: call?.function?.arguments });
       noteCall({
         key: keyFor({ session: checkpoint.sessionId, tool: call?.toolInfo?.name, args: call?.function?.arguments }),
         state: wasDenied ? 'not-executed' : 'executed',

@@ -1,6 +1,6 @@
 # Testing
 
-633 tests in the root suite, 191 in the UI across 23 files, 36 in Python for the document reader,
+634 tests in the root suite, 191 in the UI across 23 files, 36 in Python for the document reader,
 one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
@@ -57,7 +57,7 @@ flowchart TD
     RY["retry.test.mjs<br/>10 - when running it again is honest"]
     ID["idempotency.test.mjs<br/>11 - has this already been done"]
     EX["expiry.test.mjs<br/>9 - is this still the decision that was made"]
-    LI["limits.test.mjs<br/>13 - loops and ceilings"]
+    LI["limits.test.mjs<br/>14 - loops and ceilings"]
     ES["escalation.test.mjs<br/>8 - the third outcome"]
     DR["dry-run.test.mjs<br/>13 - what the call would do"]
     EA["evals/lib/assertions.test.mjs<br/>35 - the eval assertion engine"]

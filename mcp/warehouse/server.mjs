@@ -220,8 +220,6 @@ const QUOTES = { "'": "'", '"': '"', "`": "`", "[": "]" };
  */
 function bareSyntax(sql) {
   let out = "";
-  // A second rendering that keeps identifier text, for the name checks. See the comment below.
-  let names = "";
   let i = 0;
 
   while (i < sql.length) {
@@ -232,7 +230,6 @@ function bareSyntax(sql) {
       // A line comment running to the end of the input is ordinary, not an error.
       i = end === -1 ? sql.length : end + 1;
       out += " ";
-      names += " ";
       continue;
     }
 
@@ -241,7 +238,6 @@ function bareSyntax(sql) {
       if (end === -1) return { error: "unterminated block comment" };
       i = end + 2;
       out += " ";
-      names += " ";
       continue;
     }
 
@@ -260,32 +256,14 @@ function bareSyntax(sql) {
         break;
       }
       out += " ";
-      /**
-       * The same run again, with only its delimiters removed, for the identifier styles.
-       *
-       * `text` blanks every quoted run, which is right for finding statement boundaries and
-       * placeholders - a semicolon inside a string is not a second statement. It is wrong for
-       * finding a name, because SQLite dequotes an identifier before it resolves it. So the
-       * `pragma_` guard, matching on `text`, saw nothing at all in
-       * `SELECT * FROM "pragma_database_list"` and admitted it, and the raw statement then ran and
-       * returned the absolute path of the database file. Verified against the running server, not
-       * reasoned about: double quotes, backticks and brackets all walked through.
-       *
-       * Single quotes are a string literal and never an identifier, so they stay blanked here -
-       * otherwise `SELECT 'pragma_database_list'` would be refused for containing its own name in
-       * prose.
-       */
-      if (here !== "'") names += sql.slice(from - 1, i).replace(/^.|.$/g, "");
-      else names += " ";
       continue;
     }
 
     out += here;
-    names += here;
     i += 1;
   }
 
-  return { text: out, names };
+  return { text: out };
 }
 
 /** The placeholders in a statement, read from the bare syntax so quoted text cannot contribute. */
@@ -367,7 +345,25 @@ function readCheck(sql) {
    * Matched on the bare syntax, so a string literal mentioning the name is not caught, and the
    * refusal names the reason rather than saying no.
    */
-  const asFunction = /\bpragma_[a-z_]+/i.exec(bare.names ?? bare.text);
+  /**
+   * Every quote delimiter replaced by a space, and then look for the name.
+   *
+   * This is the third attempt and the first obviously-correct one, so the reasoning is worth
+   * keeping. The first matched against the bare syntax, which blanks quoted runs entirely - so
+   * quoting the identifier hid the name from the check while SQLite dequoted it and ran it. The
+   * second reconstructed the identifier text and was wrong three ways: it appended with no
+   * separator, so `FROM"pragma_x"` became `FROMpragma_x` and the word boundary failed; it exempted
+   * single quotes on the belief that a single-quoted run is always a string, which SQLite does not
+   * honour where an identifier is required; and it reused the scan cursor, truncating any name
+   * containing a doubled delimiter.
+   *
+   * Replacing every delimiter with a space defeats all three at once and is short enough to check
+   * by reading. The cost is that a query mentioning the name inside a string literal is refused -
+   * `SELECT 'pragma_database_list' AS x` no longer runs. That is a real cost and the right side to
+   * err on: the alternative is deciding, per position, whether SQLite would read a quoted token as
+   * a name, and being wrong about that is what produced the first two attempts.
+   */
+  const asFunction = /\bpragma_[a-z_]+/i.exec(sql.replace(/["`[\]']/g, " "));
   if (asFunction) {
     return {
       error: "not_a_read",

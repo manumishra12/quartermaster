@@ -72,6 +72,21 @@ const UNITS = {
  * run it belongs to.
  */
 export function callSignature(call) {
+  /**
+   * A signature signs to itself.
+   *
+   * `run.mjs` pushed signatures into its history and `detectLoop` signed each element again, so
+   * every entry hashed the *string* - which has no tool and no arguments - and collapsed to one
+   * value. Three different calls read as three identical ones, and every run escalated on its third
+   * tool response: the gate denied whatever was pending, the turn was cancelled, and the report said
+   * an agent that had stopped learning. Nothing caught it, because this module's own tests pass
+   * calls exactly as intended and never the thing the caller actually had.
+   *
+   * The caller was wrong and has been fixed. This makes the mistake impossible rather than merely
+   * corrected, because the next caller will have the same two shapes available and no way to know
+   * which one this wants.
+   */
+  if (typeof call === 'string') return call;
   return keyFor({ tool: call?.tool ?? call?.name ?? null, args: call?.args ?? call?.arguments ?? null });
 }
 
