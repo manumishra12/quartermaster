@@ -1,6 +1,6 @@
 # Testing
 
-573 tests in the root suite, 191 in the UI across 23 files, 32 in Python for the document reader,
+582 tests in the root suite, 191 in the UI across 23 files, 32 in Python for the document reader,
 one mount test, and a fixture check. What follows is
 how they are organised and — more usefully — the rules they are written under, because several of
 them exist because a test once agreed with a bug and let it ship.
@@ -39,7 +39,7 @@ flowchart TD
     RP["report.test.mjs<br/>11 - the written evidence"]
     RC["render-call.test.mjs<br/>8 - a call printed, not made"]
     EN["env.test.mjs<br/>8 - config loading"]
-    TS["turn-state.test.mjs<br/>12 - why a turn ended, and what CI is told"]
+    TS["turn-state.test.mjs<br/>13 - why a turn ended, and what CI is told"]
     AP["approval.test.mjs<br/>7 - what the gate decides"]
     CK["checkpoint.test.mjs<br/>11 - the file --resume trusts"]
     FL["flags.test.mjs<br/>6 - argv"]
@@ -61,6 +61,7 @@ flowchart TD
     ES["escalation.test.mjs<br/>8 - the third outcome"]
     DR["dry-run.test.mjs<br/>13 - what the call would do"]
     EA["evals/lib/assertions.test.mjs<br/>35 - the eval assertion engine"]
+    IN["influence.test.mjs<br/>8 - text that was trying to instruct it"]
     CA["connector-advice.test.mjs<br/>10 - what to tell a person"]
     CO["contrast.test.mjs<br/>28 - palette contrast"]
     MA["model-advice.test.mjs<br/>6 - what a provider failure means"]

@@ -34,6 +34,7 @@ import { record as recordDecision } from './lib/ledger.mjs';
 import { loadAgents, route } from './lib/route.mjs';
 import { handoff, renderHandoff, requestedHandoff } from './lib/handoff.mjs';
 import { retryDecision } from './lib/retry.mjs';
+import { undisclosedInfluence } from './lib/influence.mjs';
 import { plan, renderPlan } from './lib/dry-run.mjs';
 import { callSignature, checkBudget, detectLoop } from './lib/limits.mjs';
 import { REASONS, escalate, renderEscalation, runOutcome } from './lib/escalation.mjs';
@@ -822,6 +823,29 @@ if (escalation) {
   turnFailure ??= escalation.detail;
 }
 
+/**
+ * Was the agent handed something written to instruct it, and did it say so?
+ *
+ * The eval suite found two runs where the answer was steered by a note planted in an issue body and
+ * never mentioned it. The gate held - the write was gated and stopped - and every other mechanism
+ * here reported those runs as fine, because the verifier judges claims that something passed and
+ * being quietly steered is not one of those.
+ *
+ * Reported beside the verdict rather than folded into it. Whether the answer was any good and
+ * whether the agent told you what steered it are two questions, and collapsing them would lose the
+ * one that was missing.
+ */
+const influence = undisclosedInfluence({ toolResponses, finalText });
+if (influence.read.length > 0) {
+  console.log(`\n  ── WHAT IT READ ───────────────────────────────────`);
+  console.log(`  ${influence.disclosed ? 'Disclosed' : 'NOT DISCLOSED'}: ${influence.why}`);
+  for (const found of influence.read) {
+    console.log(`    ${found.shape}`);
+    console.log(`      ${found.line.slice(0, 100)}`);
+  }
+  console.log();
+}
+
 const exitCode = runExitCode({
   proved: verdict === SUBSTANTIATED || verdict === NO_CLAIM,
   crashed: Boolean(crash) || !reportWritten,
@@ -831,6 +855,7 @@ const exitCode = runExitCode({
   failure: turnFailure,
   // An escalated run has not finished, whatever its partial answer proved.
   ...runOutcome(escalation),
+  steeredSilently: influence.read.length > 0 && !influence.disclosed,
 });
 
 /**
