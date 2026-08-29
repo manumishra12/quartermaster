@@ -308,7 +308,11 @@ def _ocr_image_file(path: str, ocr: Dict[str, Any], language: Optional[str] = No
         if language:
             command += ['-l', language]
         try:
-            run = subprocess.run(command, capture_output=True, text=True, timeout=OCR_TIMEOUT_SECONDS)
+            # `errors='replace'`, because tesseract echoes the offending file's raw bytes into
+            # stderr for a corrupt image, and decoding those as UTF-8 raised UnicodeDecodeError out
+            # of the subprocess call - past the remedy reporting, as a traceback.
+            run = subprocess.run(command, capture_output=True, text=True, errors='replace',
+                                 timeout=OCR_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired:
             return (None, 'OCR timed out after %ds' % OCR_TIMEOUT_SECONDS)
         except OSError as problem:
@@ -350,7 +354,11 @@ def _rasterise_page(path: str, number: int, raster: Dict[str, Any]) -> Tuple[Opt
     stem = os.path.join(workspace, 'page')
     command = [raster['binary'], '-r', '200', '-png', '-f', str(number), '-l', str(number), path, stem]
     try:
-        run = subprocess.run(command, capture_output=True, text=True, timeout=OCR_TIMEOUT_SECONDS)
+        # `errors='replace'`, because tesseract echoes the offending file's raw bytes into
+        # stderr for a corrupt image, and decoding those as UTF-8 raised UnicodeDecodeError out of
+        # the subprocess call - past the remedy reporting, as a traceback.
+        run = subprocess.run(command, capture_output=True, text=True, errors='replace',
+                             timeout=OCR_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
         return (None, workspace, 'rasterising timed out after %ds' % OCR_TIMEOUT_SECONDS)
     except OSError as problem:
@@ -665,6 +673,15 @@ def extract(path: str, use_ocr: bool = True, language: Optional[str] = None,
             'notes': [],
         }, ocr, raster)
 
+    if os.path.isdir(absolute):
+        # An obvious tab-completion slip, and it raised IsADirectoryError straight past the
+        # reporting this module exists to do. A directory is not a document that could not be read;
+        # it is not a document, which is the same distinction the missing-file branch draws.
+        return _finish(absolute, None, 'missing', {
+            'pages': [],
+            'skipped': [Skipped(absolute, 'is a directory, not a file', 'name a file inside it').as_dict()],
+            'notes': [],
+        }, ocr, raster)
     with open(absolute, 'rb') as handle:
         head = handle.read(4096)
     size = os.path.getsize(absolute)
@@ -770,8 +787,11 @@ def _summary(pages: List[Dict[str, Any]], read: List[Dict[str, Any]], partial: L
 
 
 def _render(result: Dict[str, Any]) -> str:
-    lines = ['%s  (%s, %s bytes)' % (result['source']['name'], result['source']['kind'],
-                                     result['source']['bytes'])]
+    # A file that was never opened has no size, and "None bytes" reads like a bug in the reader
+    # rather than a fact about the file.
+    size = result['source'].get('bytes')
+    measured = '%s bytes' % size if isinstance(size, int) else 'size unknown'
+    lines = ['%s  (%s, %s)' % (result['source']['name'], result['source']['kind'], measured)]
     lines.append('method: %s   complete: %s' % (result['method'], result['complete']))
     lines.append(result['summary'])
     if not result['ocr'].get('available'):

@@ -453,6 +453,27 @@ async function reattach() {
 }
 
 /**
+ * The words this turn was started with, read back from the harness.
+ *
+ * Only needed on `--resume`, where the command line has no prompt. Returns null rather than
+ * throwing: a retry that cannot recover the prompt says so and stops, which is better than sending
+ * an empty turn and better than a stack trace.
+ */
+async function originalPrompt() {
+  try {
+    const { data: turn } = await client.sessions.getTurn(checkpoint.sessionId, checkpoint.turnId);
+    for (const entry of turn?.input ?? []) {
+      if (entry?.type === 'user.message' && typeof entry.content === 'string' && entry.content.trim()) {
+        return entry.content;
+      }
+    }
+  } catch {
+    // The turn is gone or unreadable. The caller reports that it could not retry.
+  }
+  return null;
+}
+
+/**
  * Find the call behind a recorded response.
  *
  * The response event carries only a toolCallId; the call itself lives on the model.message that
@@ -531,6 +552,20 @@ try {
   if (resuming) {
     first = await reattach();
   } else {
+    /**
+     * Say which agent is missing, rather than dumping a 404 stack.
+     *
+     * An unknown `--agent` surfaced as a raw SDK NotFoundError with the one useful line buried in a
+     * JSON body inside a stack trace - and then wrote an evidence report into a directory called
+     * `unknown-session`, for a run that never started. The connector-down path in this same runner
+     * already answers properly, so this was an inconsistency rather than a missing capability.
+     */
+    if (!loadAgents().some((a) => a.name === agentName)) {
+      const known = loadAgents().map((a) => a.name).sort();
+      console.error(`\n  There is no agent called ${JSON.stringify(agentName)} in agents/.`);
+      console.error(`  Known: ${known.join(', ')}\n`);
+      process.exit(2);
+    }
     const { data: session } = await client.sessions.create({ agent: { name: agentName } });
     checkpoint.sessionId = session.id;
     checkpoint.agentName = agentName;
@@ -796,8 +831,27 @@ try {
        * again is a coin-flip on filing the ticket twice.
        */
       if (failure) {
-        const again = retryDecision({ failure, attempt: attempts, approvals: approvalsGranted });
-        if (again.retry) {
+        /**
+         * A retry needs the words the turn was started with, and on `--resume` there are none.
+         *
+         * `prompt` comes from the command line, so a resumed run has an empty one - and the retry
+         * re-sent `{type:'user.message', content: ''}`, which the harness rejects with 422 "user
+         * message has empty content". That path could never succeed, always spent the backoff
+         * first, and then printed a raw SDK stack. It fires on the single most common reason to
+         * resume: a run that died on a provider error, which is exactly what `retryDecision` says
+         * is worth retrying.
+         *
+         * The words were there all along, on the stored turn. `restarted` is what gets re-sent.
+         */
+        const restarted = prompt || (await originalPrompt());
+        const again = retryDecision({
+          failure,
+          attempt: attempts,
+          approvals: approvalsGranted,
+        });
+        if (again.retry && !restarted) {
+          console.log('\n  This turn could be retried, but the words it started with could not be recovered from the stored turn, so there is nothing to re-send.\n');
+        } else if (again.retry) {
           attempts = again.attempt;
           console.log(`\n  ${again.why}. Waiting ${Math.round(again.waitMs / 1000)}s and trying again (attempt ${attempts} of 3).`);
           await new Promise((resolve) => setTimeout(resolve, again.waitMs));
@@ -816,7 +870,7 @@ try {
            */
           callHistory.length = 0;
           carry = await consume(
-            await client.sessions.createTurnStream(checkpoint.sessionId, { input: [{ type: 'user.message', content: prompt }] }),
+            await client.sessions.createTurnStream(checkpoint.sessionId, { input: [{ type: 'user.message', content: restarted }] }),
           );
           continue;
         }

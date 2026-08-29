@@ -201,9 +201,26 @@ const BEATS = [
   },
 ];
 
-const only = process.argv.includes('--beat')
-  ? Number(process.argv[process.argv.indexOf('--beat') + 1])
-  : null;
+/**
+ * `--beat N`, and a clear refusal for anything else.
+ *
+ * `Number(undefined)` and `Number('abc')` are both NaN and `Number('0')` is 0 - all falsy - so a
+ * valueless or mistyped `--beat` fell through to the unfiltered branch and printed every beat
+ * headed `NaN/5`. On camera, in the script whose entire job is a smooth recording, from what is
+ * plausibly the first command anybody types.
+ */
+const only = (() => {
+  if (!process.argv.includes('--beat')) return null;
+  const raw = process.argv[process.argv.indexOf('--beat') + 1];
+  const value = Number(raw);
+  if (raw === undefined || !Number.isInteger(value)) {
+    say();
+    say(`  --beat needs a whole number from 1 to ${BEATS.length}. Got ${raw === undefined ? 'nothing' : JSON.stringify(raw)}.`);
+    say();
+    process.exit(2);
+  }
+  return value;
+})();
 
 say();
 say(bold('  Quartermaster - demo walkthrough'));

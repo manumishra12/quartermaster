@@ -552,7 +552,7 @@ if (skipped.length) {
 }
 
 if (failed.length) {
-  console.log('  A failure here is one of three things:');
+  console.log('  A failure here is one of these:');
   console.log('    - the agent is not applied      -> npm run agents:apply');
   console.log('    - its connector is unconfigured -> npm run preflight');
   console.log('    - the model printed the call    -> named as such above; the wiring is fine, the model is not');

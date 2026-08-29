@@ -92,10 +92,21 @@ export function route(request, agents) {
   const [best, runnerUp] = scored;
 
   if (!best || best.score <= 0) {
+    /**
+     * Two different reasons for the same score, and saying the wrong one is worse than saying
+     * nothing. The branch tests the net score; the message claimed nothing matched. A request like
+     * "run a sql query about the incident deploy pull request" matches three agents and each of
+     * them also says to avoid part of it, so every score nets to zero or below - and the runner
+     * then printed "nothing matched" while suppressing the candidate list, because that list is
+     * filtered to positive scores.
+     */
+    const touched = scored.filter((s) => s.matched.length > 0);
     return {
       decided: false,
-      why: 'nothing in the request matched what any agent says it handles',
-      candidates: scored.filter((s) => s.score > 0),
+      why: touched.length
+        ? `${touched.map((t) => t.name).join(', ')} each matched something and each also says to avoid part of this`
+        : 'nothing in the request matched what any agent says it handles',
+      candidates: touched.length ? touched : scored.filter((s) => s.score > 0),
       scored,
     };
   }
