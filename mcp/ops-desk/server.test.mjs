@@ -102,7 +102,13 @@ async function startServer() {
     return JSON.parse(response.result.content[0].text);
   }
 
-  return { call, callTool, stop: () => child.kill() };
+  return {
+    call,
+    callTool,
+    /** The plain route, because the metrics store reads this desk's state from it rather than over MCP. */
+    health: () => fetch(`http://127.0.0.1:${port}/health`).then((r) => r.json()),
+    stop: () => child.kill(),
+  };
 }
 
 /** Run one test against its own server, and take it down afterwards whatever happens. */
@@ -525,4 +531,48 @@ test('a restart does not clear the way to resolving', () =>
     // And the alert is still firing, because nothing resolved it.
     const { alerts } = await callTool('list_alerts', { status: 'firing' });
     assert.ok(alerts.some((a) => a.id === 'ALRT-4471'));
+  }));
+
+test('the health route publishes the state the metrics store has to agree with', () =>
+  withServer(async ({ callTool, health }) => {
+    /**
+     * The metrics store cannot verify a recovery on its own. It holds readings; whether those
+     * readings are still the current world is this desk's fact, and two copies of one fact drift.
+     * So the store reads this route, and what is on it is the smallest thing that lets it: the
+     * clock, what each service is running, and the order things were done in.
+     *
+     * `actions` keeps its place and its meaning, because smoke-agents.mjs reads it to spot a
+     * fixture somebody has already remediated on.
+     */
+    const before = await health();
+    assert.equal(before.actions, 0);
+    assert.equal(before.now, '2026-08-26T14:20:00Z');
+    assert.equal(before.deployed['checkout-api'], '4c21');
+    assert.deepEqual(before.remediations, []);
+
+    await callTool('rollback_deploy', { deploy_id: '4c21', reason: 'the timeout was cut below the gateway' });
+
+    const after = await health();
+    assert.equal(after.actions, 1);
+    assert.equal(after.now, '2026-08-26T14:21:00Z', 'the clock moved, and the store extends to it');
+    assert.equal(after.deployed['checkout-api'], '9ab7', 'and the service is on what the rollback returned it to');
+    assert.deepEqual(after.remediations, [
+      { action: 'rollback_deploy', service: 'checkout-api', to: '9ab7', at: '2026-08-26T14:21:00Z' },
+    ]);
+
+    /**
+     * The reason is deliberately not here.
+     *
+     * It is free text a model wrote, and the metrics store puts what it reads from this route into
+     * replies an agent reads next. Passing model prose through one server into another server's
+     * output is the shape of every injection in this project's threat model, and nothing downstream
+     * needs the reason to work out what is deployed.
+     */
+    assert.equal(JSON.stringify(after).includes('timeout was cut below the gateway'), false, 'no model-written prose on this route');
+    assert.equal(Object.hasOwn(after.remediations[0], 'reason'), false);
+
+    // And it is still what list_actions_taken says, because one journal feeds both.
+    const journal = await callTool('list_actions_taken');
+    assert.equal(journal.count, after.actions);
+    assert.equal(journal.actions[0].at, after.remediations[0].at);
   }));

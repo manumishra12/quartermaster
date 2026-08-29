@@ -39,6 +39,30 @@ curl -X POST http://localhost:8790/api/v1/settings/mcp-servers \
 
 Then `npm run agents:apply` and `incident-responder` applies instead of being skipped.
 
+### What `/health` carries, and who reads it
+
+Not only liveness. It also publishes this desk's live view of the estate, because the `observability`
+store needs it and a second copy of it would drift:
+
+```json
+{ "ok": true, "tools": 9, "actions": 1,
+  "now": "2026-08-26T14:21:00Z",
+  "deployed": { "checkout-api": "9ab7", "search-api": "1de9" },
+  "remediations": [
+    { "action": "rollback_deploy", "service": "checkout-api", "to": "9ab7", "at": "2026-08-26T14:21:00Z" }
+  ] }
+```
+
+That store holds readings; whether those readings are still the current world is **this desk's**
+fact - the clock, what each service is running, and the order things were done in. It reads them
+from here and works out what its own series do. See `mcp/observability/README.md`, "Verifying a fix".
+
+`actions` keeps its place and its meaning: `npm run smoke` reads it to spot a fixture somebody has
+already remediated on. And the **`reason` is deliberately absent**. It is free text a model wrote,
+and the store puts what it reads here into replies an agent reads next - passing model prose through
+one server into another server's output is the shape of every injection in this project's threat
+model, and nothing downstream needs it.
+
 ## The tools, and which side of the gate they sit on
 
 | Tool | Annotation | Gated |
@@ -202,10 +226,17 @@ sequenceDiagram
   A->>A: report the denial, propose nothing else, stop
 ```
 
-Approved instead of denied, the last two beats are the other half of the arc: `get_service_health`
-again to see the error rate come down, `repro.py --deploy 9ab7` again against what the service is
-now running, and only then `resolve_alert` - which the desk refuses outright while the series is
-still bad.
+Approved instead of denied, the last two beats are the other half of the arc: the metrics store
+again, to see the p99 come down against the pre-incident baseline, `repro.py --deploy 9ab7` again
+against what the service is now running, and only then `resolve_alert`.
+
+**Which this desk will still refuse.** `get_service_health` here returns five readings ten minutes
+apart, ending at 14:20 with the error rate at 11.7%, and a rollback does not refresh them - so
+`resolve_alert` answers `still_unhealthy` even after a rollback the metrics store can show recovered
+at 14:21. Both servers are right: that store scrapes every minute and has a reading; this desk's own
+series is coarser and has not got one yet. The honest end of the run is a recovery observed on the
+metrics, a reproduction that now passes, and an alert left open with the reason named - which is
+what `incident-responder` is told to do with an alert it cannot honestly resolve.
 
 ## Notes for anyone extending it
 
@@ -213,7 +244,13 @@ still bad.
   `initialize` — a stateless transport has no session for a second exchange to attach to. State
   lives at module scope, which is what makes a rollback in one request visible to the next.
 - **State is in memory, not written back to `incidents.json`.** Restarting resets the story, which
-  is what you want when demonstrating it twice.
+  is what you want when demonstrating it twice. It is also why the `observability` store reads
+  `/health` rather than a file this desk writes: a file outlives the process and would have the
+  metrics still showing a recovery from a demo an hour ago.
+- **The clock ticks whole minutes from 14:20:00.** Which means every remediation lands exactly on
+  the metrics store's 60s scrape boundary, so a reading is never half of one world and half of
+  another. That store checks it rather than assuming it, and declines to publish anything past its
+  own last reading if it ever stops being true.
 - **A remediation must refuse what it cannot actually do.** `rollback_deploy` only accepts the
   deploy a service is currently running, and `restart_service` only accepts a service the desk
   knows. Both used to accept anything and report success — a false operator-facing record of

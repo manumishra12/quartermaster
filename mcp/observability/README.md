@@ -1,7 +1,7 @@
 # Observability
 
 A Grafana-shaped read-only metrics surface, so an investigation can end with a graph rather than
-with a quotation.
+with a quotation - and so the fix at the end of it can be checked against one.
 
 ## Why it exists
 
@@ -24,7 +24,14 @@ TrueForge's catalog ships no Grafana, Prometheus or Loki - the fourteen servers 
 npm run observability             # http://localhost:8798/mcp
 OBSERVABILITY_PORT=9100 npm run observability
 curl -s localhost:8798/health
+
+# Where it asks what has been done to the estate. Default is ops-desk's documented port.
+OPS_DESK_URL=http://localhost:9000 npm run observability
 ```
+
+It reads `ops-desk`'s `/health` route to find out whether anybody has rolled anything back - see
+[Verifying a fix](#verifying-a-fix). With no desk running it behaves exactly as it did before that
+existed: the store ends at 14:20, and every reply says in as many words that it could not ask.
 
 Register it with the harness once:
 
@@ -79,7 +86,7 @@ number an investigation can act on, arrived at honestly, and wrong.
 | Attempt | Answer |
 | --- | --- |
 | A window wider than the retained data | served for the overlap, `truncated: true`, with `missing_before` and `missing_after` as spans - a series that begins where the store does reads as a metric that was flat before then |
-| A window entirely outside the retention | `outside_retention`, and **no `points` field at all** - an empty list reads as a metric that was not moving |
+| A window entirely outside the retention | `outside_retention`, and **no `points` field at all** - an empty list reads as a metric that was not moving. `why_it_ends_here` names the reason this series stops where it does, and only one of the reasons is "nothing has happened" |
 | A window narrower than the scrape interval | `no_points_in_window` - the store was watching and there is no reading, which is not a service that went quiet |
 | A `step_s` smaller than the scrape interval | `bad_step` - it would interpolate points nobody measured, and the reply gives no way to tell those from readings |
 | A `step_s` that is not a multiple of it | `bad_step` - the same scrape lands in two buckets, so 141 readings answer with 142 points |
@@ -89,10 +96,13 @@ number an investigation can act on, arrived at honestly, and wrong.
 | A service this store has no series for | `unknown_service`, with `in_service_map` saying whether it is a real but uninstrumented node |
 | A metric and a service it keeps separately and not together | `no_series`, naming which services do carry that metric |
 | A comparison window with no readings in it | `refused: no_points_in_window`, and **no change is computed** |
-| A comparison window the store only half kept | `refused: window_not_fully_retained` - the mean of a window missing half its minutes is the mean of the half that was kept |
+| A comparison window the store only half kept | `refused: window_not_fully_retained` - the mean of a window missing half its minutes is the mean of the half that was kept. Where the missing half is the future rather than the past, `retained_part` names the window that would have answered |
+| A comparison window with a rollback inside it | `refused: window_straddles_remediation` - a summary across it is a summary of two different worlds and lands between them, which reads as a partial recovery that nothing partially recovered |
 | A service name off `Object.prototype` | `unknown_service` - `store.series["constructor"]` is truthy, and `ops-desk` shipped that mistake once already |
+| An `ops-desk` that cannot be reached, or answers something unusable | `world.reachable: false` with the reason, and the store ends where its fixture does. **Never reported as "nothing has been done"** |
+| An `ops-desk` whose `deployed` disagrees with replaying its own journal | no readings past 14:20, and the reply says both answers. Two servers disagreeing about which version is running is worse than one server |
 
-Two of those deserve their own note.
+Three of those deserve their own note.
 
 **Percentiles are never averaged.** The p99 of two minutes joined is not the mean of the two p99s -
 the underlying request latencies are gone by the time the store sees them. The mean of `[305, 1980]`
@@ -101,11 +111,141 @@ that averaged would turn this fixture's step change into a gentle slope. Percent
 downsampled by taking the **maximum** of each bucket, and every reply that does it says so and says
 it is an approximation.
 
-**`compare_windows` refuses rather than reporting `null`.** After a rollback the honest state of
-this store is that no reading exists yet - nothing here advances a clock, because reading a graph
-does not make time pass. A tool that answered `mean_ratio: null` and left it there would let
-"recovered" be written on the strength of a field nobody read. `ops-desk`'s `resolve_alert` refuses
-`no_readings` for the same reason; this is that discipline on the metric side.
+**`compare_windows` refuses rather than reporting `null`.** A tool that answered `mean_ratio: null`
+and left it there would let "recovered" be written on the strength of a field nobody read.
+`ops-desk`'s `resolve_alert` refuses `no_readings` for the same reason; this is that discipline on
+the metric side. The refusals come with the reason, and after a remediation the reason is the whole
+answer: `no_points_in_window` because the desk was unreachable is a different finding from
+`no_points_in_window` because the desk says nothing has been done.
+
+**"I could not ask" is never reported as "nothing has been done".** Both leave the store ending at
+14:20 and both produce the same empty chart, and only one of them is a fact about the service. Every
+reply that depends on the world carries a `world` block saying which it got, and the unreachable
+branch says so in a sentence rather than in a boolean.
+
+## Verifying a fix
+
+The last step of an investigation is "did the fix work", and it is the step a demo most wants to
+fake. It used to be unavailable here in both directions: this store ended at 14:20 whatever happened
+next, so an agent could only ever *predict* a recovery. That was honest and it was half a tool. A
+verify step that can never fail is not a verify step, and neither is one that can never succeed.
+
+### The coupling, and why it is this one
+
+**`ops-desk` owns the world; this store owns the arithmetic.** The world is what `checkout-api` is
+running and when it changed, and that desk already holds all of it: a clock that advances a minute
+per remediation, the deploy list a rollback mutates, and a journal of what was done in what order.
+This store asks it, on the plain `/health` route it already serves.
+
+Three things were possible and one of them is right:
+
+| | |
+| --- | --- |
+| Keep a second copy of the state here | Two copies of one fact drift, and the drift is invisible until somebody quotes both. That is the failure the seven-reading cross-check exists to stop; another thing to reconcile would be adding the problem back |
+| Have `ops-desk` write a state file this store reads | It puts writes into a directory nothing writes to today, and it outlives the process. `ops-desk` holds its state in memory on purpose - a second copy of the server does not share it, and neither should a demo restarted an hour later |
+| **Read `ops-desk`'s `/health` per call** - chosen | One owner, no writes anywhere, nothing to clean up, and it degrades to exactly today's behaviour when no desk is running |
+
+It is `/health` rather than a new tool because that route already carries `actions` from the same
+journal, so it is an extension of something rather than a new surface - and because a new tool is a
+new gate decision and a new line in every agent spec that names its tools one by one. `ops-desk`
+gained one function and no change to any tool's behaviour.
+
+**The reason is deliberately not on that route.** A remediation's `reason` is free text a model
+wrote, and this store puts what it reads there into replies an agent reads next. Passing model prose
+through one server into another server's output is the shape of every injection in this project's
+threat model, and nothing here needs the reason to work out what is deployed. `action`, `service`,
+`to` and `at` cross the boundary, each length-capped on arrival.
+
+### The arithmetic, which is the same one the incident is about
+
+`checkout-api` waits for `payment-gateway` up to the client timeout its deployed version sets. Both
+numbers are already published here:
+
+```
+gateway p99, measured        2388ms .. 2430ms      (141 readings, flat all window)
+4c21 client timeout           2000ms  <  2388ms    -> the call never finishes; p99 pins at the deadline
+9ab7 client timeout           5000ms  >  2430ms    -> the call always finishes; p99 is what it was
+```
+
+Neither verdict depends on which minute you pick, which is why the store is willing to state it. A
+budget landing *inside* the 2388-2430ms spread would have let some minutes finish and not others,
+and this store refuses to guess which - `verdictFor` has that third branch and it publishes no
+reading rather than picking.
+
+So the readings after 14:20 are **not a healthy series somebody typed in**. They are this store's
+own readings, replayed: the 119 pre-incident ones when the budget is wide enough, the 11 settled
+incident ones when it is not. A test asserts the post-rollback value is a number that appears in
+the pre-incident window, which is what stops a later edit quietly substituting a nicer one.
+
+### The published answers
+
+`ops-desk` ticks one minute per remediation, so a single rollback gives a single reading - and the
+reply says so rather than letting one scrape be quoted as a trend.
+
+**After `rollback_deploy 4c21`** (checkout-api returns to `9ab7`, the desk's clock reaches 14:21):
+
+| | |
+| --- | --- |
+| `latency_p99_ms` at 14:21 | **305ms** - the first reading of the pre-incident window, replayed |
+| `error_rate` at 14:21 | **0.004** |
+| `compare_windows`, baseline 13:30-13:57 vs 14:21 | max 312 -> 305, `max_delta -7`, **`max_ratio 0.9776`** |
+| `compare_windows`, baseline 14:00-14:20 vs 14:21 | max 2012 -> 305, **`max_delta -1707`**, `max_ratio 0.1516` |
+| `list_alert_rules` | `RULE-CHK-5XX` and `RULE-CHK-P99` both `still_breaching: false` |
+| `list_annotations` | a seventh annotation, `kind: remediation`, at 14:21, `deploy_id: 9ab7`, `source: ops-desk` |
+| retention | `checkout-api` `latency_p99_ms` and `error_rate` run to 14:21; every other series still stops at 14:20 |
+
+**After a remediation that fixes nothing** - `restart_service checkout-api`, or `rollback_deploy
+1de9`, which is a real destructive action on the wrong service:
+
+| | |
+| --- | --- |
+| `latency_p99_ms` at 14:21 | **2010ms** - the first settled incident reading, replayed |
+| `error_rate` at 14:21 | **0.117** |
+| `compare_windows`, baseline 13:30-13:57 vs 14:21 | **`max_ratio 6.4423`** - the regression is intact |
+| `compare_windows`, baseline 14:00-14:20 vs 14:21 | **`max_ratio 0.999`** - nothing moved |
+| `list_alert_rules` | both `still_breaching: true` |
+
+That second table is the important one. It is **computed, not refused**: the number showing that
+nothing improved is the number the verify step needs most, and a refusal would have hidden it.
+
+**A longer sequence**, six restarts and then the rollback, shows both halves on one chart:
+
+```
+14:21 14:22 14:23 14:24 14:25 14:26 | 14:27 14:28 14:29 14:30 14:31
+ 2010  1986  1980  2004  1989  2012 |   305   309   302   312   304
+                     restarts, 4c21 | rollback at 14:27, now on 9ab7
+```
+
+### What is refused, and what is deliberately not
+
+**A window with the change inside it.** `compare_windows` over 14:21 to 14:22 in the sequence above
+spans the rollback: it holds one reading from each world, its mean is a level nothing was ever at,
+and its max is whichever world was worse. Refused as `window_straddles_remediation`, with the
+remediation named.
+
+**A restart is not a straddle.** It changes what the instances are and does not change what this
+store's arithmetic says the series does, so the minutes either side of it are one world and the
+comparison is computed. Refusing there would deny the verify step its most useful number. The
+remediation still appears in `remediations_inside` on the window summary, because it did happen.
+
+**Only the two series the timeout decides are extended.** `requests_per_second` after a rollback is
+not something a client timeout determines - the campaign traffic is still arriving - so it still
+answers `outside_retention` past 14:20, and `why_it_ends_here` says which reason it is.
+Continuing that line would be exactly the invented series this arrangement exists to avoid.
+
+### The limit worth reporting rather than hiding
+
+**A recovery on the metrics does not unblock `resolve_alert`.** That desk reads its own coarse
+health series - five readings ten minutes apart, ending at 14:20 with the error rate at 11.7% - and
+a restart clears it entirely. So after a successful rollback it still answers `still_unhealthy`, or
+`no_readings` if a restart came first. Both refusals are correct: this store scrapes and has seen
+14:21; the desk's own series has not refreshed and cannot see it.
+
+The honest report is therefore three sentences rather than two: *rolled back 4c21 at 14:21; p99
+recovered to 305ms against a 306ms pre-incident baseline, observed on one reading; the alert is
+still open because the desk's own series ends at 14:20 and it will not resolve on evidence it
+cannot see.* An alert you cannot honestly resolve is a finding, which is what
+`incident-responder`'s instructions already say to do with one.
 
 ## The fixture, and the trap planted in it
 
@@ -180,6 +320,11 @@ The reply says so, every time it downsamples.
 | `search-api` | `error_rate` | flat ~0.001 |
 | `session-cache` | `hit_rate` | ~0.86, drops to ~0.71 at 13:20 |
 
+All nine stop at 14:20. The two in bold below carry on past it once `ops-desk` reports a
+remediation, and only those two: **`checkout-api` `latency_p99_ms`** and **`checkout-api`
+`error_rate`** are what a payment-gateway client timeout decides, and the other seven are not.
+See [Verifying a fix](#verifying-a-fix).
+
 ## How this agrees with ops-desk
 
 The two servers describe one estate, so they have to agree, and a test asserts it rather than a
@@ -204,41 +349,63 @@ paragraph claiming it.
 - **`reporting` has logs on `ops-desk` and no series on either.** A nightly export is not a service
   taking traffic. `get_service_map` lists it with `has_series: false` and `RULE-EXPORT` carries
   `metric: null`, because it watches a job's exit status.
+- **What is deployed is that desk's answer, not a second copy of it.** This store reads
+  `ops-desk`'s `/health` for the clock, the current deploy per service, and the journal, and works
+  out what its own series do from that. It is another point of agreement between the two servers
+  and the only one that is live rather than checked in - and where the desk's `deployed` disagrees
+  with replaying its own journal, this store publishes no reading and reports both answers rather
+  than choosing.
 
 ### Three places the two servers do not line up, on purpose
 
-- **The clocks diverge.** `ops-desk` advances its `now` by a minute per remediation, because the
-  order in which somebody did things to a production service is most of what a timeline is for.
-  This store has no clock at all: reading a graph does not make time pass. So after a rollback
-  `ops-desk` is at 14:21 and this store still ends at 14:20 with nothing after it.
-- **Which means this fixture cannot show a recovery, and that is deliberate.** The last step of an
-  investigation is the one a demo most wants to fake, so the fixture does not supply it.
-  `compare_windows` over a post-rollback window answers `no_points_in_window` with a sentence
-  saying the reading has not been taken yet. The honest report is "rolled back at 14:21; recovery
-  unverified, because the metric store has no reading after it" - and the agent can still say what
-  it *expects*, with a basis: `9ab7` restores a 5000ms budget, and the gateway's measured p99 is
-  2400ms, which is inside it. A prediction with a stated basis and a claim of fact are different
-  sentences, and this fixture makes only one of them available.
+- **This store still has no clock; it follows the other one's.** `ops-desk` advances its `now` by a
+  minute per remediation, because the order in which somebody did things to a production service is
+  most of what a timeline is for. Reading a graph here still does not make time pass: two identical
+  reads with nothing done between them return the same thing, which is what `idempotentHint` on all
+  eight tools has to mean. What can differ between two reads is the world, and only because somebody
+  used a gated tool on the other server in between - which is what a real Grafana does too.
+- **The coarse series is not extended, so a recovery here is not a recovery there.** `ops-desk`'s
+  `get_service_health` returns five readings ten minutes apart and stops at 14:20, and a restart
+  clears them. So after a successful rollback this store can show a recovery at 14:21 and that desk
+  will still refuse `resolve_alert` with `still_unhealthy` - correctly, because its own series has
+  not refreshed. Two servers with different resolutions disagreeing about *when* they can see
+  something is a fact about telemetry, not a defect, and the honest report names it.
 - **The retention is two hours and twenty minutes, and two annotations sit outside it.** `9ab7`
   shipped the previous day and `1de9` two days before. `list_annotations` returns them with
   `within_retention: false`, because the deploy a rollback returns the service to is exactly the one
-  worth knowing you cannot chart.
+  worth knowing you cannot chart. After a rollback the retention is also **per series**: two of the
+  nine run past the fixture's end and the other seven do not, so `list_metrics`, `query_range` and
+  the `/health` line all publish where the checked-in numbers stop beside where each series does.
 
 ## Notes for anyone extending it
 
 - **The value arrays are checked in, not generated.** A fixture whose contents move can only ever
   prove that a query ran, never that it returned the right thing. They are written one series per
   line so the shape is readable; 141 numbers in a column hide the trap the file exists to plant.
+  The post-rollback readings are checked in too, in the strongest sense available: they are the same
+  arrays, replayed. The `recovery` block chooses between them and adds no numbers of its own beyond
+  the two client timeouts, which are what the deploys already say in prose.
 - **A fresh server and transport per request.** Sharing one transport returns 500 on the first
   `initialize` - a stateless transport has no session for a second exchange to attach to.
-- **There is no `tick()` and no journal.** Both would make `idempotentHint` a lie, and it is
-  published on all eight tools.
+- **There is still no `tick()` and no journal.** Both would make `idempotentHint` a lie, and it is
+  published on all eight tools. Reading the desk's clock is not keeping one: nothing here advances
+  on its own, and two reads with nothing done between them are identical.
 - **If you soften the fixture, the tests go red.** Moving the deploy annotation off the step change,
   moving the traffic rise onto it, moving the cache drop to where the log line says it is, raising
   checkout's p99 above its dependency's, or changing one of the seven readings `ops-desk` also
-  publishes - each of those was tried, and each fails the suite. That is what stops a trap being
-  quietly softened until the investigation cannot be got wrong any more, at which point it proves
-  nothing.
+  publishes - each of those was tried, and each fails the suite. So does each of these, which are
+  the ways the verify step could be softened back into one that always passes:
+  replacing the replay with a hardcoded healthy series; keying the recovery off "was anything done"
+  rather than off what is deployed; letting a straddling window be summarised; extending every
+  series rather than the two the timeout decides; reporting an unreachable desk as a desk that has
+  done nothing; accepting a remediation that does not land on a scrape boundary; believing a desk
+  that contradicts its own journal; following a clock however far ahead it claims to be; widening
+  the settled replay span back into the error-rate ramp; widening the pre-incident span to include
+  the 1124ms transition minute; softening `9ab7`'s budget under the gateway's measured latency;
+  starting the replay from a version nothing is running; passing the rollback off as a `deploy`
+  annotation; and reading `still_breaching` against the fixture's end rather than the latest
+  reading. Fourteen mutations, fourteen red suites. That is what stops a trap being quietly softened
+  until the investigation cannot be got wrong any more, at which point it proves nothing.
 - **If you add a tool, give it annotations.** An unannotated tool is invisible to every selector the
   approval policy uses, and it will run ungated without anything warning you. `npm run tools:audit`
   prints what each connector actually publishes.
