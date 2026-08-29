@@ -135,8 +135,8 @@ that is not.
 `code-reviewer` reaches five named GitHub reads plus three gated comment and review tools. It cannot
 branch, write a file or open a pull request, because a reviewer that lands its own fix is not a
 reviewer. Handing its work to `quartermaster` is how it would land one anyway, and that handoff is
-refused with eight capabilities named. Of the 72 directed pairs between these nine agents, 10 widen
-nothing.
+refused with eight capabilities named. Of the 132 directed pairs between these twelve agents, 21
+widen nothing.
 
 There is a related hole this bounds rather than closes. An agent that quotes an issue body into its
 answer could quote a handoff block a stranger wrote, and the request would move because untrusted
