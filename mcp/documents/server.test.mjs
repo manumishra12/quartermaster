@@ -881,7 +881,7 @@ test('the server refuses to start rather than answering every call the same way'
 });
 
 test('a hard link to a file outside the root is refused, because the root cannot see through one', () =>
-  withServer(async ({ callTool, root }) => {
+  withServer(async ({ callTool }) => {
     /**
      * Confinement resolves symbolic links and checks where the path landed. A hard link has nothing
      * to resolve - the name inside the root is the file - so `realpath` returns the in-root path and
