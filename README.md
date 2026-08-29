@@ -653,6 +653,44 @@ originally configured with `enforce_admins: false`, so the repository owner coul
 straight to `main` while this file said nobody could. It was fixed by turning enforcement on rather
 than by weakening the claim.
 
+**The final review, on the branch that carries everything:
+[#28](https://github.com/manumishra12/quartermaster/pull/28)**
+
+Qodo ran it in deep mode and returned fifteen findings. The one worth reading is the first, because
+it went through the mechanism this whole project rests on: a tool answering `{"summary":"1 passed"}`
+beside a recognised runner substantiated a test claim with no test report anywhere in the recording.
+`resultOf` had already marked that result structured - assembled from a payload rather than printed
+by anything - and the commandless branch of `testRuns` refuses structured results for exactly that
+reason. The known-command branch had never been given the same line. Qodo also pointed out that a
+near-identical hole had been accepted in an earlier pull request here, which is the more useful half:
+the guard was written once and never carried across.
+
+Worth recording what happened next, since it is the same lesson twice. My first fix added the flag
+and I checked it against a hand-built response shaped `content: [{type:'text', text}]`, which the
+parser serialises and marks structured - so every genuine run came back unsubstantiated and the fix
+had deleted the verifier's entire green path. I reverted, read what the harness actually records,
+and found the real shape is a plain string marked structured only when it parses as JSON. The tests
+now assert that unittest, pytest, go test and mvn all still count, each with the output it really
+prints. A guard checked against a shape the system does not produce is not checked, which is exactly
+what the earlier `exitCode` finding in the same function had already taught.
+
+Two findings were dismissed with reasons rather than changed.
+
+**Safety rules remain duplicated.** The observation is fair - each spec restates its own procedure,
+and two stale paragraphs had to be corrected in one afternoon when settled facts moved underneath
+them. But the shared safety block Qodo asks for already exists and is enforced: `untrusted-input` is
+carried by every sandboxed agent and `scripts/lib/skills.mjs` fails the build if one drops it. What
+remains in each spec is that agent's own procedure, which is not the same rule written twice.
+
+**GitHub approvals lack durable artifacts.** Half of this is not so. `evidence/approvals.jsonl`
+records every decision, allowed and denied, with the route it arrived by - only the *checkpoint*
+stores refusals alone, and that is deliberate and is the safe direction: an approval that is not
+persisted cannot be replayed after a resume, so the run asks again. The half that is fair is that no
+approval is bound to the evidence that justified it. `scripts/lib/expiry.mjs` does exactly that and
+is deliberately not wired, because re-checking an approval at the moment it reaches the harness
+changes when a person is asked again, and that deserves its own commit rather than a line inside a
+release scramble. It is named here rather than left for a reader to discover.
+
 **Representative merged pull request:
 [#1 - Rebuild the interface on Tailwind with light and dark themes](https://github.com/manumishra12/quartermaster/pull/1)**
 
