@@ -208,6 +208,37 @@ test('every write form is refused, and the database is untouched', () =>
     assert.equal(rows.rows[0].c, 638);
   }));
 
+test('a pragma table-valued function is refused however the name is quoted', () =>
+  withServer(async ({ callTool }) => {
+    /**
+     * The first fix matched `pragma_` against the bare syntax, which blanks every quoted run - so
+     * `SELECT * FROM "pragma_database_list"` had the name blanked out of the text being checked,
+     * passed as an ordinary SELECT, and the raw statement then ran and returned the absolute path
+     * of the database file. SQLite dequotes an identifier before resolving it; the guard did not.
+     *
+     * Verified against a running server rather than reasoned about, which is how it was found: all
+     * four quoting styles walked straight through, and so did a CTE wrapping one.
+     */
+    for (const sql of [
+      'SELECT * FROM pragma_database_list',
+      'SELECT * FROM "pragma_database_list"',
+      'SELECT * FROM [pragma_database_list]',
+      'SELECT * FROM `pragma_database_list`',
+      'WITH x AS (SELECT * FROM [pragma_database_list]) SELECT * FROM x',
+      'SELECT * FROM pragma_function_list',
+    ]) {
+      const refused = await callTool('run_query', { sql });
+      assert.equal(refused.error, 'not_a_read', sql);
+    }
+
+    /**
+     * And not over-blocked. A single-quoted run is a string literal and never an identifier, so a
+     * query that merely mentions the name in prose is an ordinary read.
+     */
+    const mentioned = await callTool('run_query', { sql: "SELECT 'pragma_database_list' AS mentioned" });
+    assert.equal(mentioned.rows[0].mentioned, 'pragma_database_list');
+  }));
+
 test('VACUUM INTO is refused, and no copy of the database appears anywhere', () =>
   withServer(async ({ callTool }) => {
     /**

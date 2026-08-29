@@ -126,7 +126,7 @@ export function Mermaid({ code }: { code: string }) {
       role="region"
       aria-label="Diagram"
       className="qm-enter overflow-auto rounded-lg border border-line bg-surface p-3 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent [&_iframe]:w-full [&_iframe]:min-h-64 [&_iframe]:border-0 [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full"
-      // Mermaid's own output, rendered with securityLevel 'strict', which strips script and
+      // Mermaid's own output, rendered with securityLevel 'sandbox', which strips script and
       // event handlers. The alternative is not rendering diagrams at all.
       dangerouslySetInnerHTML={{ __html: svg }}
     />
