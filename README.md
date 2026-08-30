@@ -59,6 +59,15 @@ It exits non-zero on a bad verdict, so it works in CI.
 
 ---
 
+## The three minute demo
+
+<!-- TODO before submitting: replace the line below with the video link. -->
+**Demo video:** _not yet published._
+
+Three beats, all from the terminal - the sandbox running a real test, the approval gate refusing
+something irreversible, and a prompt injection reaching that gate and being stopped by it rather
+than by the model. `DEMO.md` is the shot script, with the exact commands and timings.
+
 ## Run it
 
 **Requires** Node 22.14+, Python 3 (for one fixture), and a model provider API key. Any provider
@@ -75,7 +84,12 @@ npx @truefoundry/trueforge      # http://localhost:8790
 In the TrueForge UI:
 
 - **Settings → Models** — paste an API key. For a local model, add a custom provider pointing at
-  `http://localhost:11434/v1`.
+  `http://localhost:11434/v1`. **Start Ollama with a context window big enough for the prompt:**
+  `OLLAMA_CONTEXT_LENGTH=32768 ollama serve`. The default is 4096. This agent's instructions plus
+  its tool schemas come to roughly 14,000 tokens, so on the default Ollama silently truncates the
+  tool definitions, the model never sees the tools it is meant to call, and every agent reports that
+  it reached nothing. `preflight` still says Ready, because the failure is downstream of everything
+  preflight can check. It is the most expensive thing to diagnose here, so it is written down.
 - **Settings → Sandbox providers** — a [Daytona](https://www.daytona.io) API key. There is a local
   fallback if you skip this, but it runs on your own machine rather than in real isolation.
 - **Settings → Skills** — import the fifteen packs in `skills/` from this repo. Each agent attaches
@@ -155,6 +169,45 @@ Both need to be running. The harness alone gives you TrueForge's chat; this one 
 to talk to.
 
 ---
+
+## When it says Ready and nothing works
+
+`preflight` checks configuration. These four failures all sit *downstream* of anything it can see,
+so it will say **Ready** while every agent reaches nothing. Each one cost real time to find.
+
+**Every agent reports it reached no tools.** Ollama is truncating the prompt. Its default context is
+4096 and the instructions plus tool schemas are around 14,000 tokens, so the tool definitions are cut
+off before the model ever sees them. Restart with `OLLAMA_CONTEXT_LENGTH=32768 ollama serve` and
+check the log is clean:
+
+```bash
+grep -c "truncating input prompt" ~/.ollama/logs/server.log   # want 0
+```
+
+**The sandbox provisions, then every command fails with `no such file or directory`.** Daytona is at
+its disk ceiling. Archived sandboxes still hold their disk, and `auto_delete_interval_in_minutes` is
+7200 - five days - so they accumulate. The container is created but the snapshot filesystem never
+materialises, which looks like an image without a shell:
+
+```
+fork/exec /usr/bin/bash: no such file or directory
+```
+
+Delete the archived sandboxes in the Daytona dashboard. There is no API for it, and writing the
+provider settings back is worse than useless: the key reads back redacted, so a `PUT` stamps
+`dtn-***REDACTED***` over the real credential.
+
+**The UI shows your prompt and never answers.** The run is fine; the UI's HTTP client is not waiting
+long enough. A small local model takes minutes per turn, and the browser gives up first with a
+headers timeout. The run still completes and the answer is written to
+`evidence/<session>/report.md`. Use the CLI for anything slow - and record demos from the terminal.
+
+**429 or 413 from a hosted provider.** Free tiers are the constraint, not the code. Gemini's quota is
+per *project*, so every model on one key shares it. Groq's tool-calling models cap at 8,000 tokens
+per minute, which this agent's prompt exceeds on its own; its higher-limit `compound` models answer
+`tool calling is not supported with this model`. And a reasoning model needs
+`"reasoning_format": "hidden"` in the spec's model params, or the harness replays a
+`reasoning_content` field the provider rejects on the next turn.
 
 ## The agent library
 
