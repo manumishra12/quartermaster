@@ -54,8 +54,14 @@ and no recorded tool call. It is our own agent, which is what makes it worth twe
 In the terminal:
 
 ```bash
-npm run agent -- --agent quartermaster-local "Clone the ledger fixture, run its tests, and tell me what happened."
+npm run agent -- --agent quartermaster-local "Clone https://github.com/manumishra12/ledger-fixture \
+into the sandbox, run its tests, show me the failure, then fix the root cause and re-run to prove it \
+passes. Do not edit the test."
 ```
+
+**Give it the clone URL, not "the ledger fixture".** The agent works inside a sandbox that cannot see
+your machine, so a bare name makes it stop and ask which repository - which is a dead thirty seconds
+on camera. `README.md` uses the full URL for the same reason.
 
 Let it reach the sandbox and run the suite. Then read the closing block aloud:
 
