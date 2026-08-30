@@ -88,9 +88,22 @@ export function rememberVerdict(ids: string[], verdict: Verdict | null) {
   announce();
 }
 
+/**
+ * One frozen object, not a fresh one per call.
+ *
+ * `useSyncExternalStore` compares snapshots by identity. A server snapshot written as
+ * `() => ({})` returns a new object every read, so React sees the store change on every render,
+ * re-renders, reads again, and never settles - "Maximum update depth exceeded. The result of
+ * getSnapshot should be cached." It is the same defect this project already fixed in
+ * `useThreadTitle`, reintroduced in the one argument nobody looks at because it only runs when
+ * there is no browser store to read.
+ */
+const EMPTY: Stored = Object.freeze({}) as Stored;
+const serverSnapshot = (): Stored => EMPTY;
+
 /** The verdict for this conversation, or null where none has been computed in this browser. */
 export function useThreadVerdict(ids: string[]): Verdict | null {
-  const stored = useSyncExternalStore(subscribe, current, () => ({}) as Stored);
+  const stored = useSyncExternalStore(subscribe, current, serverSnapshot);
   const find = useCallback(() => {
     for (const id of ids) {
       if (stored[id]) return stored[id];
